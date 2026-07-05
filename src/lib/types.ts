@@ -32,6 +32,23 @@ export interface SaleJSON {
   userId: string;
 }
 
+export interface RefundItemJSON {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+export interface RefundJSON {
+  _id: string;
+  saleId: string;
+  items: RefundItemJSON[];
+  totalAmount: number;
+  reason?: string;
+  timestamp: string;
+}
+
 export interface StaffJSON {
   _id: string;
   name: string;

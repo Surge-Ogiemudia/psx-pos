@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Sale from "@/models/Sale";
+import Refund from "@/models/Refund";
 import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 
@@ -63,10 +64,22 @@ export async function GET(request: NextRequest) {
       { totalAmount: 0, saleCount: 0 }
     );
 
+    const refundResults = await Refund.aggregate([
+      { $match: match },
+      { $group: { _id: null, refundAmount: { $sum: "$totalAmount" }, refundCount: { $sum: 1 } } },
+    ]);
+    const refundAmount = refundResults[0]?.refundAmount ?? 0;
+    const refundCount = refundResults[0]?.refundCount ?? 0;
+
     return NextResponse.json({
       from: from.toISOString(),
       to: to.toISOString(),
-      summary,
+      summary: {
+        ...summary,
+        refundAmount,
+        refundCount,
+        netAmount: summary.totalAmount - refundAmount,
+      },
       byDay: results.map((r) => ({ date: r._id, totalAmount: r.totalAmount, saleCount: r.saleCount })),
     });
   } catch (error) {

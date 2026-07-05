@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ProductCategory, ProductJSON } from "@/lib/types";
+import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expiry";
 
 const emptyForm = {
   name: "",
@@ -213,6 +214,22 @@ export default function ProductsClient({
         className="mb-4 w-full max-w-md rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
       />
 
+      {(() => {
+        const expired = products.filter((p) => getExpiryStatus(p.expiryDate).level === "expired");
+        const urgent = products.filter((p) => getExpiryStatus(p.expiryDate).level === "urgent");
+        const warning = products.filter((p) => getExpiryStatus(p.expiryDate).level === "warning");
+        if (expired.length === 0 && urgent.length === 0 && warning.length === 0) return null;
+        return (
+          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {expired.length > 0 && <span className="mr-3 font-semibold text-red-700">{expired.length} expired</span>}
+            {urgent.length > 0 && (
+              <span className="mr-3 font-semibold text-orange-700">{urgent.length} expiring within 30 days</span>
+            )}
+            {warning.length > 0 && <span>{warning.length} expiring within 90 days</span>}
+          </div>
+        );
+      })()}
+
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
       {isAdmin && showForm && (
@@ -335,9 +352,13 @@ export default function ProductsClient({
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2">Category</th>
               <th className="px-3 py-2">Stock</th>
-              <th className="px-3 py-2">Retail</th>
-              <th className="px-3 py-2">Wholesale</th>
-              <th className="px-3 py-2">Distributor</th>
+              <th className="px-3 py-2">{isAdmin ? "Retail" : "Selling price"}</th>
+              {isAdmin && (
+                <>
+                  <th className="px-3 py-2">Wholesale</th>
+                  <th className="px-3 py-2">Distributor</th>
+                </>
+              )}
               <th className="px-3 py-2">Batch</th>
               <th className="px-3 py-2">Expiry</th>
               {isAdmin && <th className="px-3 py-2">Actions</th>}
@@ -346,8 +367,12 @@ export default function ProductsClient({
           <tbody>
             {products.map((product) => {
               const editing = editingId === product._id;
+              const expiryStatus = getExpiryStatus(product.expiryDate);
               return (
-                <tr key={product._id} className="border-b border-zinc-100 last:border-0">
+                <tr
+                  key={product._id}
+                  className={`border-b border-zinc-100 last:border-0 ${EXPIRY_ROW_CLASS[expiryStatus.level]}`}
+                >
                   {editing ? (
                     <>
                       <td className="px-3 py-2">
@@ -439,11 +464,16 @@ export default function ProductsClient({
                       <td className="px-3 py-2 text-zinc-600">{product.category}</td>
                       <td className="px-3 py-2 text-zinc-600">{product.quantityInStock}</td>
                       <td className="px-3 py-2 text-zinc-600">₦{product.retailPrice.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-zinc-600">₦{product.wholesalePrice.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-zinc-600">₦{product.distributorPrice.toFixed(2)}</td>
+                      {isAdmin && (
+                        <>
+                          <td className="px-3 py-2 text-zinc-600">₦{product.wholesalePrice.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-zinc-600">₦{product.distributorPrice.toFixed(2)}</td>
+                        </>
+                      )}
                       <td className="px-3 py-2 text-zinc-600">{product.batchNumber || "—"}</td>
-                      <td className="px-3 py-2 text-zinc-600">
+                      <td className={`px-3 py-2 ${EXPIRY_TEXT_CLASS[expiryStatus.level]}`}>
                         {product.expiryDate ? product.expiryDate.slice(0, 10) : "—"}
+                        {expiryStatus.label && <div className="text-xs">{expiryStatus.label}</div>}
                       </td>
                       {isAdmin && (
                         <td className="flex gap-2 px-3 py-2">
@@ -465,7 +495,7 @@ export default function ProductsClient({
             })}
             {products.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-zinc-500">
+                <td colSpan={isAdmin ? 9 : 6} className="px-3 py-6 text-center text-zinc-500">
                   No products found.
                 </td>
               </tr>
