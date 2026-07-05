@@ -9,17 +9,36 @@ interface CartLine {
   quantity: number;
 }
 
+interface PaymentLine {
+  method: PaymentMethod;
+  amount: string;
+}
+
 const CATEGORY_LABEL: Record<ProductJSON["category"], string> = {
   supermarket: "Supermarket",
   medicine: "Medicine",
   "non-medicine": "Non-medicine",
 };
 
+const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  cash: "Cash",
+  card: "Card",
+  mobile_money: "Mobile money / bank transfer",
+};
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+const EPS = 0.005;
+
 export default function PosClient({ branchId }: { branchId: string | null }) {
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [payments, setPayments] = useState<PaymentLine[]>([{ method: "cash", amount: "" }]);
+  const [paymentsTouched, setPaymentsTouched] = useState(false);
+  const [changeFee, setChangeFee] = useState("0");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -76,8 +95,48 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
     [cart]
   );
 
+  // Fast path: keep the single payment line synced to the cart total until the staff
+  // actually edits it, so completing a normal single-method sale stays a one-click action.
+  useEffect(() => {
+    if (paymentsTouched || payments.length !== 1) return;
+    const timeout = setTimeout(() => {
+      setPayments([{ method: payments[0].method, amount: total > 0 ? total.toFixed(2) : "" }]);
+    }, 0);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [total]);
+
+  function addPaymentLine() {
+    setPaymentsTouched(true);
+    setPayments((prev) => [...prev, { method: "cash", amount: "" }]);
+  }
+
+  function removePaymentLine(index: number) {
+    setPaymentsTouched(true);
+    setPayments((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updatePaymentLine(index: number, changes: Partial<PaymentLine>) {
+    setPaymentsTouched(true);
+    setPayments((prev) => prev.map((p, i) => (i === index ? { ...p, ...changes } : p)));
+  }
+
+  const amountTendered = useMemo(
+    () => round2(payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0)),
+    [payments]
+  );
+  const changeDue = round2(Math.max(0, amountTendered - total));
+  const changeFeeValue = Number(changeFee) || 0;
+  const cashToHandBack = round2(Math.max(0, changeDue - changeFeeValue));
+
+  const canCompleteSale =
+    cart.length > 0 &&
+    payments.every((p) => Number(p.amount) > 0) &&
+    amountTendered >= total - EPS &&
+    changeFeeValue <= changeDue + EPS;
+
   async function completeSale() {
-    if (cart.length === 0) return;
+    if (!canCompleteSale) return;
     setSubmitting(true);
     setMessage(null);
 
@@ -86,7 +145,8 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         branchId,
-        paymentMethod,
+        payments: payments.map((p) => ({ method: p.method, amount: Number(p.amount) })),
+        changeFee: changeFeeValue,
         items: cart.map((line) => ({
           productId: line.product._id,
           quantity: line.quantity,
@@ -105,7 +165,9 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
 
     setMessage({ type: "success", text: `Sale completed: ₦${total.toFixed(2)}` });
     setCart([]);
-    setPaymentMethod("cash");
+    setPayments([{ method: "cash", amount: "" }]);
+    setPaymentsTouched(false);
+    setChangeFee("0");
     const refreshed = await fetch(`/api/products?${productParams()}`);
     if (refreshed.ok) setProducts((await refreshed.json()).products);
   }
@@ -205,21 +267,80 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
               </div>
 
               <div className="mt-3">
-                <label className="mb-1 block text-sm font-medium text-zinc-700">Payment method</label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                  className="w-full rounded border border-zinc-300 px-2 py-2 text-sm"
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Payment</label>
+                <div className="flex flex-col gap-2">
+                  {payments.map((line, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <select
+                        value={line.method}
+                        onChange={(e) => updatePaymentLine(i, { method: e.target.value as PaymentMethod })}
+                        className="rounded border border-zinc-300 px-2 py-2 text-sm"
+                      >
+                        {(Object.keys(PAYMENT_METHOD_LABEL) as PaymentMethod[]).map((m) => (
+                          <option key={m} value={m}>
+                            {PAYMENT_METHOD_LABEL[m]}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="Amount"
+                        value={line.amount}
+                        onChange={(e) => updatePaymentLine(i, { amount: e.target.value })}
+                        className="w-24 flex-1 rounded border border-zinc-300 px-2 py-2 text-sm"
+                      />
+                      {payments.length > 1 && (
+                        <button
+                          onClick={() => removePaymentLine(i)}
+                          className="text-xs text-red-600 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={addPaymentLine}
+                  className="mt-2 text-xs font-medium text-teal-700 hover:underline"
                 >
-                  <option value="cash">Cash</option>
-                  <option value="card">Card</option>
-                  <option value="mobile_money">Mobile money / bank transfer</option>
-                </select>
+                  + Split payment
+                </button>
+                {(payments.length > 1 || Math.abs(amountTendered - total) > EPS) && (
+                  <p className="mt-2 text-xs text-zinc-500">Amount tendered: ₦{amountTendered.toFixed(2)}</p>
+                )}
               </div>
+
+              {changeDue > 0.004 && (
+                <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-700">Change due</span>
+                    <span className="font-medium text-zinc-900">₦{changeDue.toFixed(2)}</span>
+                  </div>
+                  <div className="mt-2">
+                    <label className="mb-1 block text-xs font-medium text-zinc-700">
+                      Change fee (optional)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={changeDue}
+                      value={changeFee}
+                      onChange={(e) => setChangeFee(e.target.value)}
+                      className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between border-t border-zinc-200 pt-2">
+                    <span className="text-zinc-700">Cash to hand back</span>
+                    <span className="font-semibold text-zinc-900">₦{cashToHandBack.toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
 
               <button
                 onClick={completeSale}
-                disabled={submitting}
+                disabled={submitting || !canCompleteSale}
                 className="mt-4 w-full rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
               >
                 {submitting ? "Processing..." : "Complete sale"}
