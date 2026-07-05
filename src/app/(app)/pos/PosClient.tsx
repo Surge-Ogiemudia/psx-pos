@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { PaymentMethod, ProductJSON } from "@/lib/types";
+import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 
 interface CartLine {
   product: ProductJSON;
@@ -121,22 +122,34 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
           className="mb-4 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
         />
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {products.map((product) => (
-            <button
-              key={product._id}
-              onClick={() => addToCart(product)}
-              disabled={product.quantityInStock < 1}
-              className="flex flex-col rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-sm hover:border-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="font-medium text-zinc-900">{product.name}</span>
-              <span className="text-xs text-zinc-500">
-                {CATEGORY_LABEL[product.category]} · Stock: {product.quantityInStock}
-              </span>
-              <span className="mt-1 text-sm font-semibold text-teal-700">
-                ₦{product.retailPrice.toFixed(2)}
-              </span>
-            </button>
-          ))}
+          {products.map((product) => {
+            const expiryStatus = getExpiryStatus(product.expiryDate);
+            return (
+              <button
+                key={product._id}
+                onClick={() => addToCart(product)}
+                disabled={product.quantityInStock < 1}
+                className="flex flex-col rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-sm hover:border-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-zinc-900">{product.name}</span>
+                  {expiryStatus.label && (
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${EXPIRY_BADGE_CLASS[expiryStatus.level]}`}
+                    >
+                      {expiryStatus.label}
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-zinc-500">
+                  {CATEGORY_LABEL[product.category]} · Stock: {product.quantityInStock}
+                </span>
+                <span className="mt-1 text-sm font-semibold text-teal-700">
+                  ₦{product.retailPrice.toFixed(2)}
+                </span>
+              </button>
+            );
+          })}
           {products.length === 0 && (
             <p className="col-span-2 text-sm text-zinc-500">No products found.</p>
           )}
