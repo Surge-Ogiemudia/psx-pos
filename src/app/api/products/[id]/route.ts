@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
-import { requireAdminApiSession } from "@/lib/session";
+import { requireAdminApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 
 export async function PATCH(
@@ -32,8 +32,9 @@ export async function PATCH(
       }
     }
 
+    const scope = getBranchScope(session, body.branchId);
     const product = await Product.findOneAndUpdate(
-      { _id: id, pharmacyId: session.user.pharmacyId, branchId: session.user.branchId },
+      { _id: id, ...scope },
       { $set: update },
       { new: true, runValidators: true }
     );
@@ -49,7 +50,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   ctx: RouteContext<"/api/products/[id]">
 ) {
   try {
@@ -57,11 +58,8 @@ export async function DELETE(
     await dbConnect();
     const { id } = await ctx.params;
 
-    const result = await Product.deleteOne({
-      _id: id,
-      pharmacyId: session.user.pharmacyId,
-      branchId: session.user.branchId,
-    });
+    const scope = getBranchScope(session, request.nextUrl.searchParams.get("branchId"));
+    const result = await Product.deleteOne({ _id: id, ...scope });
 
     if (result.deletedCount === 0) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });

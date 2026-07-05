@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import Sale from "@/models/Sale";
-import { requireApiSession } from "@/lib/session";
+import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 
 const PRICE_FIELD: Record<string, "retailPrice" | "wholesalePrice" | "distributorPrice"> = {
@@ -11,6 +11,12 @@ const PRICE_FIELD: Record<string, "retailPrice" | "wholesalePrice" | "distributo
   wholesale: "wholesalePrice",
   distributor: "distributorPrice",
 };
+
+function endOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
 
 interface SaleItemInput {
   productId: string;
@@ -26,17 +32,17 @@ export async function GET(request: NextRequest) {
     const from = request.nextUrl.searchParams.get("from");
     const to = request.nextUrl.searchParams.get("to");
 
-    const query: Record<string, unknown> = {
-      pharmacyId: session.user.pharmacyId,
-      branchId: session.user.branchId,
-    };
+    const query: Record<string, unknown> = getBranchScope(
+      session,
+      request.nextUrl.searchParams.get("branchId")
+    );
     if (session.user.role === "staff") {
       query.userId = session.user.id;
     }
     if (from || to) {
       const timestamp: Record<string, Date> = {};
       if (from) timestamp.$gte = new Date(from);
-      if (to) timestamp.$lte = new Date(to);
+      if (to) timestamp.$lte = endOfDay(new Date(to));
       query.timestamp = timestamp;
     }
 
@@ -71,6 +77,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const scope = getBranchScope(session, body.branchId);
     const dbSession = await mongoose.startSession();
     try {
       let saleDoc;
@@ -84,8 +91,7 @@ export async function POST(request: NextRequest) {
           const product = await Product.findOneAndUpdate(
             {
               _id: item.productId,
-              pharmacyId: session.user.pharmacyId,
-              branchId: session.user.branchId,
+              ...scope,
               quantityInStock: { $gte: item.quantity },
             },
             { $inc: { quantityInStock: -item.quantity } },
@@ -113,8 +119,7 @@ export async function POST(request: NextRequest) {
         const created = await Sale.create(
           [
             {
-              pharmacyId: session.user.pharmacyId,
-              branchId: session.user.branchId,
+              ...scope,
               userId: session.user.id,
               items: saleItems,
               totalAmount,

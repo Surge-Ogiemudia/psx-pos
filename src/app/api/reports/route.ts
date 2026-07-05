@@ -28,14 +28,22 @@ export async function GET(request: NextRequest) {
     const from = fromParam ? startOfDay(new Date(fromParam)) : startOfDay(now);
     const to = toParam ? endOfDay(new Date(toParam)) : endOfDay(now);
 
+    const requestedBranchId = request.nextUrl.searchParams.get("branchId");
+    const match: Record<string, unknown> = {
+      pharmacyId: new mongoose.Types.ObjectId(session.user.pharmacyId),
+      timestamp: { $gte: from, $lte: to },
+    };
+    if (session.user.role === "admin") {
+      // Admin is pharmacy-wide: a specific branch narrows the report, omitting it aggregates everything.
+      if (requestedBranchId) match.branchId = new mongoose.Types.ObjectId(requestedBranchId);
+    } else if (session.user.branchId) {
+      match.branchId = new mongoose.Types.ObjectId(session.user.branchId);
+    } else {
+      return NextResponse.json({ error: "No branch access" }, { status: 403 });
+    }
+
     const results = await Sale.aggregate([
-      {
-        $match: {
-          pharmacyId: new mongoose.Types.ObjectId(session.user.pharmacyId),
-          branchId: new mongoose.Types.ObjectId(session.user.branchId),
-          timestamp: { $gte: from, $lte: to },
-        },
-      },
+      { $match: match },
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$timestamp" } },

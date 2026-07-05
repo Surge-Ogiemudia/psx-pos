@@ -1,12 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { StaffJSON } from "@/lib/types";
+import type { StaffJSON, StoreJSON } from "@/lib/types";
 
-const emptyForm = { name: "", role: "staff" as "admin" | "staff", phoneNumber: "", password: "" };
+type Role = "admin" | "staff" | "store_manager" | "store_keeper";
 
-export default function StaffClient() {
+const ROLE_LABEL: Record<Role, string> = {
+  staff: "Staff",
+  admin: "Admin",
+  store_manager: "Store Manager",
+  store_keeper: "Store Keeper",
+};
+
+const emptyForm = { name: "", role: "staff" as Role, phoneNumber: "", password: "", storeId: "" };
+
+export default function StaffClient({ branchId }: { branchId: string | null }) {
   const [staff, setStaff] = useState<StaffJSON[]>([]);
+  const [stores, setStores] = useState<StoreJSON[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +27,12 @@ export default function StaffClient() {
   }
 
   useEffect(() => {
-    const timeout = setTimeout(loadStaff, 0);
+    const timeout = setTimeout(() => {
+      loadStaff();
+      fetch("/api/stores")
+        .then((res) => (res.ok ? res.json() : { stores: [] }))
+        .then((data) => setStores(data.stores || []));
+    }, 0);
     return () => clearTimeout(timeout);
   }, []);
 
@@ -26,7 +41,7 @@ export default function StaffClient() {
     const res = await fetch("/api/staff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      body: JSON.stringify({ ...form, branchId }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -97,11 +112,13 @@ export default function StaffClient() {
           />
           <select
             value={form.role}
-            onChange={(e) => setForm({ ...form, role: e.target.value as "admin" | "staff" })}
+            onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           >
-            <option value="staff">Staff</option>
+            <option value="staff">Staff (retail branch)</option>
             <option value="admin">Admin</option>
+            <option value="store_manager">Store Manager (all bulk stores)</option>
+            <option value="store_keeper">Store Keeper (one bulk store)</option>
           </select>
           <input
             type="password"
@@ -110,6 +127,20 @@ export default function StaffClient() {
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
+          {form.role === "store_keeper" && (
+            <select
+              value={form.storeId}
+              onChange={(e) => setForm({ ...form, storeId: e.target.value })}
+              className="col-span-2 rounded border border-zinc-300 px-2 py-1.5 text-sm sm:col-span-4"
+            >
+              <option value="">Select a store...</option>
+              {stores.map((store) => (
+                <option key={store._id} value={store._id}>
+                  {store.storeName}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             onClick={createStaff}
             className="col-span-2 rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 sm:col-span-4"
@@ -135,14 +166,18 @@ export default function StaffClient() {
                 <td className="px-3 py-2 font-medium text-zinc-900">{member.name}</td>
                 <td className="px-3 py-2 text-zinc-600">{member.phoneNumber}</td>
                 <td className="px-3 py-2">
-                  <select
-                    value={member.role}
-                    onChange={(e) => updateRole(member._id, e.target.value as "admin" | "staff")}
-                    className="rounded border border-zinc-300 px-2 py-1 text-sm"
-                  >
-                    <option value="staff">Staff</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  {member.role === "admin" || member.role === "staff" ? (
+                    <select
+                      value={member.role}
+                      onChange={(e) => updateRole(member._id, e.target.value as "admin" | "staff")}
+                      className="rounded border border-zinc-300 px-2 py-1 text-sm"
+                    >
+                      <option value="staff">Staff</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  ) : (
+                    <span className="text-zinc-700">{ROLE_LABEL[member.role]}</span>
+                  )}
                 </td>
                 <td className="flex gap-3 px-3 py-2">
                   <button onClick={() => resetPassword(member._id)} className="text-teal-700 hover:underline">

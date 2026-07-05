@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
-import { requireAdminApiSession, requireApiSession } from "@/lib/session";
+import { requireAdminApiSession, requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 
 export async function GET(request: NextRequest) {
@@ -10,10 +10,10 @@ export async function GET(request: NextRequest) {
     await dbConnect();
 
     const search = request.nextUrl.searchParams.get("search")?.trim();
-    const query: Record<string, unknown> = {
-      pharmacyId: session.user.pharmacyId,
-      branchId: session.user.branchId,
-    };
+    const query: Record<string, unknown> = getBranchScope(
+      session,
+      request.nextUrl.searchParams.get("branchId")
+    );
     if (search) {
       query.name = { $regex: search, $options: "i" };
     }
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const {
+      branchId,
       name,
       category,
       quantityInStock,
@@ -42,22 +43,27 @@ export async function POST(request: NextRequest) {
       expiryDate,
     } = body;
 
-    if (!name || !category || retailPrice == null || wholesalePrice == null || distributorPrice == null) {
+    const missing = (v: unknown) => v === undefined || v === null || v === "";
+    // Only the selling (retail) price is required — wholesale/distributor tiers are an
+    // optional refinement for pharmacies that want them, defaulting to the retail price
+    // so a quick stock-take (item, qty, selling price) doesn't need all three typed in.
+    if (!name || !category || missing(retailPrice)) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
-    if (!["medicine", "non-medicine"].includes(category)) {
+    if (!["medicine", "non-medicine", "supermarket"].includes(category)) {
       return NextResponse.json({ error: "Invalid category" }, { status: 400 });
     }
 
+    const retail = Number(retailPrice);
+    const scope = getBranchScope(session, branchId);
     const product = await Product.create({
-      pharmacyId: session.user.pharmacyId,
-      branchId: session.user.branchId,
+      ...scope,
       name,
       category,
-      quantityInStock: Number(quantityInStock) || 0,
-      retailPrice: Number(retailPrice),
-      wholesalePrice: Number(wholesalePrice),
-      distributorPrice: Number(distributorPrice),
+      quantityInStock: missing(quantityInStock) ? 0 : Number(quantityInStock),
+      retailPrice: retail,
+      wholesalePrice: missing(wholesalePrice) ? retail : Number(wholesalePrice),
+      distributorPrice: missing(distributorPrice) ? retail : Number(distributorPrice),
       batchNumber: batchNumber || "",
       expiryDate: expiryDate ? new Date(expiryDate) : null,
     });

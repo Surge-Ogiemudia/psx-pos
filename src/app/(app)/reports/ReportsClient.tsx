@@ -12,7 +12,7 @@ interface ReportData {
   byDay: { date: string; totalAmount: number; saleCount: number }[];
 }
 
-export default function ReportsClient() {
+export default function ReportsClient({ branchId }: { branchId: string | null }) {
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
   const [report, setReport] = useState<ReportData | null>(null);
@@ -21,6 +21,7 @@ export default function ReportsClient() {
   useEffect(() => {
     async function load() {
       const params = new URLSearchParams({ from, to });
+      if (branchId) params.set("branchId", branchId);
       const [reportRes, salesRes] = await Promise.all([
         fetch(`/api/reports?${params}`),
         fetch(`/api/sales?${params}`),
@@ -29,7 +30,7 @@ export default function ReportsClient() {
       if (salesRes.ok) setSales((await salesRes.json()).sales);
     }
     load();
-  }, [from, to]);
+  }, [from, to, branchId]);
 
   return (
     <div>
@@ -70,7 +71,7 @@ export default function ReportsClient() {
         <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-2">
           <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
             <p className="text-sm text-zinc-500">Total sales</p>
-            <p className="text-2xl font-bold text-zinc-900">${report.summary.totalAmount.toFixed(2)}</p>
+            <p className="text-2xl font-bold text-zinc-900">₦{report.summary.totalAmount.toFixed(2)}</p>
           </div>
           <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
             <p className="text-sm text-zinc-500">Transactions</p>
@@ -94,7 +95,7 @@ export default function ReportsClient() {
                 <tr key={day.date} className="border-b border-zinc-100 last:border-0">
                   <td className="px-3 py-2">{day.date}</td>
                   <td className="px-3 py-2">{day.saleCount}</td>
-                  <td className="px-3 py-2">${day.totalAmount.toFixed(2)}</td>
+                  <td className="px-3 py-2">₦{day.totalAmount.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -121,7 +122,7 @@ export default function ReportsClient() {
                   {sale.items.map((i) => `${i.productName} ×${i.quantity}`).join(", ")}
                 </td>
                 <td className="px-3 py-2 text-zinc-600">{sale.paymentMethod.replace("_", " ")}</td>
-                <td className="px-3 py-2 font-medium text-zinc-900">${sale.totalAmount.toFixed(2)}</td>
+                <td className="px-3 py-2 font-medium text-zinc-900">₦{sale.totalAmount.toFixed(2)}</td>
               </tr>
             ))}
             {sales.length === 0 && (
