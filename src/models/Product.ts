@@ -5,7 +5,7 @@ const ProductSchema = new Schema(
     pharmacyId: { type: Schema.Types.ObjectId, ref: "Pharmacy", required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true, index: true },
     name: { type: String, required: true, trim: true },
-    category: { type: String, enum: ["medicine", "non-medicine"], required: true },
+    category: { type: String, enum: ["medicine", "non-medicine", "supermarket"], required: true, default: "supermarket" },
     quantityInStock: { type: Number, required: true, default: 0, min: 0 },
     retailPrice: { type: Number, required: true, min: 0 },
     wholesalePrice: { type: Number, required: true, min: 0 },

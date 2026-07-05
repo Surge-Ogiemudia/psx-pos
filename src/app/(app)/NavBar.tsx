@@ -1,30 +1,52 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
+import type { UserRole } from "@/types/next-auth";
+import type { BranchOption } from "@/lib/branchScope";
 
-const LINKS = [
+const RETAIL_LINKS = [
   { href: "/pos", label: "Point of Sale" },
   { href: "/products", label: "Catalog" },
   { href: "/reports", label: "Reports" },
 ];
 
-const ADMIN_LINKS = [{ href: "/staff", label: "Staff" }];
+const ADMIN_LINKS = [
+  { href: "/staff", label: "Staff" },
+  { href: "/branches", label: "Branches" },
+];
+const STORE_LINKS = [{ href: "/store", label: "Bulk Store" }];
+const ADMIN_STORE_LINKS = [{ href: "/stores", label: "Stores" }];
 
 export default function NavBar({
   pharmacyName,
   logoUrl,
   userName,
   userRole,
+  branches,
+  activeBranchId,
 }: {
   pharmacyName: string;
   logoUrl: string;
   userName: string;
-  userRole: "admin" | "staff";
+  userRole: UserRole;
+  branches: BranchOption[];
+  activeBranchId: string | null;
 }) {
   const pathname = usePathname();
-  const links = userRole === "admin" ? [...LINKS, ...ADMIN_LINKS] : LINKS;
+  const router = useRouter();
+  const links = [
+    ...(userRole === "admin" || userRole === "staff" ? RETAIL_LINKS : []),
+    ...(userRole === "admin" ? ADMIN_LINKS : []),
+    ...(userRole === "admin" || userRole === "store_manager" || userRole === "store_keeper" ? STORE_LINKS : []),
+    ...(userRole === "admin" ? ADMIN_STORE_LINKS : []),
+  ];
+
+  function switchBranch(branchId: string) {
+    document.cookie = `activeBranchId=${branchId}; path=/; max-age=31536000`;
+    router.refresh();
+  }
 
   return (
     <header className="border-b border-zinc-200 bg-white">
@@ -63,6 +85,20 @@ export default function NavBar({
         </nav>
 
         <div className="flex items-center gap-3">
+          {userRole === "admin" && branches.length > 0 && (
+            <select
+              value={activeBranchId ?? ""}
+              onChange={(e) => switchBranch(e.target.value)}
+              className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              title="Branch you're currently managing"
+            >
+              {branches.map((branch) => (
+                <option key={branch._id} value={branch._id}>
+                  {branch.branchName}
+                </option>
+              ))}
+            </select>
+          )}
           <span className="text-sm text-zinc-500">
             {userName} <span className="text-zinc-400">({userRole})</span>
           </span>

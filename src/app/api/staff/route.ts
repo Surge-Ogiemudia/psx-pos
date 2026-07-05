@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { dbConnect } from "@/lib/mongodb";
 import User from "@/models/User";
-import { requireAdminApiSession } from "@/lib/session";
+import { requireAdminApiSession, getBranchScope, getStoreScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 
 export async function GET() {
@@ -10,8 +10,9 @@ export async function GET() {
     const session = await requireAdminApiSession();
     await dbConnect();
 
+    // Admin is pharmacy-wide: see the whole staff roster, not just one branch.
     const staff = await User.find(
-      { pharmacyId: session.user.pharmacyId, branchId: session.user.branchId },
+      { pharmacyId: session.user.pharmacyId },
       { passwordHash: 0, failedLoginAttempts: 0, lockedUntil: 0 }
     )
       .sort({ name: 1 })
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     if (!name || !phoneNumber || !password) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
-    if (!["admin", "staff"].includes(role)) {
+    if (!["admin", "staff", "store_manager", "store_keeper"].includes(role)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
     if (String(password).length < 8) {
@@ -46,10 +47,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Phone number already in use" }, { status: 409 });
     }
 
+    let scope: Record<string, unknown>;
+    if (role === "admin" || role === "store_manager") {
+      scope = { pharmacyId: session.user.pharmacyId };
+    } else if (role === "staff") {
+      scope = getBranchScope(session, body.branchId);
+    } else {
+      scope = getStoreScope(session, body.storeId);
+    }
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await User.create({
-      pharmacyId: session.user.pharmacyId,
-      branchId: session.user.branchId,
+      ...scope,
       name,
       role,
       phoneNumber,

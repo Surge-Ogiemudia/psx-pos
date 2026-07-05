@@ -62,7 +62,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           id: user._id.toString(),
           name: user.name,
           pharmacyId: user.pharmacyId.toString(),
-          branchId: user.branchId.toString(),
+          branchId: user.branchId ? user.branchId.toString() : null,
+          storeId: user.storeId ? user.storeId.toString() : null,
           role: user.role,
         };
       },
@@ -74,6 +75,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.userId = user.id;
         token.pharmacyId = user.pharmacyId;
         token.branchId = user.branchId;
+        token.storeId = user.storeId;
         token.role = user.role;
         token.name = user.name;
       }
@@ -82,8 +84,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       session.user.id = token.userId as string;
       session.user.pharmacyId = token.pharmacyId as string;
-      session.user.branchId = token.branchId as string;
-      session.user.role = token.role as "admin" | "staff";
+      session.user.branchId = (token.branchId as string | null) ?? null;
+      session.user.storeId = (token.storeId as string | null) ?? null;
+      session.user.role = token.role as "admin" | "staff" | "store_manager" | "store_keeper";
       session.user.name = token.name as string;
       return session;
     },

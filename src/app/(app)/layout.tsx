@@ -1,4 +1,5 @@
 import { requirePageSession } from "@/lib/session";
+import { resolveActiveBranch } from "@/lib/branchScope";
 import { dbConnect } from "@/lib/mongodb";
 import Pharmacy from "@/models/Pharmacy";
 import NavBar from "./NavBar";
@@ -8,6 +9,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   await dbConnect();
   const pharmacy = await Pharmacy.findById(session.user.pharmacyId).lean();
+  const { activeBranchId, branches } = await resolveActiveBranch(session);
 
   const brandColor = pharmacy?.brandColor || "#0f766e";
   const pharmacyName = pharmacy?.pharmacyName || "Pharmacy";
@@ -20,6 +22,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         logoUrl={logoUrl}
         userName={session.user.name ?? ""}
         userRole={session.user.role}
+        branches={branches}
+        activeBranchId={activeBranchId}
       />
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">{children}</main>
     </div>

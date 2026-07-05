@@ -33,7 +33,7 @@ export async function PATCH(
     }
 
     const user = await User.findOneAndUpdate(
-      { _id: id, pharmacyId: session.user.pharmacyId, branchId: session.user.branchId },
+      { _id: id, pharmacyId: session.user.pharmacyId },
       { $set: update },
       {
         new: true,
@@ -65,11 +65,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Cannot delete your own account" }, { status: 400 });
     }
 
-    const result = await User.deleteOne({
-      _id: id,
-      pharmacyId: session.user.pharmacyId,
-      branchId: session.user.branchId,
-    });
+    const result = await User.deleteOne({ _id: id, pharmacyId: session.user.pharmacyId });
 
     if (result.deletedCount === 0) {
       return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
