@@ -12,10 +12,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "PharmaStackX POS",
-  description: "White-label pharmacy point-of-sale system",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: process.env.LOGIN_BRAND_NAME || "PharmaStackX POS",
+    description: "White-label pharmacy point-of-sale system",
+  };
+}
 
 export default function RootLayout({
   children,
