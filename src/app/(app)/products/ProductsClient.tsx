@@ -233,12 +233,12 @@ export default function ProductsClient({
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
       {isAdmin && showForm && (
-        <div className="mb-6 grid grid-cols-2 gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
           <input
             placeholder="Name"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="col-span-2 rounded border border-zinc-300 px-2 py-1.5 text-sm sm:col-span-1"
+            className="rounded border border-zinc-300 px-2 py-1.5 text-sm sm:col-span-2 lg:col-span-1"
           />
           <select
             value={form.category}
@@ -292,7 +292,7 @@ export default function ProductsClient({
           />
           <button
             onClick={createProduct}
-            className="col-span-2 rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 sm:col-span-4"
+            className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 sm:col-span-2 lg:col-span-4"
           >
             Save product
           </button>
