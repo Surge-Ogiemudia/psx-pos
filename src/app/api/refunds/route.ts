@@ -12,6 +12,8 @@ interface RefundItemInput {
   quantity: number;
 }
 
+const PAYMENT_METHODS = ["cash", "card", "mobile_money"] as const;
+
 function endOfDay(date: Date): Date {
   const d = new Date(date);
   d.setHours(23, 59, 59, 999);
@@ -37,7 +39,9 @@ export async function GET(request: NextRequest) {
     }
 
     const refunds = await Refund.find(query).sort({ timestamp: -1 }).limit(200).lean();
-    return NextResponse.json({ refunds });
+    return NextResponse.json({
+      refunds: refunds.map((r) => (r.method ? r : { ...r, method: "cash" })),
+    });
   } catch (error) {
     return handleApiError(error);
   }
@@ -52,10 +56,14 @@ export async function POST(request: NextRequest) {
     const saleId = typeof body.saleId === "string" ? body.saleId : "";
     const items: RefundItemInput[] = Array.isArray(body.items) ? body.items : [];
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    const method = typeof body.method === "string" ? body.method : "";
 
     if (!saleId) return NextResponse.json({ error: "saleId is required" }, { status: 400 });
     if (items.length === 0) {
       return NextResponse.json({ error: "Select at least one item to refund" }, { status: 400 });
+    }
+    if (!PAYMENT_METHODS.includes(method as (typeof PAYMENT_METHODS)[number])) {
+      return NextResponse.json({ error: "Invalid refund method" }, { status: 400 });
     }
     for (const item of items) {
       if (!item.productId || !Number.isInteger(item.quantity) || item.quantity < 1) {
@@ -123,6 +131,7 @@ export async function POST(request: NextRequest) {
               saleId,
               items: refundItems,
               totalAmount,
+              method,
               reason,
               processedByUserId: session.user.id,
               timestamp: new Date(),

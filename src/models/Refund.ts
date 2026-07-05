@@ -18,6 +18,7 @@ const RefundSchema = new Schema(
     saleId: { type: Schema.Types.ObjectId, ref: "Sale", required: true, index: true },
     items: { type: [RefundItemSchema], required: true, validate: (v: unknown[]) => v.length > 0 },
     totalAmount: { type: Number, required: true, min: 0 },
+    method: { type: String, enum: ["cash", "card", "mobile_money"], required: true },
     reason: { type: String, default: "" },
     processedByUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     timestamp: { type: Date, required: true, default: Date.now },

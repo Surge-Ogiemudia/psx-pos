@@ -23,11 +23,20 @@ export interface SaleItemJSON {
   lineTotal: number;
 }
 
+export interface PaymentLineJSON {
+  method: PaymentMethod;
+  amount: number;
+}
+
 export interface SaleJSON {
   _id: string;
   items: SaleItemJSON[];
   totalAmount: number;
-  paymentMethod: PaymentMethod;
+  payments: PaymentLineJSON[];
+  amountTendered: number;
+  changeGiven: number;
+  changeMethod: PaymentMethod;
+  changeFee: number;
   timestamp: string;
   userId: string;
 }
@@ -45,6 +54,7 @@ export interface RefundJSON {
   saleId: string;
   items: RefundItemJSON[];
   totalAmount: number;
+  method: PaymentMethod;
   reason?: string;
   timestamp: string;
 }

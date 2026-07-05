@@ -3,8 +3,11 @@ import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Sale from "@/models/Sale";
 import Refund from "@/models/Refund";
+import User from "@/models/User";
 import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+
+const PAYMENT_METHODS = ["cash", "card", "mobile_money"] as const;
 
 function startOfDay(date: Date): Date {
   const d = new Date(date);
@@ -71,6 +74,65 @@ export async function GET(request: NextRequest) {
     const refundAmount = refundResults[0]?.refundAmount ?? 0;
     const refundCount = refundResults[0]?.refundCount ?? 0;
 
+    // Sales broken down by payment method. Legacy docs (pre-split-payments) have no `payments`
+    // array — synthesize one from the old paymentMethod/totalAmount so this works correctly
+    // whether or not the migration script has been run yet.
+    const paymentTotals = await Sale.aggregate([
+      { $match: match },
+      {
+        $addFields: {
+          _payments: {
+            $cond: [
+              { $gt: [{ $size: { $ifNull: ["$payments", []] } }, 0] },
+              "$payments",
+              [{ method: { $ifNull: ["$paymentMethod", "cash"] }, amount: "$totalAmount" }],
+            ],
+          },
+        },
+      },
+      { $unwind: "$_payments" },
+      { $group: { _id: "$_payments.method", amount: { $sum: "$_payments.amount" } } },
+    ]);
+
+    const changeByMethod = await Sale.aggregate([
+      { $match: { ...match, changeGiven: { $gt: 0 } } },
+      { $group: { _id: { $ifNull: ["$changeMethod", "cash"] }, amount: { $sum: "$changeGiven" } } },
+    ]);
+
+    const feeResult = await Sale.aggregate([
+      { $match: match },
+      { $group: { _id: null, feeIncome: { $sum: { $ifNull: ["$changeFee", 0] } } } },
+    ]);
+    const feeIncome = feeResult[0]?.feeIncome ?? 0;
+
+    const refundByMethod = await Refund.aggregate([
+      { $match: match },
+      { $group: { _id: { $ifNull: ["$method", "cash"] }, amount: { $sum: "$totalAmount" } } },
+    ]);
+
+    const byMethod = PAYMENT_METHODS.map((method) => {
+      const salesIn = paymentTotals.find((p) => p._id === method)?.amount ?? 0;
+      const refundsOut = refundByMethod.find((r) => r._id === method)?.amount ?? 0;
+      const changeOut = changeByMethod.find((c) => c._id === method)?.amount ?? 0;
+      return { method, salesIn, refundsOut, changeOut, netCash: salesIn - refundsOut - changeOut };
+    });
+
+    const byStaffRaw = await Sale.aggregate([
+      { $match: match },
+      { $group: { _id: "$userId", totalAmount: { $sum: "$totalAmount" }, saleCount: { $sum: 1 } } },
+      { $sort: { totalAmount: -1 } },
+    ]);
+    const staffDocs = await User.find({ _id: { $in: byStaffRaw.map((s) => s._id) } })
+      .select("name")
+      .lean();
+    const staffNameById = new Map(staffDocs.map((u) => [u._id.toString(), u.name]));
+    const byStaff = byStaffRaw.map((s) => ({
+      userId: s._id.toString(),
+      userName: staffNameById.get(s._id.toString()) ?? "Unknown",
+      totalAmount: s.totalAmount,
+      saleCount: s.saleCount,
+    }));
+
     return NextResponse.json({
       from: from.toISOString(),
       to: to.toISOString(),
@@ -81,6 +143,9 @@ export async function GET(request: NextRequest) {
         netAmount: summary.totalAmount - refundAmount,
       },
       byDay: results.map((r) => ({ date: r._id, totalAmount: r.totalAmount, saleCount: r.saleCount })),
+      byMethod,
+      feeIncome,
+      byStaff,
     });
   } catch (error) {
     return handleApiError(error);

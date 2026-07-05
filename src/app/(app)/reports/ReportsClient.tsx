@@ -1,15 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { RefundJSON, SaleJSON } from "@/lib/types";
+import type { PaymentMethod, RefundJSON, SaleJSON } from "@/lib/types";
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  cash: "Cash",
+  card: "Card",
+  mobile_money: "Mobile money / bank transfer",
+};
+
 interface ReportData {
   summary: { totalAmount: number; saleCount: number; refundAmount: number; refundCount: number; netAmount: number };
   byDay: { date: string; totalAmount: number; saleCount: number }[];
+  byMethod: { method: PaymentMethod; salesIn: number; refundsOut: number; changeOut: number; netCash: number }[];
+  feeIncome: number;
+  byStaff: { userId: string; userName: string; totalAmount: number; saleCount: number }[];
 }
 
 export default function ReportsClient({ branchId }: { branchId: string | null }) {
@@ -22,6 +31,7 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
   const [refundingSaleId, setRefundingSaleId] = useState<string | null>(null);
   const [refundQuantities, setRefundQuantities] = useState<Record<string, string>>({});
   const [refundReason, setRefundReason] = useState("");
+  const [refundMethod, setRefundMethod] = useState<PaymentMethod>("cash");
   const [refundError, setRefundError] = useState<string | null>(null);
   const [refundSubmitting, setRefundSubmitting] = useState(false);
 
@@ -61,6 +71,10 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
     setRefundReason("");
     setRefundError(null);
     setRefundQuantities({});
+    const dominant = sale.payments.length
+      ? sale.payments.reduce((max, p) => (p.amount > max.amount ? p : max), sale.payments[0])
+      : null;
+    setRefundMethod(dominant?.method ?? "cash");
   }
 
   async function submitRefund(sale: SaleJSON) {
@@ -81,7 +95,7 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
     const res = await fetch("/api/refunds", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ saleId: sale._id, branchId, items, reason: refundReason }),
+      body: JSON.stringify({ saleId: sale._id, branchId, items, reason: refundReason, method: refundMethod }),
     });
     const data = await res.json();
     setRefundSubmitting(false);
@@ -131,7 +145,7 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
       </div>
 
       {report && (
-        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-5">
           <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
             <p className="text-sm text-zinc-500">Gross sales</p>
             <p className="text-2xl font-bold text-zinc-900">₦{report.summary.totalAmount.toFixed(2)}</p>
@@ -150,6 +164,60 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
             <p className="text-sm text-zinc-500">Transactions</p>
             <p className="text-2xl font-bold text-zinc-900">{report.summary.saleCount}</p>
           </div>
+          <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+            <p className="text-sm text-zinc-500">Change fee income</p>
+            <p className="text-2xl font-bold text-teal-700">₦{report.feeIncome.toFixed(2)}</p>
+          </div>
+        </div>
+      )}
+
+      {report && (
+        <div className="mb-6 overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+              <tr>
+                <th className="px-3 py-2">Method</th>
+                <th className="px-3 py-2">Received</th>
+                <th className="px-3 py-2">Refunded</th>
+                <th className="px-3 py-2">Change given</th>
+                <th className="px-3 py-2">Net cash position</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.byMethod.map((m) => (
+                <tr key={m.method} className="border-b border-zinc-100 last:border-0">
+                  <td className="px-3 py-2 font-medium text-zinc-900">{PAYMENT_METHOD_LABEL[m.method]}</td>
+                  <td className="px-3 py-2">₦{m.salesIn.toFixed(2)}</td>
+                  <td className="px-3 py-2">₦{m.refundsOut.toFixed(2)}</td>
+                  <td className="px-3 py-2">₦{m.changeOut.toFixed(2)}</td>
+                  <td className="px-3 py-2 font-medium text-zinc-900">₦{m.netCash.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {report && report.byStaff.length > 0 && (
+        <div className="mb-6 overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+              <tr>
+                <th className="px-3 py-2">Staff</th>
+                <th className="px-3 py-2">Transactions</th>
+                <th className="px-3 py-2">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.byStaff.map((s) => (
+                <tr key={s.userId} className="border-b border-zinc-100 last:border-0">
+                  <td className="px-3 py-2 font-medium text-zinc-900">{s.userName}</td>
+                  <td className="px-3 py-2">{s.saleCount}</td>
+                  <td className="px-3 py-2">₦{s.totalAmount.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -200,7 +268,15 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
                   <td className="px-3 py-2 text-zinc-600">
                     {sale.items.map((i) => `${i.productName} ×${i.quantity}`).join(", ")}
                   </td>
-                  <td className="px-3 py-2 text-zinc-600">{sale.paymentMethod.replace("_", " ")}</td>
+                  <td className="px-3 py-2 text-zinc-600">
+                    {sale.payments.map((p) => `${PAYMENT_METHOD_LABEL[p.method]} ₦${p.amount.toFixed(2)}`).join(", ")}
+                    {sale.changeGiven > 0 && (
+                      <div className="text-xs text-zinc-400">
+                        Change: ₦{sale.changeGiven.toFixed(2)}
+                        {sale.changeFee > 0 ? ` (fee ₦${sale.changeFee.toFixed(2)})` : ""}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-3 py-2 font-medium text-zinc-900">
                     ₦{sale.totalAmount.toFixed(2)}
                     {refunded > 0 && <div className="text-xs text-red-600">-₦{refunded.toFixed(2)} refunded</div>}
@@ -261,6 +337,18 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
                   );
                 })}
               </div>
+              <label className="mb-1 block text-sm font-medium text-zinc-700">Refund method</label>
+              <select
+                value={refundMethod}
+                onChange={(e) => setRefundMethod(e.target.value as PaymentMethod)}
+                className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              >
+                {(Object.keys(PAYMENT_METHOD_LABEL) as PaymentMethod[]).map((m) => (
+                  <option key={m} value={m}>
+                    {PAYMENT_METHOD_LABEL[m]}
+                  </option>
+                ))}
+              </select>
               <label className="mb-1 block text-sm font-medium text-zinc-700">Reason (optional)</label>
               <input
                 value={refundReason}
