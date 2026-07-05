@@ -265,7 +265,7 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
           </div>
         </div>
 
-        <div className="mb-4 grid grid-cols-2 gap-3">
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <input
             value={supplierName}
             onChange={(e) => setSupplierName(e.target.value)}
@@ -282,7 +282,7 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
             type="date"
             value={expiryDate}
             onChange={(e) => setExpiryDate(e.target.value)}
-            className="col-span-2 rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            className="rounded border border-zinc-300 px-2 py-1.5 text-sm sm:col-span-2"
           />
         </div>
 
