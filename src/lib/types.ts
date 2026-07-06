@@ -86,6 +86,7 @@ export interface StoreProductJSON {
   category: ProductCategory;
   baseUnitName: string;
   quantityInStock: number;
+  displayUnitHierarchy?: UnitLevelJSON[] | null;
 }
 
 export interface UnitLevelJSON {

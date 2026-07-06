@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { BuyerJSON, BuyerType, PaymentMethod, StoreJSON, StoreProductJSON, StoreBatchJSON } from "@/lib/types";
 import type { BranchOption } from "@/lib/branchScope";
-import { describeBreakdown, pluralize } from "@/lib/unitHierarchy";
+import { describeBreakdown, describeStock, pluralize } from "@/lib/unitHierarchy";
 
 type Step = "catalog" | "action" | "destination" | "buyer" | "details" | "confirm";
 type DestinationType = "store" | "branch";
@@ -282,7 +282,7 @@ export default function PushSellClient({ initialStoreId }: { initialStoreId: str
                   </td>
                   <td className="px-3 py-2 text-zinc-600">{product.category}</td>
                   <td className="px-3 py-2 text-zinc-600">
-                    {product.quantityInStock} {pluralize(product.baseUnitName, product.quantityInStock)}
+                    {describeStock(product.quantityInStock, product.displayUnitHierarchy, product.baseUnitName)}
                   </td>
                 </tr>
               ))}
@@ -305,7 +305,7 @@ export default function PushSellClient({ initialStoreId }: { initialStoreId: str
       <div>
         <h1 className="mb-4 text-lg font-semibold text-zinc-900">{selectedProduct.name}</h1>
         <p className="mb-4 text-sm text-zinc-600">
-          {selectedProduct.quantityInStock} {pluralize(selectedProduct.baseUnitName, selectedProduct.quantityInStock)}{" "}
+          {describeStock(selectedProduct.quantityInStock, referenceBatch.unitHierarchy, selectedProduct.baseUnitName)}{" "}
           remaining across all batches.
         </p>
         <div className="flex gap-2">
