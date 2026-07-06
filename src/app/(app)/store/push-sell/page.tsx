@@ -6,7 +6,8 @@ export default async function PushSellPage({
 }: {
   searchParams: Promise<{ storeId?: string }>;
 }) {
-  await requireStorePageSession();
+  const session = await requireStorePageSession();
   const { storeId } = await searchParams;
-  return <PushSellClient initialStoreId={storeId ?? ""} />;
+  const canWriteOff = session.user.role === "admin" || session.user.role === "store_manager";
+  return <PushSellClient initialStoreId={storeId ?? ""} canWriteOff={canWriteOff} />;
 }
