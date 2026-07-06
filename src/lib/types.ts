@@ -7,6 +7,7 @@ export interface ProductJSON {
   name: string;
   category: ProductCategory;
   quantityInStock: number;
+  unitHierarchy?: UnitLevelJSON[] | null;
   retailPrice: number;
   wholesalePrice: number;
   distributorPrice: number;
@@ -18,6 +19,8 @@ export interface SaleItemJSON {
   productId: string;
   productName: string;
   quantity: number;
+  form?: string | null;
+  formQuantity?: number | null;
   priceTierUsed: PriceTier;
   unitPrice: number;
   lineTotal: number;

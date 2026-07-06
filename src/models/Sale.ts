@@ -4,7 +4,11 @@ const SaleItemSchema = new Schema(
   {
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
     productName: { type: String, required: true },
-    quantity: { type: Number, required: true, min: 1 },
+    quantity: { type: Number, required: true, min: 1 }, // always in the product's base unit
+    // What the customer actually bought, when the product has a unitHierarchy (e.g. "1 pack" of
+    // a product whose base unit is "sachet"). Absent for products with no defined hierarchy.
+    form: { type: String, default: null },
+    formQuantity: { type: Number, default: null },
     priceTierUsed: { type: String, enum: ["retail", "wholesale", "distributor"], required: true },
     unitPrice: { type: Number, required: true, min: 0 },
     lineTotal: { type: Number, required: true, min: 0 },
