@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { StoreJSON, StoreProductJSON } from "@/lib/types";
-import { pluralize } from "@/lib/unitHierarchy";
+import { describeStock } from "@/lib/unitHierarchy";
 
 export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: string | null }) {
   const canSwitch = !fixedStoreId;
@@ -106,7 +106,7 @@ export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: s
                 </td>
                 <td className="px-3 py-2 text-zinc-600">{product.category}</td>
                 <td className="px-3 py-2 text-zinc-600">
-                  {product.quantityInStock} {pluralize(product.baseUnitName, product.quantityInStock)}
+                  {describeStock(product.quantityInStock, product.displayUnitHierarchy, product.baseUnitName)}
                 </td>
               </tr>
             ))}

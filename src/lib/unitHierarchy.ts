@@ -39,8 +39,27 @@ export function convertToBaseUnits(hierarchy: UnitLevel[], form: string, quantit
   return piecesPerUnit * quantity;
 }
 
-function formatNumber(n: number): string {
+export function formatNumber(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+/**
+ * Stock is always tracked internally in base units (so batches with different packaging never
+ * break the math), but staff think in whatever form they actually received the product as. Given
+ * a hierarchy (largest to smallest), express a base-unit quantity in that largest unit instead.
+ */
+export function describeStock(
+  baseUnitQuantity: number,
+  hierarchy: UnitLevel[] | null | undefined,
+  fallbackUnitName: string
+): string {
+  if (!hierarchy || hierarchy.length === 0) {
+    return `${formatNumber(baseUnitQuantity)} ${pluralize(fallbackUnitName, baseUnitQuantity)}`;
+  }
+  const largest = hierarchy[0];
+  const piecesPerLargest = computeBaseUnitsPerLevel(hierarchy)[largest.unitName] || 1;
+  const qtyInLargest = baseUnitQuantity / piecesPerLargest;
+  return `${formatNumber(qtyInLargest)} ${pluralize(largest.unitName, qtyInLargest)}`;
 }
 
 export function pluralize(unitName: string, quantity: number): string {
