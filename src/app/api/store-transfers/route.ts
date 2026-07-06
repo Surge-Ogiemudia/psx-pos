@@ -216,6 +216,7 @@ export async function POST(request: NextRequest) {
                   name: firstBatch.productName,
                   category: "medicine",
                   quantityInStock: 0,
+                  unitHierarchy: firstBatch.unitHierarchy,
                   retailPrice: weightedPricePerBaseUnit,
                   wholesalePrice: weightedPricePerBaseUnit,
                   distributorPrice: weightedPricePerBaseUnit,
@@ -229,7 +230,7 @@ export async function POST(request: NextRequest) {
           } else {
             await Product.findOneAndUpdate(
               { _id: destProduct._id },
-              { $set: { retailPrice: weightedPricePerBaseUnit } },
+              { $set: { retailPrice: weightedPricePerBaseUnit, unitHierarchy: firstBatch.unitHierarchy } },
               { session: dbSession }
             );
           }

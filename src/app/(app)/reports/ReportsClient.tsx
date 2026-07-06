@@ -266,7 +266,9 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
                 <tr key={sale._id} className="border-b border-zinc-100 last:border-0">
                   <td className="px-3 py-2 text-zinc-600">{new Date(sale.timestamp).toLocaleString()}</td>
                   <td className="px-3 py-2 text-zinc-600">
-                    {sale.items.map((i) => `${i.productName} ×${i.quantity}`).join(", ")}
+                    {sale.items
+                      .map((i) => `${i.productName} ×${i.formQuantity ?? i.quantity}${i.form ? ` ${i.form}${(i.formQuantity ?? i.quantity) === 1 ? "" : "s"}` : ""}`)
+                      .join(", ")}
                   </td>
                   <td className="px-3 py-2 text-zinc-600">
                     {sale.payments.map((p) => `${PAYMENT_METHOD_LABEL[p.method]} ₦${p.amount.toFixed(2)}`).join(", ")}

@@ -3,10 +3,23 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PaymentMethod, ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
+import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
 
 interface CartLine {
   product: ProductJSON;
+  form: string;
   quantity: number;
+}
+
+function baseUnitName(product: ProductJSON): string {
+  const h = product.unitHierarchy;
+  return h && h.length > 0 ? h[h.length - 1].unitName : "unit";
+}
+
+function piecesPerForm(product: ProductJSON, form: string): number {
+  const h = product.unitHierarchy;
+  if (!h || h.length === 0) return 1;
+  return computeBaseUnitsPerLevel(h)[form] ?? 1;
 }
 
 interface PaymentLine {
@@ -69,14 +82,15 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
     setCart((prev) => {
       const existing = prev.find((line) => line.product._id === product._id);
       if (existing) {
+        const maxQty = Math.floor(product.quantityInStock / piecesPerForm(product, existing.form));
         return prev.map((line) =>
           line.product._id === product._id
-            ? { ...line, quantity: Math.min(line.quantity + 1, product.quantityInStock) }
+            ? { ...line, quantity: Math.min(line.quantity + 1, maxQty) }
             : line
         );
       }
       if (product.quantityInStock < 1) return prev;
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { product, form: baseUnitName(product), quantity: 1 }];
     });
   }
 
@@ -91,7 +105,11 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
   }
 
   const total = useMemo(
-    () => cart.reduce((sum, line) => sum + line.product.retailPrice * line.quantity, 0),
+    () =>
+      cart.reduce(
+        (sum, line) => sum + line.product.retailPrice * piecesPerForm(line.product, line.form) * line.quantity,
+        0
+      ),
     [cart]
   );
 
@@ -150,6 +168,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
         items: cart.map((line) => ({
           productId: line.product._id,
           quantity: line.quantity,
+          form: line.product.unitHierarchy?.length ? line.form : undefined,
           priceTier: "retail",
         })),
       }),
@@ -223,40 +242,64 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
         <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           {cart.length === 0 && <p className="text-sm text-zinc-500">Cart is empty.</p>}
           <div className="flex flex-col gap-3">
-            {cart.map((line) => (
-              <div key={line.product._id} className="border-b border-zinc-100 pb-3 last:border-0">
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-sm font-medium text-zinc-900">{line.product.name}</span>
-                  <button
-                    onClick={() => removeLine(line.product._id)}
-                    className="text-xs text-red-600 hover:underline"
-                  >
-                    Remove
-                  </button>
+            {cart.map((line) => {
+              const hierarchy = line.product.unitHierarchy;
+              const perForm = piecesPerForm(line.product, line.form);
+              const maxQty = Math.floor(line.product.quantityInStock / perForm);
+              const priceForForm = line.product.retailPrice * perForm;
+              return (
+                <div key={line.product._id} className="border-b border-zinc-100 pb-3 last:border-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-medium text-zinc-900">{line.product.name}</span>
+                    <button
+                      onClick={() => removeLine(line.product._id)}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={maxQty}
+                      value={line.quantity}
+                      onChange={(e) =>
+                        updateLine(line.product._id, {
+                          quantity: Math.max(1, Math.min(Number(e.target.value) || 1, maxQty)),
+                        })
+                      }
+                      className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
+                    />
+                    {hierarchy && hierarchy.length > 0 ? (
+                      <select
+                        value={line.form}
+                        onChange={(e) => {
+                          const newForm = e.target.value;
+                          const newMax = Math.floor(line.product.quantityInStock / piecesPerForm(line.product, newForm));
+                          updateLine(line.product._id, { form: newForm, quantity: Math.min(1, newMax) || 1 });
+                        }}
+                        className="rounded border border-zinc-300 px-2 py-1 text-sm"
+                      >
+                        {hierarchy.map((level) => (
+                          <option key={level.unitName} value={level.unitName}>
+                            {pluralize(level.unitName, 2)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-sm text-zinc-600">₦{line.product.retailPrice.toFixed(2)} each</span>
+                    )}
+                  </div>
+                  {hierarchy && hierarchy.length > 0 && (
+                    <div className="mt-1 text-xs text-zinc-500">₦{priceForForm.toFixed(2)} per {line.form}</div>
+                  )}
+                  <div className="mt-1 text-right text-sm text-zinc-600">
+                    ₦{(priceForForm * line.quantity).toFixed(2)}
+                  </div>
                 </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={line.product.quantityInStock}
-                    value={line.quantity}
-                    onChange={(e) =>
-                      updateLine(line.product._id, {
-                        quantity: Math.max(
-                          1,
-                          Math.min(Number(e.target.value) || 1, line.product.quantityInStock)
-                        ),
-                      })
-                    }
-                    className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
-                  />
-                  <span className="text-sm text-zinc-600">₦{line.product.retailPrice.toFixed(2)} each</span>
-                </div>
-                <div className="mt-1 text-right text-sm text-zinc-600">
-                  ₦{(line.product.retailPrice * line.quantity).toFixed(2)}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {cart.length > 0 && (

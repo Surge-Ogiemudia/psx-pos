@@ -5,6 +5,7 @@ import Product from "@/models/Product";
 import Sale, { type SaleDoc } from "@/models/Sale";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+import { computeBaseUnitsPerLevel } from "@/lib/unitHierarchy";
 
 const PRICE_FIELD: Record<string, "retailPrice" | "wholesalePrice" | "distributorPrice"> = {
   retail: "retailPrice",
@@ -30,6 +31,7 @@ interface SaleItemInput {
   productId: string;
   quantity: number;
   priceTier: "retail" | "wholesale" | "distributor";
+  form?: string;
 }
 
 interface PaymentLineInput {
@@ -130,13 +132,38 @@ export async function POST(request: NextRequest) {
         for (const item of items) {
           const priceField = PRICE_FIELD[item.priceTier];
 
+          // Stock is always tracked in the base unit, but a product with a unitHierarchy can be
+          // sold in any of its forms (e.g. "1 pack" of a product whose base unit is "sachet").
+          // Resolve that conversion first so the guarded decrement below uses base units.
+          const existingProduct = await Product.findOne(
+            { _id: item.productId, ...scope },
+            null,
+            { session: dbSession }
+          );
+          if (!existingProduct) {
+            throw new Error(`Product not found for item ${item.productId}`);
+          }
+
+          let baseQuantity = item.quantity;
+          let form: string | null = null;
+          let formQuantity: number | null = null;
+          if (existingProduct.unitHierarchy?.length && item.form) {
+            const piecesPerForm = computeBaseUnitsPerLevel(existingProduct.unitHierarchy)[item.form];
+            if (piecesPerForm === undefined) {
+              throw new Error(`"${item.form}" is not a valid unit for ${existingProduct.name}`);
+            }
+            baseQuantity = piecesPerForm * item.quantity;
+            form = item.form;
+            formQuantity = item.quantity;
+          }
+
           const product = await Product.findOneAndUpdate(
             {
               _id: item.productId,
               ...scope,
-              quantityInStock: { $gte: item.quantity },
+              quantityInStock: { $gte: baseQuantity },
             },
-            { $inc: { quantityInStock: -item.quantity } },
+            { $inc: { quantityInStock: -baseQuantity } },
             { new: true, session: dbSession }
           );
 
@@ -145,13 +172,15 @@ export async function POST(request: NextRequest) {
           }
 
           const unitPrice = product[priceField] as number;
-          const lineTotal = unitPrice * item.quantity;
+          const lineTotal = unitPrice * baseQuantity;
           totalAmount += lineTotal;
 
           saleItems.push({
             productId: product._id,
             productName: product.name,
-            quantity: item.quantity,
+            quantity: baseQuantity,
+            form,
+            formQuantity,
             priceTierUsed: item.priceTier,
             unitPrice,
             lineTotal,
