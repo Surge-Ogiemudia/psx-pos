@@ -10,7 +10,7 @@ const ActivityLogSchema = new Schema(
     actorName: { type: String, required: true },
     action: {
       type: String,
-      enum: ["intake", "dispense_setting", "push", "sell", "store_created", "buyer_created"],
+      enum: ["intake", "dispense_setting", "push", "sell", "write_off", "store_created", "buyer_created"],
       required: true,
     },
     summary: { type: String, required: true },

@@ -8,6 +8,7 @@ const ACTION_LABEL: Record<string, string> = {
   dispense_setting: "Set a price",
   push: "Pushed stock",
   sell: "Sold stock",
+  write_off: "Wrote off stock",
   store_created: "Store created",
   buyer_created: "New buyer",
 };

@@ -7,7 +7,7 @@ import { describeBreakdown, describeStock, pluralize } from "@/lib/unitHierarchy
 
 type Step = "catalog" | "action" | "destination" | "buyer" | "details" | "confirm";
 type DestinationType = "store" | "branch";
-type Flow = "push" | "sell" | null;
+type Flow = "push" | "sell" | "writeoff" | null;
 
 const BUYER_TYPES: BuyerType[] = ["distributor", "wholesaler", "retailer"];
 const BUYER_TYPE_LABEL: Record<BuyerType, string> = {
@@ -16,7 +16,13 @@ const BUYER_TYPE_LABEL: Record<BuyerType, string> = {
   retailer: "Retailer",
 };
 
-export default function PushSellClient({ initialStoreId }: { initialStoreId: string }) {
+export default function PushSellClient({
+  initialStoreId,
+  canWriteOff,
+}: {
+  initialStoreId: string;
+  canWriteOff: boolean;
+}) {
   const [storeId] = useState(initialStoreId);
   const [products, setProducts] = useState<StoreProductJSON[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<StoreProductJSON | null>(null);
@@ -44,6 +50,8 @@ export default function PushSellClient({ initialStoreId }: { initialStoreId: str
     referenceHierarchy: StoreBatchJSON["unitHierarchy"];
   } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+
+  const [writeOffReason, setWriteOffReason] = useState("");
 
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -112,6 +120,14 @@ export default function PushSellClient({ initialStoreId }: { initialStoreId: str
     setStep("buyer");
   }
 
+  function startWriteOff() {
+    setFlow("writeoff");
+    setWriteOffReason("");
+    setQuantity("");
+    setError(null);
+    setStep("details");
+  }
+
   async function searchBuyers(query: string) {
     setBuyerName(query);
     if (!query.trim()) {
@@ -148,11 +164,17 @@ export default function PushSellClient({ initialStoreId }: { initialStoreId: str
       setError("Enter a quantity of at least 1.");
       return;
     }
+    if (!selectedProduct) return;
+
+    if (flow === "writeoff") {
+      setStep("confirm");
+      return;
+    }
+
     if (!referencePrice) {
       setError("No price has been set for this channel yet.");
       return;
     }
-    if (!selectedProduct) return;
 
     const channel = flow === "push" ? (destinationType === "store" ? "sister_store" : "branch") : buyerType;
     setPreviewLoading(true);
@@ -254,6 +276,30 @@ export default function PushSellClient({ initialStoreId }: { initialStoreId: str
     );
   }
 
+  async function submitWriteOff() {
+    if (!selectedProduct) return;
+    setSubmitting(true);
+    setError(null);
+    const res = await fetch("/api/store-writeoffs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        storeId,
+        storeProductId: selectedProduct._id,
+        form,
+        quantity: Number(quantity),
+        reason: writeOffReason,
+      }),
+    });
+    const data = await res.json();
+    setSubmitting(false);
+    if (!res.ok) {
+      setError(data.error || "Write-off failed.");
+      return;
+    }
+    resetToCatalog(`Wrote off ${quantity} ${pluralize(form, Number(quantity))} of ${selectedProduct.name}.`);
+  }
+
   if (step === "catalog") {
     return (
       <div>
@@ -321,6 +367,14 @@ export default function PushSellClient({ initialStoreId }: { initialStoreId: str
           >
             Sell
           </button>
+          {canWriteOff && (
+            <button
+              onClick={startWriteOff}
+              className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+            >
+              Write off
+            </button>
+          )}
           <button
             onClick={() => setStep("catalog")}
             className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
@@ -458,7 +512,7 @@ export default function PushSellClient({ initialStoreId }: { initialStoreId: str
     return (
       <div>
         <h1 className="mb-4 text-lg font-semibold text-zinc-900">
-          {flow === "push" ? "Push" : "Sell"} {selectedProduct.name}
+          {flow === "push" ? "Push" : flow === "sell" ? "Sell" : "Write off"} {selectedProduct.name}
         </h1>
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
         <div className="max-w-sm rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
@@ -483,7 +537,17 @@ export default function PushSellClient({ initialStoreId }: { initialStoreId: str
               ))}
             </select>
           </div>
-          {referencePrice ? (
+          {flow === "writeoff" ? (
+            <>
+              <label className="mb-1 block text-sm font-medium text-zinc-700">Reason (optional)</label>
+              <input
+                value={writeOffReason}
+                onChange={(e) => setWriteOffReason(e.target.value)}
+                placeholder="e.g. damaged, expired, lost"
+                className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              />
+            </>
+          ) : referencePrice ? (
             <p className="mb-3 text-xs text-zinc-500">
               Set price: ₦{referencePrice.priceAmount.toFixed(2)} per {referencePrice.priceForm}
             </p>
@@ -499,10 +563,41 @@ export default function PushSellClient({ initialStoreId }: { initialStoreId: str
               {previewLoading ? "Pricing..." : "Review"}
             </button>
             <button
-              onClick={() => setStep(flow === "push" ? "destination" : "buyer")}
+              onClick={() => setStep(flow === "push" ? "destination" : flow === "sell" ? "buyer" : "action")}
               className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
             >
               Back
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "confirm" && selectedProduct && flow === "writeoff") {
+    return (
+      <div>
+        <h1 className="mb-4 text-lg font-semibold text-zinc-900">Confirm write-off</h1>
+        <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+          <p className="mb-3 text-sm text-zinc-700">
+            Writing off <strong>{quantity}</strong> {pluralize(form, Number(quantity))} of{" "}
+            <strong>{selectedProduct.name}</strong>
+            {writeOffReason ? ` (${writeOffReason})` : ""}.
+          </p>
+          {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setStep("details")}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Edit
+            </button>
+            <button
+              onClick={submitWriteOff}
+              disabled={submitting}
+              className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              {submitting ? "Saving..." : "Confirm write-off"}
             </button>
           </div>
         </div>
