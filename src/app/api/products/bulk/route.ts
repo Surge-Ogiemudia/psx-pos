@@ -13,6 +13,24 @@ interface BulkRow {
   distributorPrice?: string | number;
   batchNumber?: string;
   expiryDate?: string;
+  unitHierarchy?: string;
+}
+
+/**
+ * Parse a compact unit-hierarchy string like "carton:1>box:4>piece:10" into
+ * [{unitName, unitsPerParent}]. The first level's unitsPerParent is always
+ * forced to 1 (it's the root). Returns null if the string is empty/missing.
+ */
+function parseHierarchyString(raw: string | undefined): { unitName: string; unitsPerParent: number }[] | null {
+  if (!raw || !raw.trim()) return null;
+  const levels = raw.split(">").map((part) => part.trim());
+  return levels.map((part, i) => {
+    const [unitName, countStr] = part.split(":").map((s) => s.trim());
+    return {
+      unitName: unitName || "",
+      unitsPerParent: i === 0 ? 1 : Math.max(1, Number(countStr) || 1),
+    };
+  });
 }
 
 function isMissing(v: unknown): boolean {
@@ -81,16 +99,38 @@ export async function POST(request: NextRequest) {
         expiryDate = parsed;
       }
 
+      const hierarchy = parseHierarchyString(row.unitHierarchy as string | undefined);
+      if (hierarchy && hierarchy.some((l) => !l.unitName)) {
+        errors.push({ row: rowNumber, error: "Every unit level in unitHierarchy needs a name" });
+        return;
+      }
+
+      // When a hierarchy is defined, prices in the CSV are per-largest-unit
+      // (e.g. per carton). Divide to per-base-unit for storage.
+      let storedRetail = retailPrice;
+      let storedWholesale = wholesalePrice;
+      let storedDistributor = distributorPrice;
+      if (hierarchy && hierarchy.length >= 2) {
+        let divisor = 1;
+        for (let i = 1; i < hierarchy.length; i++) {
+          divisor *= hierarchy[i].unitsPerParent;
+        }
+        storedRetail = retailPrice / divisor;
+        storedWholesale = wholesalePrice / divisor;
+        storedDistributor = distributorPrice / divisor;
+      }
+
       toInsert.push({
         ...scope,
         name,
         category,
         quantityInStock,
-        retailPrice,
-        wholesalePrice,
-        distributorPrice,
+        retailPrice: storedRetail,
+        wholesalePrice: storedWholesale,
+        distributorPrice: storedDistributor,
         batchNumber: row.batchNumber || "",
         expiryDate,
+        ...(hierarchy ? { unitHierarchy: hierarchy } : {}),
       });
     });
 
