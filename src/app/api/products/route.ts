@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
       distributorPrice,
       batchNumber,
       expiryDate,
+      unitHierarchy,
     } = body;
 
     const missing = (v: unknown) => v === undefined || v === null || v === "";
@@ -56,6 +57,19 @@ export async function POST(request: NextRequest) {
 
     const retail = Number(retailPrice);
     const scope = getBranchScope(session, branchId);
+
+    // Validate unitHierarchy if provided: must be an array of {unitName, unitsPerParent}.
+    let hierarchy: { unitName: string; unitsPerParent: number }[] | undefined;
+    if (Array.isArray(unitHierarchy) && unitHierarchy.length > 0) {
+      hierarchy = unitHierarchy.map((l: { unitName?: string; unitsPerParent?: number }, i: number) => ({
+        unitName: (l.unitName || "").trim(),
+        unitsPerParent: i === 0 ? 1 : Math.max(1, Number(l.unitsPerParent) || 1),
+      }));
+      if (hierarchy.some((l) => !l.unitName)) {
+        return NextResponse.json({ error: "Every unit level needs a name" }, { status: 400 });
+      }
+    }
+
     const product = await Product.create({
       ...scope,
       name,
@@ -66,6 +80,7 @@ export async function POST(request: NextRequest) {
       distributorPrice: missing(distributorPrice) ? retail : Number(distributorPrice),
       batchNumber: batchNumber || "",
       expiryDate: expiryDate ? new Date(expiryDate) : null,
+      ...(hierarchy ? { unitHierarchy: hierarchy } : {}),
     });
 
     return NextResponse.json({ product }, { status: 201 });

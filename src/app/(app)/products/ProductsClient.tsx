@@ -15,6 +15,11 @@ const emptyForm = {
   expiryDate: "",
 };
 
+interface LevelForm {
+  unitName: string;
+  unitsPerParent: string;
+}
+
 const BULK_FIELDS = [
   "name",
   "category",
@@ -24,11 +29,12 @@ const BULK_FIELDS = [
   "distributorPrice",
   "batchNumber",
   "expiryDate",
+  "unitHierarchy",
 ] as const;
 
 const BULK_TEMPLATE =
-  "name,category,quantityInStock,retailPrice,batchNumber,expiryDate\n" +
-  "Ibuprofen 200mg (20 tabs),medicine,50,5.00,IBU-01,2027-01-31\n" +
+  "name,category,quantityInStock,retailPrice,batchNumber,expiryDate,unitHierarchy\n" +
+  "Ibuprofen 200mg (20 tabs),medicine,50,5.00,IBU-01,2027-01-31,carton:1>box:4>pack:10\n" +
   "Milo 400g,non-medicine,20,3200,,";
 
 function parseCsv(text: string): { rows: Record<string, string>[]; error?: string } {
@@ -73,6 +79,59 @@ export default function ProductsClient({
   );
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
+  // Unit hierarchy builder state for the single-add form
+  const [hierarchyEnabled, setHierarchyEnabled] = useState(false);
+  const [levels, setLevels] = useState<LevelForm[]>([
+    { unitName: "carton", unitsPerParent: "1" },
+    { unitName: "piece", unitsPerParent: "1" },
+  ]);
+
+  // Unit hierarchy builder state for inline edit
+  const [editHierarchyEnabled, setEditHierarchyEnabled] = useState(false);
+  const [editLevels, setEditLevels] = useState<LevelForm[]>([]);
+
+  function addLevel() {
+    setLevels((prev) => [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]);
+  }
+
+  function removeLevel(index: number) {
+    if (levels.length <= 1) return;
+    setLevels((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updateLevel(index: number, changes: Partial<LevelForm>) {
+    setLevels((prev) => prev.map((l, i) => (i === index ? { ...l, ...changes } : l)));
+  }
+
+  function addEditLevel() {
+    setEditLevels((prev) => [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]);
+  }
+
+  function removeEditLevel(index: number) {
+    if (editLevels.length <= 1) return;
+    setEditLevels((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updateEditLevel(index: number, changes: Partial<LevelForm>) {
+    setEditLevels((prev) => prev.map((l, i) => (i === index ? { ...l, ...changes } : l)));
+  }
+
+  function buildHierarchy(lvls: LevelForm[]): { unitName: string; unitsPerParent: number }[] {
+    return lvls.map((l, i) => ({
+      unitName: l.unitName.trim(),
+      unitsPerParent: i === 0 ? 1 : Math.max(1, Number(l.unitsPerParent) || 1),
+    }));
+  }
+
+  /** How many base (smallest) units make up one of the largest unit. */
+  function getBaseUnitsPerLargest(lvls: LevelForm[]): number {
+    let result = 1;
+    for (let i = 1; i < lvls.length; i++) {
+      result *= Math.max(1, Number(lvls[i].unitsPerParent) || 1);
+    }
+    return result;
+  }
+
   async function loadProducts() {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
@@ -89,10 +148,24 @@ export default function ProductsClient({
 
   async function createProduct() {
     setError(null);
+    const payload: Record<string, unknown> = { ...form, branchId };
+    if (hierarchyEnabled && levels.length > 0) {
+      const hierarchy = buildHierarchy(levels);
+      if (hierarchy.some((l) => !l.unitName)) {
+        setError("Every unit level needs a name.");
+        return;
+      }
+      payload.unitHierarchy = hierarchy;
+      // Prices are entered as per-largest-unit; convert to per-base-unit for storage.
+      const divisor = getBaseUnitsPerLargest(levels);
+      if (payload.retailPrice) payload.retailPrice = Number(payload.retailPrice) / divisor;
+      if (payload.wholesalePrice) payload.wholesalePrice = Number(payload.wholesalePrice) / divisor;
+      if (payload.distributorPrice) payload.distributorPrice = Number(payload.distributorPrice) / divisor;
+    }
     const res = await fetch("/api/products", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, branchId }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -101,29 +174,77 @@ export default function ProductsClient({
     }
     setForm(emptyForm);
     setShowForm(false);
+    setHierarchyEnabled(false);
+    setLevels([
+      { unitName: "carton", unitsPerParent: "1" },
+      { unitName: "piece", unitsPerParent: "1" },
+    ]);
     loadProducts();
   }
 
   function startEdit(product: ProductJSON) {
     setEditingId(product._id);
-    setEditForm({
-      name: product.name,
-      category: product.category,
-      quantityInStock: product.quantityInStock,
-      retailPrice: product.retailPrice,
-      wholesalePrice: product.wholesalePrice,
-      distributorPrice: product.distributorPrice,
-      batchNumber: product.batchNumber || "",
-      expiryDate: product.expiryDate ? product.expiryDate.slice(0, 10) : "",
-    });
+    if (product.unitHierarchy && product.unitHierarchy.length > 0) {
+      setEditHierarchyEnabled(true);
+      const editLvls = product.unitHierarchy.map((l) => ({
+        unitName: l.unitName,
+        unitsPerParent: String(l.unitsPerParent),
+      }));
+      setEditLevels(editLvls);
+      // Convert stored per-base-unit prices back to per-largest-unit for display.
+      const multiplier = getBaseUnitsPerLargest(editLvls);
+      setEditForm({
+        name: product.name,
+        category: product.category,
+        quantityInStock: product.quantityInStock,
+        retailPrice: Math.round(product.retailPrice * multiplier * 100) / 100,
+        wholesalePrice: Math.round(product.wholesalePrice * multiplier * 100) / 100,
+        distributorPrice: Math.round(product.distributorPrice * multiplier * 100) / 100,
+        batchNumber: product.batchNumber || "",
+        expiryDate: product.expiryDate ? product.expiryDate.slice(0, 10) : "",
+      });
+    } else {
+      setEditHierarchyEnabled(false);
+      setEditLevels([
+        { unitName: "carton", unitsPerParent: "1" },
+        { unitName: "piece", unitsPerParent: "1" },
+      ]);
+      setEditForm({
+        name: product.name,
+        category: product.category,
+        quantityInStock: product.quantityInStock,
+        retailPrice: product.retailPrice,
+        wholesalePrice: product.wholesalePrice,
+        distributorPrice: product.distributorPrice,
+        batchNumber: product.batchNumber || "",
+        expiryDate: product.expiryDate ? product.expiryDate.slice(0, 10) : "",
+      });
+    }
   }
 
   async function saveEdit(id: string) {
     setError(null);
+    const payload: Record<string, unknown> = { ...editForm, branchId };
+    if (editHierarchyEnabled && editLevels.length > 0) {
+      const hierarchy = buildHierarchy(editLevels);
+      if (hierarchy.some((l) => !l.unitName)) {
+        setError("Every unit level needs a name.");
+        return;
+      }
+      payload.unitHierarchy = hierarchy;
+      // Prices are displayed as per-largest-unit; convert to per-base-unit for storage.
+      const divisor = getBaseUnitsPerLargest(editLevels);
+      if (payload.retailPrice) payload.retailPrice = Number(payload.retailPrice) / divisor;
+      if (payload.wholesalePrice) payload.wholesalePrice = Number(payload.wholesalePrice) / divisor;
+      if (payload.distributorPrice) payload.distributorPrice = Number(payload.distributorPrice) / divisor;
+    } else {
+      // Clear hierarchy if user toggled it off
+      payload.unitHierarchy = null;
+    }
     const res = await fetch(`/api/products/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...editForm, branchId }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -290,6 +411,72 @@ export default function ProductsClient({
             onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
+
+          {/* Unit hierarchy (packaging form) builder */}
+          <div className="sm:col-span-2 lg:col-span-4">
+            <label className="flex items-center gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={hierarchyEnabled}
+                onChange={(e) => setHierarchyEnabled(e.target.checked)}
+                className="rounded border-zinc-300"
+              />
+              Define packaging forms (e.g. carton → box → piece)
+            </label>
+            {hierarchyEnabled && (
+              <div className="mt-2 rounded border border-zinc-200 bg-zinc-50 p-3">
+                <p className="mb-2 text-xs text-zinc-500">
+                  Largest unit first, smallest (base) unit last. POS will let staff sell in any of these forms.
+                </p>
+                {levels.length >= 2 && levels[0].unitName && levels[levels.length - 1].unitName && (
+                  <p className="mb-2 rounded bg-teal-50 px-2 py-1 text-xs text-teal-700">
+                    💡 Prices above are per <strong>{levels[0].unitName}</strong>. Stock qty is in{" "}
+                    <strong>{levels[levels.length - 1].unitName}s</strong> (smallest unit).
+                  </p>
+                )}
+                <div className="flex flex-col gap-2">
+                  {levels.map((level, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        value={level.unitName}
+                        onChange={(e) => updateLevel(i, { unitName: e.target.value })}
+                        placeholder={i === 0 ? "e.g. carton" : i === levels.length - 1 ? "e.g. piece" : "e.g. box"}
+                        className="flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                      />
+                      {i > 0 && (
+                        <>
+                          <span className="text-xs text-zinc-500">per</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={level.unitsPerParent}
+                            onChange={(e) => updateLevel(i, { unitsPerParent: e.target.value })}
+                            className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                          />
+                          <span className="text-xs text-zinc-500">{levels[i - 1].unitName || "unit"}</span>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeLevel(i)}
+                        className="text-xs text-red-600 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={addLevel}
+                  className="mt-2 text-sm text-teal-700 hover:underline"
+                >
+                  + Add unit level
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={createProduct}
             className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 sm:col-span-2 lg:col-span-4"
@@ -304,12 +491,16 @@ export default function ProductsClient({
           <p className="mb-2 text-sm text-zinc-600">
             Paste CSV with a header row:{" "}
             <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs">
-              name,category,quantityInStock,retailPrice,batchNumber,expiryDate
+              name,category,quantityInStock,retailPrice,batchNumber,expiryDate,unitHierarchy
             </code>
             . Category must be &quot;supermarket&quot;, &quot;medicine&quot;, or &quot;non-medicine&quot; —
             defaults to &quot;supermarket&quot; if left blank. Only name and retailPrice are otherwise
             required; wholesalePrice/distributorPrice (optional extra columns) default to retailPrice,
-            and batchNumber/expiryDate (YYYY-MM-DD) are optional.
+            and batchNumber/expiryDate (YYYY-MM-DD) are optional. unitHierarchy uses the format{" "}
+            <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs">
+              carton:1&gt;box:4&gt;piece:10
+            </code>{" "}
+            (largest to smallest, with units-per-parent after the colon) — leave blank if not needed.
           </p>
           <textarea
             value={bulkText}
@@ -351,6 +542,7 @@ export default function ProductsClient({
             <tr>
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2">Category</th>
+              <th className="px-3 py-2">Form</th>
               <th className="px-3 py-2">Stock</th>
               <th className="px-3 py-2">{isAdmin ? "Retail" : "Selling price"}</th>
               {isAdmin && (
@@ -394,6 +586,59 @@ export default function ProductsClient({
                           <option value="medicine">Medicine</option>
                           <option value="non-medicine">Non-medicine</option>
                         </select>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="min-w-[120px]">
+                          <label className="flex items-center gap-1 text-xs text-zinc-600">
+                            <input
+                              type="checkbox"
+                              checked={editHierarchyEnabled}
+                              onChange={(e) => setEditHierarchyEnabled(e.target.checked)}
+                              className="rounded border-zinc-300"
+                            />
+                            Forms
+                          </label>
+                          {editHierarchyEnabled && (
+                            <div className="mt-1 flex flex-col gap-1">
+                              {editLevels.map((level, i) => (
+                                <div key={i} className="flex items-center gap-1">
+                                  <input
+                                    value={level.unitName}
+                                    onChange={(e) => updateEditLevel(i, { unitName: e.target.value })}
+                                    placeholder={i === 0 ? "e.g. carton" : "e.g. piece"}
+                                    className="w-20 rounded border border-zinc-300 px-1 py-0.5 text-xs"
+                                  />
+                                  {i > 0 && (
+                                    <>
+                                      <span className="text-[10px] text-zinc-400">×</span>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        value={level.unitsPerParent}
+                                        onChange={(e) => updateEditLevel(i, { unitsPerParent: e.target.value })}
+                                        className="w-10 rounded border border-zinc-300 px-1 py-0.5 text-xs"
+                                      />
+                                    </>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeEditLevel(i)}
+                                    className="text-[10px] text-red-500 hover:underline"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={addEditLevel}
+                                className="text-[10px] text-teal-700 hover:underline"
+                              >
+                                + level
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         <input
@@ -462,6 +707,11 @@ export default function ProductsClient({
                     <>
                       <td className="px-3 py-2 font-medium text-zinc-900">{product.name}</td>
                       <td className="px-3 py-2 text-zinc-600">{product.category}</td>
+                      <td className="px-3 py-2 text-zinc-600">
+                        {product.unitHierarchy && product.unitHierarchy.length > 0
+                          ? product.unitHierarchy.map((l) => l.unitName).join(" → ")
+                          : "—"}
+                      </td>
                       <td className="px-3 py-2 text-zinc-600">{product.quantityInStock}</td>
                       <td className="px-3 py-2 text-zinc-600">₦{product.retailPrice.toFixed(2)}</td>
                       {isAdmin && (
@@ -495,7 +745,7 @@ export default function ProductsClient({
             })}
             {products.length === 0 && (
               <tr>
-                <td colSpan={isAdmin ? 9 : 6} className="px-3 py-6 text-center text-zinc-500">
+                <td colSpan={isAdmin ? 10 : 7} className="px-3 py-6 text-center text-zinc-500">
                   No products found.
                 </td>
               </tr>
