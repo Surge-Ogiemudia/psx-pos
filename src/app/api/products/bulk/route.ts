@@ -53,8 +53,8 @@ export async function POST(request: NextRequest) {
     if (rows.length === 0) {
       return NextResponse.json({ error: "No products provided" }, { status: 400 });
     }
-    if (rows.length > 500) {
-      return NextResponse.json({ error: "Limit is 500 products per import" }, { status: 400 });
+    if (rows.length > 2000) {
+      return NextResponse.json({ error: "Limit is 2000 products per import" }, { status: 400 });
     }
 
     const scope = getBranchScope(session, body.branchId);
