@@ -1,16 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { formatProductLabel, type PaymentMethod, type ProductJSON } from "@/lib/types";
+import { formatProductLabel, type PaymentMethod, type ProductCategory, type ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
 import { parseNumeric } from "@/lib/numberInput";
 
-interface CartLine {
-  product: ProductJSON;
-  form: string;
-  quantity: number;
-}
+type CartLine =
+  | { kind: "catalog"; key: string; product: ProductJSON; form: string; quantity: number }
+  | {
+      kind: "custom";
+      key: string;
+      itemName: string;
+      brand: string;
+      size: string;
+      category: ProductCategory;
+      unitPrice: number;
+      quantity: number;
+    };
 
 function baseUnitName(product: ProductJSON): string {
   const h = product.unitHierarchy;
@@ -56,6 +63,18 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  const [customMode, setCustomMode] = useState(false);
+  const [customForm, setCustomForm] = useState({
+    itemName: "",
+    brand: "",
+    size: "",
+    category: "supermarket" as ProductCategory,
+    price: "",
+    quantity: "1",
+  });
+  const [customMatches, setCustomMatches] = useState<ProductJSON[]>([]);
+  const [customError, setCustomError] = useState<string | null>(null);
+
   function productParams() {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
@@ -81,38 +100,95 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
 
   function addToCart(product: ProductJSON) {
     setCart((prev) => {
-      const existing = prev.find((line) => line.product._id === product._id);
-      if (existing) {
+      const existing = prev.find((line) => line.kind === "catalog" && line.product._id === product._id);
+      if (existing && existing.kind === "catalog") {
         const maxQty = Math.floor(product.quantityInStock / piecesPerForm(product, existing.form));
         return prev.map((line) =>
-          line.product._id === product._id
+          line.kind === "catalog" && line.product._id === product._id
             ? { ...line, quantity: Math.min(line.quantity + 1, maxQty) }
             : line
         );
       }
       if (product.quantityInStock < 1) return prev;
-      return [...prev, { product, form: baseUnitName(product), quantity: 1 }];
+      return [...prev, { kind: "catalog", key: product._id, product, form: baseUnitName(product), quantity: 1 }];
     });
   }
 
-  function updateLine(productId: string, changes: Partial<CartLine>) {
-    setCart((prev) =>
-      prev.map((line) => (line.product._id === productId ? { ...line, ...changes } : line))
-    );
+  function updateLine(key: string, changes: Partial<CartLine>) {
+    setCart((prev) => prev.map((line) => (line.key === key ? ({ ...line, ...changes } as CartLine) : line)));
   }
 
-  function removeLine(productId: string) {
-    setCart((prev) => prev.filter((line) => line.product._id !== productId));
+  function removeLine(key: string) {
+    setCart((prev) => prev.filter((line) => line.key !== key));
   }
 
   const total = useMemo(
     () =>
       cart.reduce(
-        (sum, line) => sum + line.product.retailPrice * piecesPerForm(line.product, line.form) * line.quantity,
+        (sum, line) =>
+          sum +
+          (line.kind === "catalog"
+            ? line.product.retailPrice * piecesPerForm(line.product, line.form) * line.quantity
+            : line.unitPrice * line.quantity),
         0
       ),
     [cart]
   );
+
+  // Close matches for whatever the staff is typing as a custom item's name, so they can bail
+  // into the normal add-to-cart flow if it turns out the item actually is in the catalog.
+  useEffect(() => {
+    if (!customMode || !customForm.itemName.trim()) {
+      const timeout = setTimeout(() => setCustomMatches([]), 0);
+      return () => clearTimeout(timeout);
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(async () => {
+      const params = new URLSearchParams({ search: customForm.itemName.trim() });
+      if (branchId) params.set("branchId", branchId);
+      const res = await fetch(`/api/products?${params}`, { signal: controller.signal });
+      if (res.ok) setCustomMatches((await res.json()).products.slice(0, 5));
+    }, 250);
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [customMode, customForm.itemName, branchId]);
+
+  function addCustomToCart() {
+    setCustomError(null);
+    const itemName = customForm.itemName.trim();
+    const brand = customForm.brand.trim();
+    const size = customForm.size.trim();
+    const price = parseNumeric(customForm.price);
+    const quantity = Math.max(1, Math.floor(parseNumeric(customForm.quantity) || 1));
+
+    if (!itemName) return setCustomError("Item name is required.");
+    if (!brand) {
+      return setCustomError("Brand is required — if it's not printed on the packaging, look up the manufacturer.");
+    }
+    if (!size) {
+      return setCustomError('Size is required — use "Standard" if the item has no size/strength variation.');
+    }
+    if (!Number.isFinite(price) || price <= 0) return setCustomError("Price must be greater than 0.");
+
+    setCart((prev) => [
+      ...prev,
+      {
+        kind: "custom",
+        key: `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        itemName,
+        brand,
+        size,
+        category: customForm.category,
+        unitPrice: price,
+        quantity,
+      },
+    ]);
+    setCustomForm({ itemName: "", brand: "", size: "", category: "supermarket", price: "", quantity: "1" });
+    setCustomMatches([]);
+    setCustomMode(false);
+  }
 
   // Fast path: keep the single payment line synced to the cart total until the staff
   // actually edits it, so completing a normal single-method sale stays a one-click action.
@@ -159,6 +235,8 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
     setSubmitting(true);
     setMessage(null);
 
+    const customLabels = cart.filter((l) => l.kind === "custom").map((l) => l.itemName);
+
     const res = await fetch("/api/sales", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -166,12 +244,24 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
         branchId,
         payments: payments.map((p) => ({ method: p.method, amount: parseNumeric(p.amount) })),
         changeFee: changeFeeValue,
-        items: cart.map((line) => ({
-          productId: line.product._id,
-          quantity: line.quantity,
-          form: line.product.unitHierarchy?.length ? line.form : undefined,
-          priceTier: "retail",
-        })),
+        items: cart.map((line) =>
+          line.kind === "catalog"
+            ? {
+                productId: line.product._id,
+                quantity: line.quantity,
+                form: line.product.unitHierarchy?.length ? line.form : undefined,
+                priceTier: "retail",
+              }
+            : {
+                custom: true,
+                itemName: line.itemName,
+                brand: line.brand,
+                size: line.size,
+                category: line.category,
+                quantity: line.quantity,
+                unitPrice: line.unitPrice,
+              }
+        ),
       }),
     });
 
@@ -183,7 +273,14 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
       return;
     }
 
-    setMessage({ type: "success", text: `Sale completed: ₦${total.toFixed(2)}` });
+    setMessage({
+      type: "success",
+      text:
+        `Sale completed: ₦${total.toFixed(2)}` +
+        (customLabels.length > 0
+          ? ` — flagged ${customLabels.join(", ")} for admin to add to the catalog.`
+          : ""),
+    });
     setCart([]);
     setPayments([{ method: "cash", amount: "" }]);
     setPaymentsTouched(false);
@@ -201,8 +298,103 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
           placeholder="Search products..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+          className="mb-2 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
         />
+
+        <button
+          onClick={() => setCustomMode((v) => !v)}
+          className="mb-4 text-sm font-medium text-teal-700 hover:underline"
+        >
+          {customMode ? "Cancel custom sell" : "Can't find it? Sell as custom item"}
+        </button>
+
+        {customMode && (
+          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <p className="mb-2 text-xs text-amber-800">
+              For items on the shelf but not in the system. This won&apos;t touch stock — it flags the item for
+              admin to add to the catalog.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                placeholder="Item name"
+                value={customForm.itemName}
+                onChange={(e) => setCustomForm({ ...customForm, itemName: e.target.value })}
+                className="col-span-2 rounded border border-zinc-300 px-2 py-1.5 text-sm sm:col-span-1"
+              />
+              <input
+                placeholder="Brand / manufacturer"
+                value={customForm.brand}
+                onChange={(e) => setCustomForm({ ...customForm, brand: e.target.value })}
+                className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              />
+              <input
+                placeholder='Size (e.g. 5mg, "Standard")'
+                value={customForm.size}
+                onChange={(e) => setCustomForm({ ...customForm, size: e.target.value })}
+                className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              />
+              <select
+                value={customForm.category}
+                onChange={(e) => setCustomForm({ ...customForm, category: e.target.value as ProductCategory })}
+                className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              >
+                <option value="supermarket">Supermarket</option>
+                <option value="medicine">Medicine</option>
+                <option value="non-medicine">Non-medicine</option>
+              </select>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="Price sold for"
+                value={customForm.price}
+                onChange={(e) => setCustomForm({ ...customForm, price: e.target.value })}
+                className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              />
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Quantity"
+                value={customForm.quantity}
+                onChange={(e) => setCustomForm({ ...customForm, quantity: e.target.value })}
+                className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+
+            {customMatches.length > 0 && (
+              <div className="mt-2 rounded border border-zinc-200 bg-white p-2">
+                <p className="mb-1 text-xs font-medium text-zinc-600">
+                  Possible matches already in the catalog — check before selling as custom:
+                </p>
+                <div className="flex flex-col gap-1">
+                  {customMatches.map((product) => (
+                    <button
+                      key={product._id}
+                      onClick={() => {
+                        addToCart(product);
+                        setCustomMode(false);
+                        setCustomForm({ itemName: "", brand: "", size: "", category: "supermarket", price: "", quantity: "1" });
+                        setCustomMatches([]);
+                      }}
+                      className="rounded px-2 py-1 text-left text-sm text-teal-700 hover:bg-teal-50"
+                    >
+                      {formatProductLabel(product)} — Stock: {product.quantityInStock}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {customError && <p className="mt-2 text-sm text-red-600">{customError}</p>}
+
+            <button
+              onClick={addCustomToCart}
+              className="mt-2 rounded-lg bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-800"
+            >
+              Add custom item to cart
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {products.map((product) => {
             const expiryStatus = getExpiryStatus(product.expiryDate);
@@ -244,16 +436,49 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
           {cart.length === 0 && <p className="text-sm text-zinc-500">Cart is empty.</p>}
           <div className="flex flex-col gap-3">
             {cart.map((line) => {
+              if (line.kind === "custom") {
+                return (
+                  <div key={line.key} className="border-b border-zinc-100 pb-3 last:border-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-sm font-medium text-zinc-900">
+                        {formatProductLabel(line)}{" "}
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                          Not in catalog
+                        </span>
+                      </span>
+                      <button onClick={() => removeLine(line.key)} className="text-xs text-red-600 hover:underline">
+                        Remove
+                      </button>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={line.quantity}
+                        onChange={(e) =>
+                          updateLine(line.key, { quantity: Math.max(1, parseNumeric(e.target.value) || 1) })
+                        }
+                        className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
+                      />
+                      <span className="text-sm text-zinc-600">₦{line.unitPrice.toFixed(2)} each</span>
+                    </div>
+                    <div className="mt-1 text-right text-sm text-zinc-600">
+                      ₦{(line.unitPrice * line.quantity).toFixed(2)}
+                    </div>
+                  </div>
+                );
+              }
+
               const hierarchy = line.product.unitHierarchy;
               const perForm = piecesPerForm(line.product, line.form);
               const maxQty = Math.floor(line.product.quantityInStock / perForm);
               const priceForForm = line.product.retailPrice * perForm;
               return (
-                <div key={line.product._id} className="border-b border-zinc-100 pb-3 last:border-0">
+                <div key={line.key} className="border-b border-zinc-100 pb-3 last:border-0">
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-sm font-medium text-zinc-900">{formatProductLabel(line.product)}</span>
                     <button
-                      onClick={() => removeLine(line.product._id)}
+                      onClick={() => removeLine(line.key)}
                       className="text-xs text-red-600 hover:underline"
                     >
                       Remove
@@ -265,7 +490,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
                       inputMode="numeric"
                       value={line.quantity}
                       onChange={(e) =>
-                        updateLine(line.product._id, {
+                        updateLine(line.key, {
                           quantity: Math.max(1, Math.min(parseNumeric(e.target.value) || 1, maxQty)),
                         })
                       }
@@ -277,7 +502,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
                         onChange={(e) => {
                           const newForm = e.target.value;
                           const newMax = Math.floor(line.product.quantityInStock / piecesPerForm(line.product, newForm));
-                          updateLine(line.product._id, { form: newForm, quantity: Math.min(1, newMax) || 1 });
+                          updateLine(line.key, { form: newForm, quantity: Math.min(1, newMax) || 1 });
                         }}
                         className="rounded border border-zinc-300 px-2 py-1 text-sm"
                       >
