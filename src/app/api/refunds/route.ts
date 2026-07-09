@@ -30,6 +30,9 @@ export async function GET(request: NextRequest) {
     const to = request.nextUrl.searchParams.get("to");
     const scope = getBranchScope(session, request.nextUrl.searchParams.get("branchId"));
     const query: Record<string, unknown> = { ...scope };
+    if (session.user.role === "staff") {
+      query.processedByUserId = session.user.id;
+    }
     if (saleId) query.saleId = saleId;
     if (from || to) {
       const timestamp: Record<string, Date> = {};
