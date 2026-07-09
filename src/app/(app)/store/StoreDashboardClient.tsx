@@ -5,7 +5,13 @@ import Link from "next/link";
 import type { StoreJSON, StoreProductJSON } from "@/lib/types";
 import { describeStock } from "@/lib/unitHierarchy";
 
-export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: string | null }) {
+export default function StoreDashboardClient({
+  fixedStoreId,
+  canManage,
+}: {
+  fixedStoreId: string | null;
+  canManage: boolean;
+}) {
   const canSwitch = !fixedStoreId;
   const [stores, setStores] = useState<StoreJSON[]>([]);
   const [storeId, setStoreId] = useState<string>(fixedStoreId ?? "");
@@ -23,12 +29,23 @@ export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: s
       });
   }, [canSwitch]);
 
-  useEffect(() => {
+  function loadProducts() {
     if (!storeId) return;
     fetch(`/api/store-products?storeId=${storeId}`)
       .then((res) => res.json())
       .then((data) => setProducts(data.storeProducts || []));
+  }
+
+  useEffect(() => {
+    loadProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId]);
+
+  async function deleteProduct(id: string) {
+    if (!confirm("Delete this store product? This also removes its received batches.")) return;
+    const res = await fetch(`/api/store-products/${id}?storeId=${storeId}`, { method: "DELETE" });
+    if (res.ok) loadProducts();
+  }
 
   if (canSwitch && loaded && stores.length === 0) {
     return (
@@ -96,6 +113,7 @@ export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: s
               <th className="px-3 py-2">Size</th>
               <th className="px-3 py-2">Category</th>
               <th className="px-3 py-2">Stock</th>
+              {canManage && <th className="px-3 py-2">Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -112,11 +130,18 @@ export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: s
                 <td className="px-3 py-2 text-zinc-600">
                   {describeStock(product.quantityInStock, product.displayUnitHierarchy, product.baseUnitName)}
                 </td>
+                {canManage && (
+                  <td className="px-3 py-2">
+                    <button onClick={() => deleteProduct(product._id)} className="text-red-600 hover:underline">
+                      Delete
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
             {products.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-zinc-500">
+                <td colSpan={canManage ? 6 : 5} className="px-3 py-6 text-center text-zinc-500">
                   No stock received yet.
                 </td>
               </tr>
