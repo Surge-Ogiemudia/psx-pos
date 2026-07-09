@@ -367,6 +367,30 @@ export default function ProductsClient({
     if (res.ok) loadProducts();
   }
 
+  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+
+    setBulkError(null);
+    setBulkResult(null);
+    const isExcel = /\.xlsx?$/i.test(file.name);
+
+    try {
+      if (isExcel) {
+        const XLSX = await import("xlsx");
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        setBulkText(XLSX.utils.sheet_to_csv(firstSheet));
+      } else {
+        setBulkText(await file.text());
+      }
+    } catch {
+      setBulkError("Couldn't read that file — make sure it's a valid CSV or Excel (.xlsx) file.");
+    }
+  }
+
   async function importBulk() {
     setBulkError(null);
     setBulkResult(null);
@@ -716,6 +740,15 @@ export default function ProductsClient({
             the exact row and item, what&apos;s missing, and what to enter. Valid rows in the same
             upload still go through.
           </p>
+          <div className="mb-3 flex items-center gap-3">
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={handleFileSelected}
+              className="text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border file:border-zinc-300 file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-zinc-700 hover:file:bg-zinc-50"
+            />
+            <span className="text-xs text-zinc-400">or paste CSV directly below</span>
+          </div>
           <textarea
             value={bulkText}
             onChange={(e) => setBulkText(e.target.value)}
