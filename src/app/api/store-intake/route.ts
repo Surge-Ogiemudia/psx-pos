@@ -8,6 +8,7 @@ import { logActivity } from "@/lib/activityLog";
 import { convertToBaseUnits, pluralize, type UnitLevel } from "@/lib/unitHierarchy";
 import { handleApiError } from "@/lib/apiError";
 import { formatProductLabel, type ProductCategory } from "@/lib/types";
+import { parseNumeric } from "@/lib/numberInput";
 
 interface IntakeBody {
   storeId?: string;
@@ -36,10 +37,12 @@ export async function POST(request: NextRequest) {
     const brand = typeof body.brand === "string" ? body.brand.trim() : "";
     const size = typeof body.size === "string" ? body.size.trim() : "";
     const category = CATEGORIES.includes(body.category as ProductCategory) ? body.category! : "supermarket";
-    const hierarchy = Array.isArray(body.unitHierarchy) ? body.unitHierarchy : [];
+    const hierarchy = Array.isArray(body.unitHierarchy)
+      ? body.unitHierarchy.map((l) => ({ unitName: l.unitName, unitsPerParent: parseNumeric(l.unitsPerParent) }))
+      : [];
     const receivedForm = typeof body.receivedForm === "string" ? body.receivedForm.trim() : "";
-    const receivedQuantity = Number(body.receivedQuantity);
-    const purchaseAmount = Number(body.purchaseAmount);
+    const receivedQuantity = parseNumeric(body.receivedQuantity);
+    const purchaseAmount = parseNumeric(body.purchaseAmount);
 
     if (!itemName) return NextResponse.json({ error: "Item name is required" }, { status: 400 });
     if (!brand) {

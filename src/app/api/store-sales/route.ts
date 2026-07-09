@@ -11,6 +11,7 @@ import { logActivity } from "@/lib/activityLog";
 import { pluralize } from "@/lib/unitHierarchy";
 import { buildDrawPlan } from "@/lib/storeDraw";
 import { handleApiError } from "@/lib/apiError";
+import { parseNumeric } from "@/lib/numberInput";
 
 const BUYER_TYPES = ["distributor", "wholesaler", "retailer"] as const;
 const PAYMENT_METHODS = ["cash", "card", "mobile_money"] as const;
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid payment method" }, { status: 400 });
     }
     const validPaymentMethod: (typeof PAYMENT_METHODS)[number] = paymentMethod as (typeof PAYMENT_METHODS)[number];
-    const qty = Number(quantity);
+    const qty = parseNumeric(quantity);
     if (!Number.isFinite(qty) || qty < 1) {
       return NextResponse.json({ error: "Quantity must be at least 1" }, { status: 400 });
     }

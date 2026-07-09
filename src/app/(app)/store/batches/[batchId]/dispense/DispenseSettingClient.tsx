@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { DispenseChannel, DispenseSettingJSON, StoreBatchJSON } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { describeBreakdown } from "@/lib/unitHierarchy";
+import { parseNumeric } from "@/lib/numberInput";
 
 const CHANNELS: DispenseChannel[] = ["sister_store", "branch", "distributor", "wholesaler", "retailer"];
 
@@ -75,7 +76,7 @@ export default function DispenseSettingClient({ batchId }: { batchId: string }) 
     const row = rows[channel];
     updateRow(channel, { saving: true, error: null });
 
-    const amount = Number(row.priceAmount);
+    const amount = parseNumeric(row.priceAmount);
     if (!row.priceForm || !Number.isFinite(amount) || amount < 0) {
       updateRow(channel, { saving: false, error: "Enter a valid unit and a non-negative amount." });
       return;
@@ -123,7 +124,7 @@ export default function DispenseSettingClient({ batchId }: { batchId: string }) 
           if (!row) return null;
           let breakdown = null;
           try {
-            const amount = Number(row.priceAmount);
+            const amount = parseNumeric(row.priceAmount);
             if (row.priceForm && Number.isFinite(amount)) {
               breakdown = describeBreakdown(batch.unitHierarchy, row.priceForm, 1, amount);
             }
@@ -150,8 +151,8 @@ export default function DispenseSettingClient({ batchId }: { batchId: string }) 
                 <span className="text-sm text-zinc-600">=</span>
                 <span className="text-sm text-zinc-600">₦</span>
                 <input
-                  type="number"
-                  min={0}
+                  type="text"
+                  inputMode="decimal"
                   value={row.priceAmount}
                   onChange={(e) => updateRow(channel, { priceAmount: e.target.value })}
                   className="w-28 rounded border border-zinc-300 px-2 py-1.5 text-sm"

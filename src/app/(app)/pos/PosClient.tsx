@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { formatProductLabel, type PaymentMethod, type ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
+import { parseNumeric } from "@/lib/numberInput";
 
 interface CartLine {
   product: ProductJSON;
@@ -140,16 +141,16 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
   }
 
   const amountTendered = useMemo(
-    () => round2(payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0)),
+    () => round2(payments.reduce((sum, p) => sum + (parseNumeric(p.amount) || 0), 0)),
     [payments]
   );
   const changeDue = round2(Math.max(0, amountTendered - total));
-  const changeFeeValue = Number(changeFee) || 0;
+  const changeFeeValue = parseNumeric(changeFee) || 0;
   const cashToHandBack = round2(Math.max(0, changeDue - changeFeeValue));
 
   const canCompleteSale =
     cart.length > 0 &&
-    payments.every((p) => Number(p.amount) > 0) &&
+    payments.every((p) => parseNumeric(p.amount) > 0) &&
     amountTendered >= total - EPS &&
     changeFeeValue <= changeDue + EPS;
 
@@ -163,7 +164,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         branchId,
-        payments: payments.map((p) => ({ method: p.method, amount: Number(p.amount) })),
+        payments: payments.map((p) => ({ method: p.method, amount: parseNumeric(p.amount) })),
         changeFee: changeFeeValue,
         items: cart.map((line) => ({
           productId: line.product._id,
@@ -260,13 +261,12 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
                   </div>
                   <div className="mt-2 flex items-center gap-2">
                     <input
-                      type="number"
-                      min={1}
-                      max={maxQty}
+                      type="text"
+                      inputMode="numeric"
                       value={line.quantity}
                       onChange={(e) =>
                         updateLine(line.product._id, {
-                          quantity: Math.max(1, Math.min(Number(e.target.value) || 1, maxQty)),
+                          quantity: Math.max(1, Math.min(parseNumeric(e.target.value) || 1, maxQty)),
                         })
                       }
                       className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
@@ -326,8 +326,8 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
                         ))}
                       </select>
                       <input
-                        type="number"
-                        min={0}
+                        type="text"
+                        inputMode="decimal"
                         placeholder="Amount"
                         value={line.amount}
                         onChange={(e) => updatePaymentLine(i, { amount: e.target.value })}
@@ -366,9 +366,8 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
                       Change fee (optional)
                     </label>
                     <input
-                      type="number"
-                      min={0}
-                      max={changeDue}
+                      type="text"
+                      inputMode="decimal"
                       value={changeFee}
                       onChange={(e) => setChangeFee(e.target.value)}
                       className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"

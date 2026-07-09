@@ -4,10 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { describeBreakdown, pluralize, type UnitLevel } from "@/lib/unitHierarchy";
 import { formatProductLabel, type ProductCategory } from "@/lib/types";
+import { parseNumeric } from "@/lib/numberInput";
 
 interface LevelForm {
   unitName: string;
   unitsPerParent: string;
+}
+
+interface SimilarStoreProduct {
+  product: { itemName: string; brand: string; size: string; quantityInStock: number; baseUnitName: string };
+  score: number;
 }
 
 const emptyLevels: LevelForm[] = [
@@ -32,6 +38,8 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [similarMatches, setSimilarMatches] = useState<SimilarStoreProduct[] | null>(null);
+  const [checkingSimilar, setCheckingSimilar] = useState(false);
 
   function addLevel() {
     // Insert before the last level, since the last level is always the base unit.
@@ -47,7 +55,7 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
     setLevels((prev) => prev.map((l, i) => (i === index ? { ...l, ...changes } : l)));
   }
 
-  function goToConfirm() {
+  async function goToConfirm() {
     setError(null);
     if (!storeId) return setError("No store selected.");
     if (!itemName.trim()) return setError("Item name is required.");
@@ -61,23 +69,48 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
     if (!levels.some((l) => l.unitName === receivedForm)) {
       return setError("Received form must match one of the unit levels.");
     }
-    const qty = Number(receivedQuantity);
+    const qty = parseNumeric(receivedQuantity);
     if (!Number.isFinite(qty) || qty < 1) return setError("Received quantity must be at least 1.");
-    const amount = Number(purchaseAmount);
+    const amount = parseNumeric(purchaseAmount);
     if (!Number.isFinite(amount) || amount < 0) return setError("Purchase amount must be a non-negative number.");
+
+    setCheckingSimilar(true);
+    const params = new URLSearchParams({ itemName: itemName.trim(), brand: brand.trim(), size: size.trim(), storeId });
+    const simRes = await fetch(`/api/store-products/similar?${params}`);
+    setCheckingSimilar(false);
+    if (simRes.ok) {
+      const data = await simRes.json();
+      if (data.matches && data.matches.length > 0) {
+        setSimilarMatches(data.matches);
+        return;
+      }
+    }
+    setStep("confirm");
+  }
+
+  function applySameProduct(match: SimilarStoreProduct) {
+    setItemName(match.product.itemName);
+    setBrand(match.product.brand);
+    setSize(match.product.size);
+    setSimilarMatches(null);
+    setStep("confirm");
+  }
+
+  function confirmDifferentProduct() {
+    setSimilarMatches(null);
     setStep("confirm");
   }
 
   const hierarchy: UnitLevel[] = levels.map((l, i) => ({
     unitName: l.unitName.trim(),
-    unitsPerParent: i === 0 ? 1 : Number(l.unitsPerParent) || 1,
+    unitsPerParent: i === 0 ? 1 : parseNumeric(l.unitsPerParent) || 1,
   }));
 
   let breakdown = null;
   let breakdownError: string | null = null;
   if (step === "confirm") {
     try {
-      breakdown = describeBreakdown(hierarchy, receivedForm, Number(receivedQuantity), Number(purchaseAmount));
+      breakdown = describeBreakdown(hierarchy, receivedForm, parseNumeric(receivedQuantity), parseNumeric(purchaseAmount));
     } catch (err) {
       breakdownError = err instanceof Error ? err.message : "Could not compute breakdown.";
     }
@@ -97,8 +130,8 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
         category,
         unitHierarchy: hierarchy,
         receivedForm,
-        receivedQuantity: Number(receivedQuantity),
-        purchaseAmount: Number(purchaseAmount),
+        receivedQuantity: parseNumeric(receivedQuantity),
+        purchaseAmount: parseNumeric(purchaseAmount),
         supplierName,
         batchNumber,
         expiryDate: expiryDate || undefined,
@@ -119,9 +152,9 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
         <h1 className="mb-4 text-lg font-semibold text-zinc-900">Confirm receipt</h1>
         <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           <p className="mb-3 text-sm text-zinc-700">
-            Receiving <strong>{receivedQuantity}</strong> {pluralize(receivedForm, Number(receivedQuantity))} of{" "}
+            Receiving <strong>{receivedQuantity}</strong> {pluralize(receivedForm, parseNumeric(receivedQuantity))} of{" "}
             <strong>{formatProductLabel({ itemName, brand, size })}</strong> for{" "}
-            <strong>₦{Number(purchaseAmount).toFixed(2)}</strong>.
+            <strong>₦{parseNumeric(purchaseAmount).toFixed(2)}</strong>.
           </p>
 
           {breakdownError && <p className="mb-3 text-sm text-red-600">{breakdownError}</p>}
@@ -229,8 +262,8 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
                 <>
                   <span className="text-xs text-zinc-500">per</span>
                   <input
-                    type="number"
-                    min={1}
+                    type="text"
+                    inputMode="numeric"
                     value={level.unitsPerParent}
                     onChange={(e) => updateLevel(i, { unitsPerParent: e.target.value })}
                     className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm"
@@ -273,8 +306,8 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
           <div>
             <label className="mb-1 block text-sm font-medium text-zinc-700">Quantity received</label>
             <input
-              type="number"
-              min={1}
+              type="text"
+              inputMode="numeric"
               value={receivedQuantity}
               onChange={(e) => setReceivedQuantity(e.target.value)}
               className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
@@ -283,8 +316,8 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
           <div>
             <label className="mb-1 block text-sm font-medium text-zinc-700">Purchase amount (₦)</label>
             <input
-              type="number"
-              min={0}
+              type="text"
+              inputMode="decimal"
               value={purchaseAmount}
               onChange={(e) => setPurchaseAmount(e.target.value)}
               className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
@@ -315,11 +348,51 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
 
         <button
           onClick={goToConfirm}
-          className="w-full rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
+          disabled={checkingSimilar}
+          className="w-full rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
         >
-          Review
+          {checkingSimilar ? "Checking catalog..." : "Review"}
         </button>
       </div>
+
+      {similarMatches && similarMatches.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-lg">
+            <h2 className="mb-2 text-base font-semibold text-zinc-900">Is this the same product?</h2>
+            <p className="mb-3 text-sm text-zinc-600">
+              You&apos;re receiving <strong>{formatProductLabel({ itemName, brand, size })}</strong>. A very
+              similar item is already in this store&apos;s catalog:
+            </p>
+            <div className="mb-4 rounded border border-zinc-200 bg-zinc-50 p-3 text-sm">
+              <p className="font-medium text-zinc-900">{formatProductLabel(similarMatches[0].product)}</p>
+              <p className="mt-1 text-zinc-600">
+                Stock: {similarMatches[0].product.quantityInStock} {similarMatches[0].product.baseUnitName}
+                {similarMatches[0].product.baseUnitName.endsWith("s") ? "" : "s"}
+              </p>
+              {similarMatches.length > 1 && (
+                <p className="mt-1 text-xs text-zinc-500">+{similarMatches.length - 1} other similar match(es).</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => applySameProduct(similarMatches[0])}
+                className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800"
+              >
+                Yes — same product, add this as a new batch
+              </button>
+              <button
+                onClick={confirmDifferentProduct}
+                className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                No — this is a different product
+              </button>
+              <button onClick={() => setSimilarMatches(null)} className="text-xs text-zinc-500 hover:underline">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

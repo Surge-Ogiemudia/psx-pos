@@ -6,6 +6,7 @@ import DispenseSetting from "@/models/DispenseSetting";
 import { requireStoreApiSession, getStoreScope } from "@/lib/session";
 import { logActivity } from "@/lib/activityLog";
 import { handleApiError } from "@/lib/apiError";
+import { parseNumeric } from "@/lib/numberInput";
 
 const CHANNELS = ["sister_store", "branch", "distributor", "wholesaler", "retailer"] as const;
 const CHANNEL_LABEL: Record<string, string> = {
@@ -56,7 +57,7 @@ export async function PUT(
     const body = await request.json();
     const channel = body.channel;
     const priceForm = typeof body.priceForm === "string" ? body.priceForm.trim() : "";
-    const priceAmount = Number(body.priceAmount);
+    const priceAmount = parseNumeric(body.priceAmount);
 
     if (!CHANNELS.includes(channel)) {
       return NextResponse.json({ error: "Invalid channel" }, { status: 400 });

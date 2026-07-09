@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { PaymentMethod, RefundJSON, SaleJSON } from "@/lib/types";
+import { parseNumeric } from "@/lib/numberInput";
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -82,7 +83,7 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
     const items = sale.items
       .map((line) => ({
         productId: line.productId,
-        quantity: Number(refundQuantities[line.productId] || 0),
+        quantity: parseNumeric(refundQuantities[line.productId] || 0),
       }))
       .filter((i) => i.quantity > 0);
 
@@ -325,9 +326,8 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
                         {line.productName} — sold {line.quantity}, {remaining} returnable
                       </span>
                       <input
-                        type="number"
-                        min={0}
-                        max={remaining}
+                        type="text"
+                        inputMode="numeric"
                         placeholder="0"
                         value={refundQuantities[line.productId] || ""}
                         onChange={(e) =>
