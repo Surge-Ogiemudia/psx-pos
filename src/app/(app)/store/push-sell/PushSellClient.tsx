@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { BuyerJSON, BuyerType, PaymentMethod, StoreJSON, StoreProductJSON, StoreBatchJSON } from "@/lib/types";
+import {
+  formatProductLabel,
+  type BuyerJSON,
+  type BuyerType,
+  type PaymentMethod,
+  type StoreJSON,
+  type StoreProductJSON,
+  type StoreBatchJSON,
+} from "@/lib/types";
 import type { BranchOption } from "@/lib/branchScope";
 import { describeBreakdown, describeStock, pluralize } from "@/lib/unitHierarchy";
 
@@ -244,7 +252,7 @@ export default function PushSellClient({
       return;
     }
     resetToCatalog(
-      `Pushed ${quantity} ${pluralize(form, Number(quantity))} of ${selectedProduct.name}${spanNote(data.batchesInvolved)}.`
+      `Pushed ${quantity} ${pluralize(form, Number(quantity))} of ${formatProductLabel(selectedProduct)}${spanNote(data.batchesInvolved)}.`
     );
   }
 
@@ -272,7 +280,7 @@ export default function PushSellClient({
       return;
     }
     resetToCatalog(
-      `Sold ${quantity} ${pluralize(form, Number(quantity))} of ${selectedProduct.name} to ${buyerName}${spanNote(data.batchesInvolved)}.`
+      `Sold ${quantity} ${pluralize(form, Number(quantity))} of ${formatProductLabel(selectedProduct)} to ${buyerName}${spanNote(data.batchesInvolved)}.`
     );
   }
 
@@ -297,7 +305,7 @@ export default function PushSellClient({
       setError(data.error || "Write-off failed.");
       return;
     }
-    resetToCatalog(`Wrote off ${quantity} ${pluralize(form, Number(quantity))} of ${selectedProduct.name}.`);
+    resetToCatalog(`Wrote off ${quantity} ${pluralize(form, Number(quantity))} of ${formatProductLabel(selectedProduct)}.`);
   }
 
   if (step === "catalog") {
@@ -323,7 +331,7 @@ export default function PushSellClient({
                       onClick={() => selectProduct(product)}
                       className="font-medium text-teal-700 hover:underline"
                     >
-                      {product.name}
+                      {formatProductLabel(product)}
                     </button>
                   </td>
                   <td className="px-3 py-2 text-zinc-600">{product.category}</td>
@@ -349,7 +357,7 @@ export default function PushSellClient({
   if (step === "action" && selectedProduct && referenceBatch) {
     return (
       <div>
-        <h1 className="mb-4 text-lg font-semibold text-zinc-900">{selectedProduct.name}</h1>
+        <h1 className="mb-4 text-lg font-semibold text-zinc-900">{formatProductLabel(selectedProduct)}</h1>
         <p className="mb-4 text-sm text-zinc-600">
           {describeStock(selectedProduct.quantityInStock, referenceBatch.unitHierarchy, selectedProduct.baseUnitName)}{" "}
           remaining across all batches.
@@ -389,7 +397,7 @@ export default function PushSellClient({
   if (step === "destination" && selectedProduct) {
     return (
       <div>
-        <h1 className="mb-4 text-lg font-semibold text-zinc-900">Push {selectedProduct.name}</h1>
+        <h1 className="mb-4 text-lg font-semibold text-zinc-900">Push {formatProductLabel(selectedProduct)}</h1>
         <div className="mb-3 flex gap-2">
           <button
             onClick={() => switchDestinationType("store")}
@@ -446,7 +454,7 @@ export default function PushSellClient({
   if (step === "buyer" && selectedProduct) {
     return (
       <div>
-        <h1 className="mb-4 text-lg font-semibold text-zinc-900">Sell {selectedProduct.name}</h1>
+        <h1 className="mb-4 text-lg font-semibold text-zinc-900">Sell {formatProductLabel(selectedProduct)}</h1>
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
         <div className="mb-3 flex gap-2">
           {BUYER_TYPES.map((t) => (
@@ -512,7 +520,7 @@ export default function PushSellClient({
     return (
       <div>
         <h1 className="mb-4 text-lg font-semibold text-zinc-900">
-          {flow === "push" ? "Push" : flow === "sell" ? "Sell" : "Write off"} {selectedProduct.name}
+          {flow === "push" ? "Push" : flow === "sell" ? "Sell" : "Write off"} {formatProductLabel(selectedProduct)}
         </h1>
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
         <div className="max-w-sm rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
@@ -581,7 +589,7 @@ export default function PushSellClient({
         <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           <p className="mb-3 text-sm text-zinc-700">
             Writing off <strong>{quantity}</strong> {pluralize(form, Number(quantity))} of{" "}
-            <strong>{selectedProduct.name}</strong>
+            <strong>{formatProductLabel(selectedProduct)}</strong>
             {writeOffReason ? ` (${writeOffReason})` : ""}.
           </p>
           {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
@@ -614,7 +622,7 @@ export default function PushSellClient({
         <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           <p className="mb-3 text-sm text-zinc-700">
             {flow === "push" ? "Pushing" : "Selling"} <strong>{quantity}</strong> {pluralize(form, Number(quantity))}{" "}
-            of <strong>{selectedProduct.name}</strong>
+            of <strong>{formatProductLabel(selectedProduct)}</strong>
             {flow === "sell" && (
               <>
                 {" "}

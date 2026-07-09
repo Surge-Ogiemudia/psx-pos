@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { PaymentMethod, ProductJSON } from "@/lib/types";
+import { formatProductLabel, type PaymentMethod, type ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
 
@@ -213,7 +213,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
                 className="flex flex-col rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-sm hover:border-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-zinc-900">{product.name}</span>
+                  <span className="font-medium text-zinc-900">{formatProductLabel(product)}</span>
                   {expiryStatus.label && (
                     <span
                       className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${EXPIRY_BADGE_CLASS[expiryStatus.level]}`}
@@ -250,7 +250,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
               return (
                 <div key={line.product._id} className="border-b border-zinc-100 pb-3 last:border-0">
                   <div className="flex items-start justify-between gap-2">
-                    <span className="text-sm font-medium text-zinc-900">{line.product.name}</span>
+                    <span className="text-sm font-medium text-zinc-900">{formatProductLabel(line.product)}</span>
                     <button
                       onClick={() => removeLine(line.product._id)}
                       className="text-xs text-red-600 hover:underline"

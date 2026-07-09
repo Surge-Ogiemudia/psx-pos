@@ -91,7 +91,9 @@ export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: s
         <table className="w-full text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
             <tr>
-              <th className="px-3 py-2">Name</th>
+              <th className="px-3 py-2">Item name</th>
+              <th className="px-3 py-2">Brand</th>
+              <th className="px-3 py-2">Size</th>
               <th className="px-3 py-2">Category</th>
               <th className="px-3 py-2">Stock</th>
             </tr>
@@ -101,9 +103,11 @@ export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: s
               <tr key={product._id} className="border-b border-zinc-100 last:border-0">
                 <td className="px-3 py-2 font-medium text-zinc-900">
                   <Link href={`/store/products/${product._id}/batches`} className="text-teal-700 hover:underline">
-                    {product.name}
+                    {product.itemName}
                   </Link>
                 </td>
+                <td className="px-3 py-2 text-zinc-600">{product.brand}</td>
+                <td className="px-3 py-2 text-zinc-600">{product.size}</td>
                 <td className="px-3 py-2 text-zinc-600">{product.category}</td>
                 <td className="px-3 py-2 text-zinc-600">
                   {describeStock(product.quantityInStock, product.displayUnitHierarchy, product.baseUnitName)}
@@ -112,7 +116,7 @@ export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: s
             ))}
             {products.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-3 py-6 text-center text-zinc-500">
+                <td colSpan={5} className="px-3 py-6 text-center text-zinc-500">
                   No stock received yet.
                 </td>
               </tr>

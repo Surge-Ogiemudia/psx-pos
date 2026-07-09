@@ -14,10 +14,11 @@ export async function GET(request: NextRequest) {
     const search = request.nextUrl.searchParams.get("search")?.trim();
     const query: Record<string, unknown> = { ...scope };
     if (search) {
-      query.name = { $regex: search, $options: "i" };
+      const regex = { $regex: search, $options: "i" };
+      query.$or = [{ itemName: regex }, { brand: regex }, { size: regex }];
     }
 
-    const storeProducts = await StoreProduct.find(query).sort({ name: 1 }).lean();
+    const storeProducts = await StoreProduct.find(query).sort({ itemName: 1, brand: 1 }).lean();
 
     // Stock is always tracked internally in base units (so batches with different packaging
     // never break the math) — but staff think in whatever form they received the product as,

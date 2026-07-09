@@ -2,9 +2,15 @@ export type PriceTier = "retail" | "wholesale" | "distributor";
 export type PaymentMethod = "cash" | "card" | "mobile_money";
 export type ProductCategory = "medicine" | "non-medicine" | "supermarket";
 
+export function formatProductLabel(p: { itemName: string; brand: string; size: string }): string {
+  return `${p.itemName} · ${p.size} · ${p.brand}`;
+}
+
 export interface ProductJSON {
   _id: string;
-  name: string;
+  itemName: string;
+  brand: string;
+  size: string;
   category: ProductCategory;
   quantityInStock: number;
   unitHierarchy?: UnitLevelJSON[] | null;
@@ -85,7 +91,9 @@ export interface BranchJSON {
 
 export interface StoreProductJSON {
   _id: string;
-  name: string;
+  itemName: string;
+  brand: string;
+  size: string;
   category: ProductCategory;
   baseUnitName: string;
   quantityInStock: number;

@@ -5,7 +5,9 @@ import type { ProductCategory, ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expiry";
 
 const emptyForm = {
-  name: "",
+  itemName: "",
+  brand: "",
+  size: "",
   category: "supermarket" as ProductCategory,
   quantityInStock: "",
   retailPrice: "",
@@ -21,7 +23,9 @@ interface LevelForm {
 }
 
 const BULK_FIELDS = [
-  "name",
+  "itemName",
+  "brand",
+  "size",
   "category",
   "quantityInStock",
   "retailPrice",
@@ -33,9 +37,9 @@ const BULK_FIELDS = [
 ] as const;
 
 const BULK_TEMPLATE =
-  "name,category,quantityInStock,retailPrice,batchNumber,expiryDate,unitHierarchy\n" +
-  "Ibuprofen 200mg (20 tabs),medicine,50,5.00,IBU-01,2027-01-31,carton:1>box:4>pack:10\n" +
-  "Milo 400g,non-medicine,20,3200,,";
+  "itemName,brand,size,category,quantityInStock,retailPrice,batchNumber,expiryDate,unitHierarchy\n" +
+  "Ibuprofen,GSK,200mg,medicine,50,5.00,IBU-01,2027-01-31,carton:1>box:4>pack:10\n" +
+  "Groundnut oil,Mamador,1L,non-medicine,20,3200,,";
 
 function parseCsv(text: string): { rows: Record<string, string>[]; error?: string } {
   const lines = text
@@ -148,6 +152,18 @@ export default function ProductsClient({
 
   async function createProduct() {
     setError(null);
+    if (!form.itemName.trim()) {
+      setError("Item name is required.");
+      return;
+    }
+    if (!form.brand.trim()) {
+      setError("Brand is required — if it's not printed on the packaging, look up the manufacturer.");
+      return;
+    }
+    if (!form.size.trim()) {
+      setError('Size is required — use "Standard" if the item has no size/strength variation.');
+      return;
+    }
     const payload: Record<string, unknown> = { ...form, branchId };
     if (hierarchyEnabled && levels.length > 0) {
       const hierarchy = buildHierarchy(levels);
@@ -194,7 +210,9 @@ export default function ProductsClient({
       // Convert stored per-base-unit prices back to per-largest-unit for display.
       const multiplier = getBaseUnitsPerLargest(editLvls);
       setEditForm({
-        name: product.name,
+        itemName: product.itemName,
+        brand: product.brand,
+        size: product.size,
         category: product.category,
         quantityInStock: product.quantityInStock,
         retailPrice: Math.round(product.retailPrice * multiplier * 100) / 100,
@@ -210,7 +228,9 @@ export default function ProductsClient({
         { unitName: "piece", unitsPerParent: "1" },
       ]);
       setEditForm({
-        name: product.name,
+        itemName: product.itemName,
+        brand: product.brand,
+        size: product.size,
         category: product.category,
         quantityInStock: product.quantityInStock,
         retailPrice: product.retailPrice,
@@ -224,6 +244,18 @@ export default function ProductsClient({
 
   async function saveEdit(id: string) {
     setError(null);
+    if (!String(editForm.itemName || "").trim()) {
+      setError("Item name is required.");
+      return;
+    }
+    if (!String(editForm.brand || "").trim()) {
+      setError("Brand is required — if it's not printed on the packaging, look up the manufacturer.");
+      return;
+    }
+    if (!String(editForm.size || "").trim()) {
+      setError('Size is required — use "Standard" if the item has no size/strength variation.');
+      return;
+    }
     const payload: Record<string, unknown> = { ...editForm, branchId };
     if (editHierarchyEnabled && editLevels.length > 0) {
       const hierarchy = buildHierarchy(editLevels);
@@ -356,10 +388,22 @@ export default function ProductsClient({
       {isAdmin && showForm && (
         <div className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
           <input
-            placeholder="Name"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="rounded border border-zinc-300 px-2 py-1.5 text-sm sm:col-span-2 lg:col-span-1"
+            placeholder="Item name (e.g. Amlodipine)"
+            value={form.itemName}
+            onChange={(e) => setForm({ ...form, itemName: e.target.value })}
+            className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+          />
+          <input
+            placeholder="Brand / manufacturer"
+            value={form.brand}
+            onChange={(e) => setForm({ ...form, brand: e.target.value })}
+            className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+          />
+          <input
+            placeholder='Size / strength (e.g. 5mg, 1L, "Standard")'
+            value={form.size}
+            onChange={(e) => setForm({ ...form, size: e.target.value })}
+            className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
           <select
             value={form.category}
@@ -491,16 +535,24 @@ export default function ProductsClient({
           <p className="mb-2 text-sm text-zinc-600">
             Paste CSV with a header row:{" "}
             <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs">
-              name,category,quantityInStock,retailPrice,batchNumber,expiryDate,unitHierarchy
+              itemName,brand,size,category,quantityInStock,retailPrice,batchNumber,expiryDate,unitHierarchy
             </code>
-            . Category must be &quot;supermarket&quot;, &quot;medicine&quot;, or &quot;non-medicine&quot; —
-            defaults to &quot;supermarket&quot; if left blank. Only name and retailPrice are otherwise
-            required; wholesalePrice/distributorPrice (optional extra columns) default to retailPrice,
-            and batchNumber/expiryDate (YYYY-MM-DD) are optional. unitHierarchy uses the format{" "}
+            . <strong>itemName, brand, size, and retailPrice are all required for every row</strong> — brand
+            is the manufacturer (look it up if it isn&apos;t printed on the packaging), size is the
+            strength/measurement (use &quot;Standard&quot; if the item has no size variation). Category must
+            be &quot;supermarket&quot;, &quot;medicine&quot;, or &quot;non-medicine&quot; — defaults to
+            &quot;supermarket&quot; if left blank. wholesalePrice/distributorPrice (optional extra columns)
+            default to retailPrice, and batchNumber/expiryDate (YYYY-MM-DD) are optional. unitHierarchy uses
+            the format{" "}
             <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs">
               carton:1&gt;box:4&gt;piece:10
             </code>{" "}
             (largest to smallest, with units-per-parent after the colon) — leave blank if not needed.
+          </p>
+          <p className="mb-2 text-sm text-zinc-600">
+            Any row missing itemName, brand, size, or retailPrice is rejected — the report below names
+            the exact row and item, what&apos;s missing, and what to enter. Valid rows in the same
+            upload still go through.
           </p>
           <textarea
             value={bulkText}
@@ -540,7 +592,9 @@ export default function ProductsClient({
         <table className="w-full text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
             <tr>
-              <th className="px-3 py-2">Name</th>
+              <th className="px-3 py-2">Item name</th>
+              <th className="px-3 py-2">Brand</th>
+              <th className="px-3 py-2">Size</th>
               <th className="px-3 py-2">Category</th>
               <th className="px-3 py-2">Form</th>
               <th className="px-3 py-2">Stock</th>
@@ -569,9 +623,23 @@ export default function ProductsClient({
                     <>
                       <td className="px-3 py-2">
                         <input
-                          value={editForm.name || ""}
-                          onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                          className="w-32 rounded border border-zinc-300 px-1.5 py-1"
+                          value={editForm.itemName || ""}
+                          onChange={(e) => setEditForm({ ...editForm, itemName: e.target.value })}
+                          className="w-28 rounded border border-zinc-300 px-1.5 py-1"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          value={editForm.brand || ""}
+                          onChange={(e) => setEditForm({ ...editForm, brand: e.target.value })}
+                          className="w-24 rounded border border-zinc-300 px-1.5 py-1"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          value={editForm.size || ""}
+                          onChange={(e) => setEditForm({ ...editForm, size: e.target.value })}
+                          className="w-20 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -705,7 +773,9 @@ export default function ProductsClient({
                     </>
                   ) : (
                     <>
-                      <td className="px-3 py-2 font-medium text-zinc-900">{product.name}</td>
+                      <td className="px-3 py-2 font-medium text-zinc-900">{product.itemName}</td>
+                      <td className="px-3 py-2 text-zinc-600">{product.brand}</td>
+                      <td className="px-3 py-2 text-zinc-600">{product.size}</td>
                       <td className="px-3 py-2 text-zinc-600">{product.category}</td>
                       <td className="px-3 py-2 text-zinc-600">
                         {product.unitHierarchy && product.unitHierarchy.length > 0
@@ -745,7 +815,7 @@ export default function ProductsClient({
             })}
             {products.length === 0 && (
               <tr>
-                <td colSpan={isAdmin ? 10 : 7} className="px-3 py-6 text-center text-zinc-500">
+                <td colSpan={isAdmin ? 12 : 9} className="px-3 py-6 text-center text-zinc-500">
                   No products found.
                 </td>
               </tr>

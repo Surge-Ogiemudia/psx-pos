@@ -4,7 +4,9 @@ const StoreProductSchema = new Schema(
   {
     pharmacyId: { type: Schema.Types.ObjectId, ref: "Pharmacy", required: true, index: true },
     storeId: { type: Schema.Types.ObjectId, ref: "Store", required: true, index: true },
-    name: { type: String, required: true, trim: true },
+    itemName: { type: String, required: true, trim: true, minlength: 1 },
+    brand: { type: String, required: true, trim: true, minlength: 1 },
+    size: { type: String, required: true, trim: true, minlength: 1 },
     category: { type: String, enum: ["medicine", "non-medicine", "supermarket"], default: "supermarket" },
     baseUnitName: { type: String, required: true, default: "piece", trim: true },
     quantityInStock: { type: Number, required: true, default: 0, min: 0 },
@@ -12,7 +14,7 @@ const StoreProductSchema = new Schema(
   { timestamps: true }
 );
 
-StoreProductSchema.index({ pharmacyId: 1, storeId: 1, name: 1 }, { unique: true });
+StoreProductSchema.index({ pharmacyId: 1, storeId: 1, itemName: 1, brand: 1, size: 1 }, { unique: true });
 
 export type StoreProductDoc = InferSchemaType<typeof StoreProductSchema>;
 
