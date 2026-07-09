@@ -203,7 +203,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
           onChange={(e) => setSearch(e.target.value)}
           className="mb-4 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
         />
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="grid max-h-[60vh] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
           {products.map((product) => {
             const expiryStatus = getExpiryStatus(product.expiryDate);
             return (
@@ -238,7 +238,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
         </div>
       </div>
 
-      <div>
+      <div className="lg:sticky lg:top-20 lg:self-start">
         <h2 className="mb-3 text-lg font-semibold text-zinc-900">Current sale</h2>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           {cart.length === 0 && <p className="text-sm text-zinc-500">Cart is empty.</p>}
