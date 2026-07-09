@@ -81,10 +81,9 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
   async function submitRefund(sale: SaleJSON) {
     setRefundError(null);
     const items = sale.items
-      .filter((line) => !line.isCustom && line.productId)
       .map((line) => ({
-        productId: line.productId as string,
-        quantity: parseNumeric(refundQuantities[line.productId as string] || 0),
+        productId: line.productId,
+        quantity: parseNumeric(refundQuantities[line.productId] || 0),
       }))
       .filter((i) => i.quantity > 0);
 
@@ -261,9 +260,8 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
           <tbody>
             {sales.map((sale) => {
               const refunded = totalRefunded(sale._id);
-              const refundableLines = sale.items.filter((line) => !line.isCustom && line.productId);
-              const fullyRefunded = refundableLines.every(
-                (line) => refundedQuantity(sale._id, line.productId as string) >= line.quantity
+              const fullyRefunded = sale.items.every(
+                (line) => refundedQuantity(sale._id, line.productId) >= line.quantity
               );
               return (
                 <tr key={sale._id} className="border-b border-zinc-100 last:border-0">
@@ -319,33 +317,27 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
                 Refund sale from {new Date(sale.timestamp).toLocaleString()}
               </h3>
               <div className="mb-3 flex flex-col gap-2">
-                {sale.items
-                  .filter((line) => !line.isCustom && line.productId)
-                  .map((line) => {
-                    const productId = line.productId as string;
-                    const remaining = line.quantity - refundedQuantity(sale._id, productId);
-                    if (remaining <= 0) return null;
-                    return (
-                      <div key={productId} className="flex items-center justify-between gap-2 text-sm">
-                        <span className="text-zinc-700">
-                          {line.productName} — sold {line.quantity}, {remaining} returnable
-                        </span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          placeholder="0"
-                          value={refundQuantities[productId] || ""}
-                          onChange={(e) =>
-                            setRefundQuantities({ ...refundQuantities, [productId]: e.target.value })
-                          }
-                          className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm"
-                        />
-                      </div>
-                    );
-                  })}
-                {sale.items.some((line) => line.isCustom) && (
-                  <p className="text-xs text-zinc-400">Custom (off-catalog) items in this sale aren&apos;t returnable here.</p>
-                )}
+                {sale.items.map((line) => {
+                  const remaining = line.quantity - refundedQuantity(sale._id, line.productId);
+                  if (remaining <= 0) return null;
+                  return (
+                    <div key={line.productId} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="text-zinc-700">
+                        {line.productName} — sold {line.quantity}, {remaining} returnable
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={refundQuantities[line.productId] || ""}
+                        onChange={(e) =>
+                          setRefundQuantities({ ...refundQuantities, [line.productId]: e.target.value })
+                        }
+                        className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm"
+                      />
+                    </div>
+                  );
+                })}
               </div>
               <label className="mb-1 block text-sm font-medium text-zinc-700">Refund method</label>
               <select

@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     let totalAmount = 0;
 
     for (const item of items) {
-      const saleLine = sale.items.find((l) => l.productId?.toString() === item.productId);
+      const saleLine = sale.items.find((l) => l.productId.toString() === item.productId);
       if (!saleLine) {
         return NextResponse.json({ error: "Item was not part of this sale" }, { status: 400 });
       }
