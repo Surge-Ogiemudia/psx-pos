@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { BuyerJSON, BuyerType, StoreSaleJSON } from "@/lib/types";
 import { pluralize } from "@/lib/unitHierarchy";
+import BackButton from "@/components/BackButton";
 
 const TYPE_LABEL: Record<BuyerType, string> = {
   distributor: "Distributor",
@@ -82,6 +83,7 @@ export default function BuyersClient() {
 
   return (
     <div>
+      <BackButton fallbackHref="/store" />
       <h1 className="mb-4 text-lg font-semibold text-zinc-900">Buyers</h1>
       <div className="mb-4 flex gap-2">
         {(["all", "distributor", "wholesaler", "retailer"] as const).map((t) => (

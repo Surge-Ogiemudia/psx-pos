@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { describeBreakdown, pluralize, type UnitLevel } from "@/lib/unitHierarchy";
 import { formatProductLabel, type ProductCategory } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
+import BackButton from "@/components/BackButton";
 
 interface LevelForm {
   unitName: string;
@@ -207,6 +208,7 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
 
   return (
     <div>
+      <BackButton fallbackHref={storeId ? `/store?storeId=${storeId}` : "/store"} />
       <h1 className="mb-4 text-lg font-semibold text-zinc-900">Receive stock</h1>
       <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
