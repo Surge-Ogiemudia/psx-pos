@@ -12,6 +12,7 @@ import { logActivity } from "@/lib/activityLog";
 import { pluralize } from "@/lib/unitHierarchy";
 import { buildDrawPlan } from "@/lib/storeDraw";
 import { handleApiError } from "@/lib/apiError";
+import { parseNumeric } from "@/lib/numberInput";
 
 export async function GET(request: NextRequest) {
   try {
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
     if (destinationType === "branch" && !toBranchId) {
       return NextResponse.json({ error: "Destination branch is required" }, { status: 400 });
     }
-    const qty = Number(quantity);
+    const qty = parseNumeric(quantity);
     if (!Number.isFinite(qty) || qty < 1) {
       return NextResponse.json({ error: "Quantity must be at least 1" }, { status: 400 });
     }

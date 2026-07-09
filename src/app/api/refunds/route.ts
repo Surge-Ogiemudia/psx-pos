@@ -6,6 +6,7 @@ import Sale from "@/models/Sale";
 import Refund from "@/models/Refund";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+import { parseNumeric } from "@/lib/numberInput";
 
 interface RefundItemInput {
   productId: string;
@@ -57,7 +58,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const saleId = typeof body.saleId === "string" ? body.saleId : "";
-    const items: RefundItemInput[] = Array.isArray(body.items) ? body.items : [];
+    const items: RefundItemInput[] = (Array.isArray(body.items) ? body.items : []).map(
+      (item: RefundItemInput) => ({ ...item, quantity: parseNumeric(item.quantity) })
+    );
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";
     const method = typeof body.method === "string" ? body.method : "";
 

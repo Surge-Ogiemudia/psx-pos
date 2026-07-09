@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import { requireAdminApiSession, getBranchScope } from "@/lib/session";
+import { normalizeText, findSimilarProducts } from "@/lib/productSimilarity";
+import { parseNumeric } from "@/lib/numberInput";
+import { parseExpiryDateLoose } from "@/lib/dateInput";
 import { handleApiError } from "@/lib/apiError";
 
 interface BulkRow {
@@ -30,7 +33,7 @@ function parseHierarchyString(raw: string | undefined): { unitName: string; unit
     const [unitName, countStr] = part.split(":").map((s) => s.trim());
     return {
       unitName: unitName || "",
-      unitsPerParent: i === 0 ? 1 : Math.max(1, Number(countStr) || 1),
+      unitsPerParent: i === 0 ? 1 : Math.max(1, parseNumeric(countStr) || 1),
     };
   });
 }
@@ -57,6 +60,19 @@ export async function POST(request: NextRequest) {
     const scope = getBranchScope(session, body.branchId);
     const errors: { row: number; error: string }[] = [];
     const toInsert: Record<string, unknown>[] = [];
+    const needsReview: { row: number; product: Record<string, unknown>; candidate: Record<string, unknown> }[] = [];
+
+    // Same invariant as the single-add form: itemName+brand+size (normalized) must be unique.
+    // Exact collisions are rejected outright. Near-matches (likely typos) can't get an interactive
+    // "did you mean" prompt mid-paste, so they're held out of the insert and returned separately —
+    // the admin resolves each one with the same New/Batch/Merge choice as the single-add form.
+    const existingProducts = await Product.find(scope)
+      .select("itemName brand size quantityInStock retailPrice wholesalePrice distributorPrice batchNumber expiryDate")
+      .lean();
+    const existingKeys = new Set(
+      existingProducts.map((p) => `${normalizeText(p.itemName)}|${normalizeText(p.brand)}|${normalizeText(p.size)}`)
+    );
+    const seenInBatch = new Set<string>();
 
     rows.forEach((row, index) => {
       const rowNumber = index + 1;
@@ -85,6 +101,20 @@ export async function POST(request: NextRequest) {
         });
         return;
       }
+      const dedupeKey = `${normalizeText(itemName)}|${normalizeText(brand)}|${normalizeText(size)}`;
+      if (existingKeys.has(dedupeKey)) {
+        errors.push({
+          row: rowNumber,
+          error: `${label}: a product with this exact item name, brand, and size already exists — use "Add product" to merge stock into it instead`,
+        });
+        return;
+      }
+      if (seenInBatch.has(dedupeKey)) {
+        errors.push({ row: rowNumber, error: `${label}: duplicated elsewhere in this same import` });
+        return;
+      }
+      seenInBatch.add(dedupeKey);
+
       const category = isMissing(row.category) ? "supermarket" : row.category;
       if (!["medicine", "non-medicine", "supermarket"].includes(category as string)) {
         errors.push({
@@ -97,25 +127,28 @@ export async function POST(request: NextRequest) {
         errors.push({ row: rowNumber, error: `${label}: missing selling (retail) price` });
         return;
       }
-      const retailPrice = Number(row.retailPrice);
+      const retailPrice = parseNumeric(row.retailPrice);
       // Wholesale/distributor default to the retail price when left blank — a quick
       // stock-take only needs item, qty, and selling price.
-      const wholesalePrice = isMissing(row.wholesalePrice) ? retailPrice : Number(row.wholesalePrice);
-      const distributorPrice = isMissing(row.distributorPrice) ? retailPrice : Number(row.distributorPrice);
+      const wholesalePrice = isMissing(row.wholesalePrice) ? retailPrice : parseNumeric(row.wholesalePrice);
+      const distributorPrice = isMissing(row.distributorPrice) ? retailPrice : parseNumeric(row.distributorPrice);
       if ([retailPrice, wholesalePrice, distributorPrice].some((n) => Number.isNaN(n) || n < 0)) {
         errors.push({ row: rowNumber, error: `${label}: prices must be non-negative numbers` });
         return;
       }
-      const quantityInStock = isMissing(row.quantityInStock) ? 0 : Number(row.quantityInStock);
+      const quantityInStock = isMissing(row.quantityInStock) ? 0 : parseNumeric(row.quantityInStock);
       if (Number.isNaN(quantityInStock) || quantityInStock < 0) {
         errors.push({ row: rowNumber, error: `${label}: stock quantity must be a non-negative number` });
         return;
       }
       let expiryDate: Date | null = null;
       if (row.expiryDate) {
-        const parsed = new Date(row.expiryDate);
-        if (Number.isNaN(parsed.getTime())) {
-          errors.push({ row: rowNumber, error: `${label}: invalid expiry date "${row.expiryDate}" — use YYYY-MM-DD` });
+        const parsed = parseExpiryDateLoose(row.expiryDate);
+        if (!parsed) {
+          errors.push({
+            row: rowNumber,
+            error: `${label}: couldn't understand expiry date "${row.expiryDate}" — try YYYY-MM-DD, DD/MM/YYYY, or "Nov 2026"`,
+          });
           return;
         }
         expiryDate = parsed;
@@ -142,7 +175,7 @@ export async function POST(request: NextRequest) {
         storedDistributor = distributorPrice / divisor;
       }
 
-      toInsert.push({
+      const productData = {
         ...scope,
         itemName,
         brand,
@@ -155,7 +188,15 @@ export async function POST(request: NextRequest) {
         batchNumber: row.batchNumber || "",
         expiryDate,
         ...(hierarchy ? { unitHierarchy: hierarchy } : {}),
-      });
+      };
+
+      const fuzzyMatches = findSimilarProducts({ itemName, brand, size }, existingProducts).filter((m) => !m.exact);
+      if (fuzzyMatches.length > 0) {
+        needsReview.push({ row: rowNumber, product: productData, candidate: fuzzyMatches[0].product });
+        return;
+      }
+
+      toInsert.push(productData);
     });
 
     if (toInsert.length > 0) {
@@ -163,8 +204,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { created: toInsert.length, errors },
-      { status: toInsert.length === 0 ? 400 : 201 }
+      { created: toInsert.length, errors, needsReview },
+      { status: toInsert.length === 0 && needsReview.length === 0 ? 400 : 201 }
     );
   } catch (error) {
     return handleApiError(error);

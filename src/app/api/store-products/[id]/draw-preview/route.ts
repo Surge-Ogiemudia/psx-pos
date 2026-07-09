@@ -3,6 +3,7 @@ import { dbConnect } from "@/lib/mongodb";
 import { requireStoreApiSession, getStoreScope } from "@/lib/session";
 import { buildDrawPlan, type Channel } from "@/lib/storeDraw";
 import { handleApiError } from "@/lib/apiError";
+import { parseNumeric } from "@/lib/numberInput";
 
 const CHANNELS: Channel[] = ["sister_store", "branch", "distributor", "wholesaler", "retailer"];
 
@@ -18,7 +19,7 @@ export async function GET(
     const params = request.nextUrl.searchParams;
     const scope = getStoreScope(session, params.get("storeId"));
     const form = params.get("form") ?? "";
-    const quantity = Number(params.get("quantity"));
+    const quantity = parseNumeric(params.get("quantity"));
     const channel = params.get("channel") as Channel;
 
     if (!form) return NextResponse.json({ error: "form is required" }, { status: 400 });

@@ -12,6 +12,7 @@ import {
 } from "@/lib/types";
 import type { BranchOption } from "@/lib/branchScope";
 import { describeBreakdown, describeStock, pluralize } from "@/lib/unitHierarchy";
+import { parseNumeric } from "@/lib/numberInput";
 
 type Step = "catalog" | "action" | "destination" | "buyer" | "details" | "confirm";
 type DestinationType = "store" | "branch";
@@ -167,7 +168,7 @@ export default function PushSellClient({
 
   async function goToConfirm() {
     setError(null);
-    const qty = Number(quantity);
+    const qty = parseNumeric(quantity);
     if (!Number.isFinite(qty) || qty < 1) {
       setError("Enter a quantity of at least 1.");
       return;
@@ -207,7 +208,7 @@ export default function PushSellClient({
   let breakdownError: string | null = null;
   if (step === "confirm" && preview) {
     try {
-      const qty = Number(quantity);
+      const qty = parseNumeric(quantity);
       breakdown = describeBreakdown(preview.referenceHierarchy, form, qty, preview.totalValue);
     } catch (err) {
       breakdownError = err instanceof Error ? err.message : "Could not compute breakdown.";
@@ -239,7 +240,7 @@ export default function PushSellClient({
         storeId,
         storeProductId: selectedProduct._id,
         form,
-        quantity: Number(quantity),
+        quantity: parseNumeric(quantity),
         destinationType,
         toStoreId: destinationType === "store" ? destinationId : undefined,
         toBranchId: destinationType === "branch" ? destinationId : undefined,
@@ -252,7 +253,7 @@ export default function PushSellClient({
       return;
     }
     resetToCatalog(
-      `Pushed ${quantity} ${pluralize(form, Number(quantity))} of ${formatProductLabel(selectedProduct)}${spanNote(data.batchesInvolved)}.`
+      `Pushed ${quantity} ${pluralize(form, parseNumeric(quantity))} of ${formatProductLabel(selectedProduct)}${spanNote(data.batchesInvolved)}.`
     );
   }
 
@@ -267,7 +268,7 @@ export default function PushSellClient({
         storeId,
         storeProductId: selectedProduct._id,
         form,
-        quantity: Number(quantity),
+        quantity: parseNumeric(quantity),
         buyerType,
         buyerName,
         paymentMethod,
@@ -280,7 +281,7 @@ export default function PushSellClient({
       return;
     }
     resetToCatalog(
-      `Sold ${quantity} ${pluralize(form, Number(quantity))} of ${formatProductLabel(selectedProduct)} to ${buyerName}${spanNote(data.batchesInvolved)}.`
+      `Sold ${quantity} ${pluralize(form, parseNumeric(quantity))} of ${formatProductLabel(selectedProduct)} to ${buyerName}${spanNote(data.batchesInvolved)}.`
     );
   }
 
@@ -295,7 +296,7 @@ export default function PushSellClient({
         storeId,
         storeProductId: selectedProduct._id,
         form,
-        quantity: Number(quantity),
+        quantity: parseNumeric(quantity),
         reason: writeOffReason,
       }),
     });
@@ -305,7 +306,7 @@ export default function PushSellClient({
       setError(data.error || "Write-off failed.");
       return;
     }
-    resetToCatalog(`Wrote off ${quantity} ${pluralize(form, Number(quantity))} of ${formatProductLabel(selectedProduct)}.`);
+    resetToCatalog(`Wrote off ${quantity} ${pluralize(form, parseNumeric(quantity))} of ${formatProductLabel(selectedProduct)}.`);
   }
 
   if (step === "catalog") {
@@ -527,8 +528,8 @@ export default function PushSellClient({
           <label className="mb-1 block text-sm font-medium text-zinc-700">Quantity</label>
           <div className="mb-3 flex gap-2">
             <input
-              type="number"
-              min={1}
+              type="text"
+              inputMode="numeric"
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               className="w-24 rounded border border-zinc-300 px-2 py-1.5 text-sm"
@@ -588,7 +589,7 @@ export default function PushSellClient({
         <h1 className="mb-4 text-lg font-semibold text-zinc-900">Confirm write-off</h1>
         <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           <p className="mb-3 text-sm text-zinc-700">
-            Writing off <strong>{quantity}</strong> {pluralize(form, Number(quantity))} of{" "}
+            Writing off <strong>{quantity}</strong> {pluralize(form, parseNumeric(quantity))} of{" "}
             <strong>{formatProductLabel(selectedProduct)}</strong>
             {writeOffReason ? ` (${writeOffReason})` : ""}.
           </p>
@@ -621,7 +622,7 @@ export default function PushSellClient({
         </h1>
         <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           <p className="mb-3 text-sm text-zinc-700">
-            {flow === "push" ? "Pushing" : "Selling"} <strong>{quantity}</strong> {pluralize(form, Number(quantity))}{" "}
+            {flow === "push" ? "Pushing" : "Selling"} <strong>{quantity}</strong> {pluralize(form, parseNumeric(quantity))}{" "}
             of <strong>{formatProductLabel(selectedProduct)}</strong>
             {flow === "sell" && (
               <>

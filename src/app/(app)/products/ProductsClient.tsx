@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ProductCategory, ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expiry";
+import { parseNumeric } from "@/lib/numberInput";
 
 const emptyForm = {
   itemName: "",
@@ -20,6 +21,18 @@ const emptyForm = {
 interface LevelForm {
   unitName: string;
   unitsPerParent: string;
+}
+
+interface SimilarMatch {
+  product: ProductJSON;
+  score: number;
+  exact: boolean;
+}
+
+interface BulkReviewRow {
+  row: number;
+  product: Record<string, unknown>;
+  candidate: { _id: string; itemName: string; brand: string; size: string; quantityInStock: number; retailPrice: number };
 }
 
 const BULK_FIELDS = [
@@ -73,7 +86,7 @@ export default function ProductsClient({
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<ProductJSON>>({});
+  const [editForm, setEditForm] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
@@ -82,6 +95,8 @@ export default function ProductsClient({
     null
   );
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [bulkReview, setBulkReview] = useState<BulkReviewRow[]>([]);
+  const [bulkReviewBusyRow, setBulkReviewBusyRow] = useState<number | null>(null);
 
   // Unit hierarchy builder state for the single-add form
   const [hierarchyEnabled, setHierarchyEnabled] = useState(false);
@@ -93,6 +108,11 @@ export default function ProductsClient({
   // Unit hierarchy builder state for inline edit
   const [editHierarchyEnabled, setEditHierarchyEnabled] = useState(false);
   const [editLevels, setEditLevels] = useState<LevelForm[]>([]);
+
+  // "Did you mean" duplicate-check modal for the single-add form
+  const [similarMatches, setSimilarMatches] = useState<SimilarMatch[] | null>(null);
+  const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null);
+  const [resolvingSimilar, setResolvingSimilar] = useState(false);
 
   function addLevel() {
     setLevels((prev) => [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]);
@@ -123,7 +143,7 @@ export default function ProductsClient({
   function buildHierarchy(lvls: LevelForm[]): { unitName: string; unitsPerParent: number }[] {
     return lvls.map((l, i) => ({
       unitName: l.unitName.trim(),
-      unitsPerParent: i === 0 ? 1 : Math.max(1, Number(l.unitsPerParent) || 1),
+      unitsPerParent: i === 0 ? 1 : Math.max(1, parseNumeric(l.unitsPerParent) || 1),
     }));
   }
 
@@ -131,7 +151,7 @@ export default function ProductsClient({
   function getBaseUnitsPerLargest(lvls: LevelForm[]): number {
     let result = 1;
     for (let i = 1; i < lvls.length; i++) {
-      result *= Math.max(1, Number(lvls[i].unitsPerParent) || 1);
+      result *= Math.max(1, parseNumeric(lvls[i].unitsPerParent) || 1);
     }
     return result;
   }
@@ -174,10 +194,27 @@ export default function ProductsClient({
       payload.unitHierarchy = hierarchy;
       // Prices are entered as per-largest-unit; convert to per-base-unit for storage.
       const divisor = getBaseUnitsPerLargest(levels);
-      if (payload.retailPrice) payload.retailPrice = Number(payload.retailPrice) / divisor;
-      if (payload.wholesalePrice) payload.wholesalePrice = Number(payload.wholesalePrice) / divisor;
-      if (payload.distributorPrice) payload.distributorPrice = Number(payload.distributorPrice) / divisor;
+      if (payload.retailPrice) payload.retailPrice = parseNumeric(payload.retailPrice) / divisor;
+      if (payload.wholesalePrice) payload.wholesalePrice = parseNumeric(payload.wholesalePrice) / divisor;
+      if (payload.distributorPrice) payload.distributorPrice = parseNumeric(payload.distributorPrice) / divisor;
     }
+
+    // Central catalog: check for an exact or near-name match before creating a second row.
+    const params = new URLSearchParams({ itemName: form.itemName, brand: form.brand, size: form.size });
+    if (branchId) params.set("branchId", branchId);
+    const simRes = await fetch(`/api/products/similar?${params}`);
+    if (simRes.ok) {
+      const simData = await simRes.json();
+      if (simData.matches && simData.matches.length > 0) {
+        setSimilarMatches(simData.matches);
+        setPendingPayload(payload);
+        return;
+      }
+    }
+    await submitCreate(payload);
+  }
+
+  async function submitCreate(payload: Record<string, unknown>) {
     const res = await fetch("/api/products", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -196,6 +233,42 @@ export default function ProductsClient({
       { unitName: "piece", unitsPerParent: "1" },
     ]);
     loadProducts();
+  }
+
+  async function resolveSimilar(choice: "new" | "batch" | "merge") {
+    if (!pendingPayload) return;
+    setResolvingSimilar(true);
+    setError(null);
+    try {
+      if (choice === "new") {
+        await submitCreate(pendingPayload);
+      } else {
+        const target = similarMatches?.[0]?.product;
+        if (!target) return;
+        const res = await fetch(`/api/products/${target._id}/merge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: choice, ...pendingPayload }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || "Failed to merge product");
+          return;
+        }
+        setForm(emptyForm);
+        setShowForm(false);
+        setHierarchyEnabled(false);
+        setLevels([
+          { unitName: "carton", unitsPerParent: "1" },
+          { unitName: "piece", unitsPerParent: "1" },
+        ]);
+        loadProducts();
+      }
+    } finally {
+      setResolvingSimilar(false);
+      setSimilarMatches(null);
+      setPendingPayload(null);
+    }
   }
 
   function startEdit(product: ProductJSON) {
@@ -266,9 +339,9 @@ export default function ProductsClient({
       payload.unitHierarchy = hierarchy;
       // Prices are displayed as per-largest-unit; convert to per-base-unit for storage.
       const divisor = getBaseUnitsPerLargest(editLevels);
-      if (payload.retailPrice) payload.retailPrice = Number(payload.retailPrice) / divisor;
-      if (payload.wholesalePrice) payload.wholesalePrice = Number(payload.wholesalePrice) / divisor;
-      if (payload.distributorPrice) payload.distributorPrice = Number(payload.distributorPrice) / divisor;
+      if (payload.retailPrice) payload.retailPrice = parseNumeric(payload.retailPrice) / divisor;
+      if (payload.wholesalePrice) payload.wholesalePrice = parseNumeric(payload.wholesalePrice) / divisor;
+      if (payload.distributorPrice) payload.distributorPrice = parseNumeric(payload.distributorPrice) / divisor;
     } else {
       // Clear hierarchy if user toggled it off
       payload.unitHierarchy = null;
@@ -321,14 +394,42 @@ export default function ProductsClient({
     const data = await res.json();
     setBulkSubmitting(false);
 
-    if (!res.ok && !data.created) {
+    if (!res.ok && !data.created && !(data.needsReview || []).length) {
       setBulkError(data.error || "Import failed");
       return;
     }
 
     setBulkResult({ created: data.created, errors: data.errors || [] });
-    if ((data.errors || []).length === 0) setBulkText("");
+    setBulkReview(data.needsReview || []);
+    if ((data.errors || []).length === 0 && !(data.needsReview || []).length) setBulkText("");
     loadProducts();
+  }
+
+  async function resolveBulkReviewRow(reviewRow: BulkReviewRow, choice: "new" | "batch" | "merge") {
+    setBulkReviewBusyRow(reviewRow.row);
+    try {
+      const res =
+        choice === "new"
+          ? await fetch("/api/products", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(reviewRow.product),
+            })
+          : await fetch(`/api/products/${reviewRow.candidate._id}/merge`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mode: choice, ...reviewRow.product }),
+            });
+      if (res.ok) {
+        setBulkReview((prev) => prev.filter((r) => r.row !== reviewRow.row));
+        loadProducts();
+      } else {
+        const data = await res.json();
+        setBulkError(data.error || "Failed to resolve row");
+      }
+    } finally {
+      setBulkReviewBusyRow(null);
+    }
   }
 
   return (
@@ -385,6 +486,63 @@ export default function ProductsClient({
 
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
+      {similarMatches && similarMatches.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-lg">
+            <h2 className="mb-2 text-base font-semibold text-zinc-900">Is this the same product?</h2>
+            <p className="mb-3 text-sm text-zinc-600">
+              You&apos;re adding <strong>{form.itemName} · {form.brand} · {form.size}</strong>. A very similar
+              product is already in the catalog:
+            </p>
+            <div className="mb-4 rounded border border-zinc-200 bg-zinc-50 p-3 text-sm">
+              <p className="font-medium text-zinc-900">
+                {similarMatches[0].product.itemName} · {similarMatches[0].product.brand} · {similarMatches[0].product.size}
+              </p>
+              <p className="mt-1 text-zinc-600">
+                Stock: {similarMatches[0].product.quantityInStock} · Retail: ₦{similarMatches[0].product.retailPrice.toFixed(2)}
+                {similarMatches[0].product.expiryDate && <> · Expiry: {similarMatches[0].product.expiryDate.slice(0, 10)}</>}
+              </p>
+              {similarMatches.length > 1 && (
+                <p className="mt-1 text-xs text-zinc-500">+{similarMatches.length - 1} other similar match(es) not shown.</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                disabled={resolvingSimilar}
+                onClick={() => resolveSimilar("new")}
+                className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+              >
+                No — different product, add separately
+              </button>
+              <button
+                disabled={resolvingSimilar}
+                onClick={() => resolveSimilar("batch")}
+                className="rounded-lg border border-teal-700 px-3 py-2 text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-60"
+              >
+                Yes — new batch (combine stock, keep soonest expiry)
+              </button>
+              <button
+                disabled={resolvingSimilar}
+                onClick={() => resolveSimilar("merge")}
+                className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+              >
+                Yes — merge completely (soonest expiry, highest price)
+              </button>
+              <button
+                disabled={resolvingSimilar}
+                onClick={() => {
+                  setSimilarMatches(null);
+                  setPendingPayload(null);
+                }}
+                className="text-xs text-zinc-500 hover:underline"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isAdmin && showForm && (
         <div className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
           <input
@@ -415,28 +573,32 @@ export default function ProductsClient({
             <option value="non-medicine">Non-medicine</option>
           </select>
           <input
-            type="number"
+            type="text"
+            inputMode="numeric"
             placeholder="Stock qty"
             value={form.quantityInStock}
             onChange={(e) => setForm({ ...form, quantityInStock: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             placeholder="Retail price"
             value={form.retailPrice}
             onChange={(e) => setForm({ ...form, retailPrice: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             placeholder="Wholesale price (optional)"
             value={form.wholesalePrice}
             onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             placeholder="Distributor price (optional)"
             value={form.distributorPrice}
             onChange={(e) => setForm({ ...form, distributorPrice: e.target.value })}
@@ -491,8 +653,8 @@ export default function ProductsClient({
                         <>
                           <span className="text-xs text-zinc-500">per</span>
                           <input
-                            type="number"
-                            min={1}
+                            type="text"
+                            inputMode="numeric"
                             value={level.unitsPerParent}
                             onChange={(e) => updateLevel(i, { unitsPerParent: e.target.value })}
                             className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm"
@@ -578,6 +740,52 @@ export default function ProductsClient({
               )}
             </div>
           )}
+
+          {bulkReview.length > 0 && (
+            <div className="mb-3 rounded border border-amber-300 bg-amber-50 p-3">
+              <p className="mb-2 text-sm font-medium text-amber-800">
+                {bulkReview.length} row{bulkReview.length === 1 ? "" : "s"} look similar to an existing product —
+                resolve each before they&apos;re added:
+              </p>
+              <div className="flex flex-col gap-2">
+                {bulkReview.map((r) => (
+                  <div key={r.row} className="rounded border border-zinc-200 bg-white p-2 text-sm">
+                    <p className="text-zinc-800">
+                      Row {r.row}: <strong>{String(r.product.itemName)}</strong> · {String(r.product.brand)} ·{" "}
+                      {String(r.product.size)}
+                    </p>
+                    <p className="text-zinc-500">
+                      Similar to: {r.candidate.itemName} · {r.candidate.brand} · {r.candidate.size} (stock{" "}
+                      {r.candidate.quantityInStock}, ₦{r.candidate.retailPrice.toFixed(2)})
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      <button
+                        disabled={bulkReviewBusyRow === r.row}
+                        onClick={() => resolveBulkReviewRow(r, "new")}
+                        className="rounded border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                      >
+                        No, different — add separately
+                      </button>
+                      <button
+                        disabled={bulkReviewBusyRow === r.row}
+                        onClick={() => resolveBulkReviewRow(r, "batch")}
+                        className="rounded border border-teal-700 px-2 py-1 text-xs font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-60"
+                      >
+                        Yes, new batch
+                      </button>
+                      <button
+                        disabled={bulkReviewBusyRow === r.row}
+                        onClick={() => resolveBulkReviewRow(r, "merge")}
+                        className="rounded bg-teal-700 px-2 py-1 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+                      >
+                        Yes, merge completely
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <button
             onClick={importBulk}
             disabled={bulkSubmitting || !bulkText.trim()}
@@ -623,28 +831,28 @@ export default function ProductsClient({
                     <>
                       <td className="px-3 py-2">
                         <input
-                          value={editForm.itemName || ""}
+                          value={String(editForm.itemName ?? "")}
                           onChange={(e) => setEditForm({ ...editForm, itemName: e.target.value })}
                           className="w-28 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
                       <td className="px-3 py-2">
                         <input
-                          value={editForm.brand || ""}
+                          value={String(editForm.brand ?? "")}
                           onChange={(e) => setEditForm({ ...editForm, brand: e.target.value })}
                           className="w-24 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
                       <td className="px-3 py-2">
                         <input
-                          value={editForm.size || ""}
+                          value={String(editForm.size ?? "")}
                           onChange={(e) => setEditForm({ ...editForm, size: e.target.value })}
                           className="w-20 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
                       <td className="px-3 py-2">
                         <select
-                          value={editForm.category}
+                          value={editForm.category as ProductCategory}
                           onChange={(e) =>
                             setEditForm({ ...editForm, category: e.target.value as ProductCategory })
                           }
@@ -680,8 +888,8 @@ export default function ProductsClient({
                                     <>
                                       <span className="text-[10px] text-zinc-400">×</span>
                                       <input
-                                        type="number"
-                                        min={1}
+                                        type="text"
+                                        inputMode="numeric"
                                         value={level.unitsPerParent}
                                         onChange={(e) => updateEditLevel(i, { unitsPerParent: e.target.value })}
                                         className="w-10 rounded border border-zinc-300 px-1 py-0.5 text-xs"
@@ -710,43 +918,43 @@ export default function ProductsClient({
                       </td>
                       <td className="px-3 py-2">
                         <input
-                          type="number"
-                          value={editForm.quantityInStock}
-                          onChange={(e) =>
-                            setEditForm({ ...editForm, quantityInStock: Number(e.target.value) })
-                          }
+                          type="text"
+                          inputMode="numeric"
+                          value={editForm.quantityInStock as string | number}
+                          onChange={(e) => setEditForm({ ...editForm, quantityInStock: e.target.value })}
                           className="w-16 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
                       <td className="px-3 py-2">
                         <input
-                          type="number"
-                          value={editForm.retailPrice}
-                          onChange={(e) => setEditForm({ ...editForm, retailPrice: Number(e.target.value) })}
+                          type="text"
+                          inputMode="decimal"
+                          value={editForm.retailPrice as string | number}
+                          onChange={(e) => setEditForm({ ...editForm, retailPrice: e.target.value })}
                           className="w-20 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
                       <td className="px-3 py-2">
                         <input
-                          type="number"
-                          value={editForm.wholesalePrice}
-                          onChange={(e) => setEditForm({ ...editForm, wholesalePrice: Number(e.target.value) })}
+                          type="text"
+                          inputMode="decimal"
+                          value={editForm.wholesalePrice as string | number}
+                          onChange={(e) => setEditForm({ ...editForm, wholesalePrice: e.target.value })}
                           className="w-20 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
                       <td className="px-3 py-2">
                         <input
-                          type="number"
-                          value={editForm.distributorPrice}
-                          onChange={(e) =>
-                            setEditForm({ ...editForm, distributorPrice: Number(e.target.value) })
-                          }
+                          type="text"
+                          inputMode="decimal"
+                          value={editForm.distributorPrice as string | number}
+                          onChange={(e) => setEditForm({ ...editForm, distributorPrice: e.target.value })}
                           className="w-20 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
                       <td className="px-3 py-2">
                         <input
-                          value={editForm.batchNumber || ""}
+                          value={String(editForm.batchNumber ?? "")}
                           onChange={(e) => setEditForm({ ...editForm, batchNumber: e.target.value })}
                           className="w-20 rounded border border-zinc-300 px-1.5 py-1"
                         />

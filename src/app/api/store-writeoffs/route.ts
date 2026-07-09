@@ -9,6 +9,7 @@ import { logActivity } from "@/lib/activityLog";
 import { compareBatchesFifo, computeBaseUnitsPerLevel, planDraw, pluralize } from "@/lib/unitHierarchy";
 import { handleApiError } from "@/lib/apiError";
 import { formatProductLabel } from "@/lib/types";
+import { parseNumeric } from "@/lib/numberInput";
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const storeProductId = typeof body.storeProductId === "string" ? body.storeProductId : "";
     const form = typeof body.form === "string" ? body.form.trim() : "";
-    const quantity = Number(body.quantity);
+    const quantity = parseNumeric(body.quantity);
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";
 
     if (!storeProductId) return NextResponse.json({ error: "storeProductId is required" }, { status: 400 });

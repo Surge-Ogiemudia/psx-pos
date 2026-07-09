@@ -7,6 +7,7 @@ import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { computeBaseUnitsPerLevel } from "@/lib/unitHierarchy";
 import { formatProductLabel } from "@/lib/types";
+import { parseNumeric } from "@/lib/numberInput";
 
 const PRICE_FIELD: Record<string, "retailPrice" | "wholesalePrice" | "distributorPrice"> = {
   retail: "retailPrice",
@@ -90,9 +91,13 @@ export async function POST(request: NextRequest) {
     await dbConnect();
 
     const body = await request.json();
-    const items: SaleItemInput[] = Array.isArray(body.items) ? body.items : [];
-    const payments: PaymentLineInput[] = Array.isArray(body.payments) ? body.payments : [];
-    const changeFeeInput = Number(body.changeFee ?? 0);
+    const items: SaleItemInput[] = (Array.isArray(body.items) ? body.items : []).map(
+      (item: SaleItemInput) => ({ ...item, quantity: parseNumeric(item.quantity) })
+    );
+    const payments: PaymentLineInput[] = (Array.isArray(body.payments) ? body.payments : []).map(
+      (p: PaymentLineInput) => ({ ...p, amount: parseNumeric(p.amount) })
+    );
+    const changeFeeInput = parseNumeric(body.changeFee ?? 0);
     const changeMethod = PAYMENT_METHODS.includes(body.changeMethod) ? body.changeMethod : "cash";
 
     if (items.length === 0) {

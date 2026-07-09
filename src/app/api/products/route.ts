@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import { requireAdminApiSession, requireApiSession, getBranchScope } from "@/lib/session";
+import { normalizeText, productSearchScore } from "@/lib/productSimilarity";
+import { parseNumeric } from "@/lib/numberInput";
 import { handleApiError } from "@/lib/apiError";
 
 export async function GET(request: NextRequest) {
@@ -14,13 +16,21 @@ export async function GET(request: NextRequest) {
       session,
       request.nextUrl.searchParams.get("branchId")
     );
-    if (search) {
-      const regex = { $regex: search, $options: "i" };
-      query.$or = [{ itemName: regex }, { brand: regex }, { size: regex }];
-    }
 
     const products = await Product.find(query).sort({ itemName: 1, brand: 1 }).lean();
-    return NextResponse.json({ products });
+
+    if (!search) {
+      return NextResponse.json({ products });
+    }
+
+    // Search-as-you-type: rank by prefix/substring match first, then typo-tolerant fuzzy match
+    // (e.g. "Swiss" also finds "Swoss"/"Suoss"), so a single letter still shows sensible results.
+    const ranked = products
+      .map((p) => ({ product: p, score: productSearchScore(search, p) }))
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    return NextResponse.json({ products: ranked.map((r) => r.product) });
   } catch (error) {
     return handleApiError(error);
   }
@@ -77,15 +87,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid category" }, { status: 400 });
     }
 
-    const retail = Number(retailPrice);
+    const retail = parseNumeric(retailPrice);
+    if (Number.isNaN(retail) || retail < 0) {
+      return NextResponse.json({ error: "Selling (retail) price must be a non-negative number" }, { status: 400 });
+    }
     const scope = getBranchScope(session, branchId);
+
+    // Hard invariant: two products can never share the same itemName+brand+size (case/whitespace
+    // insensitive) in the same scope — that combination *is* the product, by schema design.
+    const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const exactMatch = await Product.findOne({
+      ...scope,
+      itemName: { $regex: `^${escapeRegex(normalizeText(trimmed(itemName)))}$`, $options: "i" },
+      brand: { $regex: `^${escapeRegex(normalizeText(trimmed(brand)))}$`, $options: "i" },
+      size: { $regex: `^${escapeRegex(normalizeText(trimmed(size)))}$`, $options: "i" },
+    }).lean();
+    if (exactMatch) {
+      return NextResponse.json(
+        {
+          error: "A product with this exact item name, brand, and size already exists",
+          existingProductId: String(exactMatch._id),
+        },
+        { status: 409 }
+      );
+    }
 
     // Validate unitHierarchy if provided: must be an array of {unitName, unitsPerParent}.
     let hierarchy: { unitName: string; unitsPerParent: number }[] | undefined;
     if (Array.isArray(unitHierarchy) && unitHierarchy.length > 0) {
       hierarchy = unitHierarchy.map((l: { unitName?: string; unitsPerParent?: number }, i: number) => ({
         unitName: (l.unitName || "").trim(),
-        unitsPerParent: i === 0 ? 1 : Math.max(1, Number(l.unitsPerParent) || 1),
+        unitsPerParent: i === 0 ? 1 : Math.max(1, parseNumeric(l.unitsPerParent) || 1),
       }));
       if (hierarchy.some((l) => !l.unitName)) {
         return NextResponse.json({ error: "Every unit level needs a name" }, { status: 400 });
@@ -98,10 +130,10 @@ export async function POST(request: NextRequest) {
       brand: trimmed(brand),
       size: trimmed(size),
       category,
-      quantityInStock: missing(quantityInStock) ? 0 : Number(quantityInStock),
+      quantityInStock: missing(quantityInStock) ? 0 : parseNumeric(quantityInStock),
       retailPrice: retail,
-      wholesalePrice: missing(wholesalePrice) ? retail : Number(wholesalePrice),
-      distributorPrice: missing(distributorPrice) ? retail : Number(distributorPrice),
+      wholesalePrice: missing(wholesalePrice) ? retail : parseNumeric(wholesalePrice),
+      distributorPrice: missing(distributorPrice) ? retail : parseNumeric(distributorPrice),
       batchNumber: batchNumber || "",
       expiryDate: expiryDate ? new Date(expiryDate) : null,
       ...(hierarchy ? { unitHierarchy: hierarchy } : {}),
