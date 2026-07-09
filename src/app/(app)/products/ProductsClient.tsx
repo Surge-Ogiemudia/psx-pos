@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ProductCategory, ProductJSON } from "@/lib/types";
+import { formatProductLabel, type ProductCategory, type ProductJSON, type ProductRequestJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expiry";
 import { parseNumeric } from "@/lib/numberInput";
 
@@ -114,6 +114,14 @@ export default function ProductsClient({
   const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null);
   const [resolvingSimilar, setResolvingSimilar] = useState(false);
 
+  // Pending "sold as custom, not in catalog yet" requests filed from POS, awaiting review.
+  const [productRequests, setProductRequests] = useState<ProductRequestJSON[]>([]);
+  const [approvingRequestId, setApprovingRequestId] = useState<string | null>(null);
+  const [matchingRequestId, setMatchingRequestId] = useState<string | null>(null);
+  const [matchSearch, setMatchSearch] = useState("");
+  const [matchResults, setMatchResults] = useState<ProductJSON[]>([]);
+  const [requestError, setRequestError] = useState<string | null>(null);
+
   function addLevel() {
     setLevels((prev) => [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]);
   }
@@ -170,6 +178,87 @@ export default function ProductsClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
+  async function loadProductRequests() {
+    if (!isAdmin) return;
+    const params = new URLSearchParams({ status: "pending" });
+    if (branchId) params.set("branchId", branchId);
+    const res = await fetch(`/api/product-requests?${params}`);
+    if (res.ok) setProductRequests((await res.json()).requests);
+  }
+
+  useEffect(() => {
+    const timeout = setTimeout(loadProductRequests, 0);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, branchId]);
+
+  useEffect(() => {
+    if (!matchingRequestId || !matchSearch.trim()) {
+      const timeout = setTimeout(() => setMatchResults([]), 0);
+      return () => clearTimeout(timeout);
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(async () => {
+      const params = new URLSearchParams({ search: matchSearch.trim() });
+      if (branchId) params.set("branchId", branchId);
+      const res = await fetch(`/api/products?${params}`, { signal: controller.signal });
+      if (res.ok) setMatchResults((await res.json()).products.slice(0, 8));
+    }, 250);
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [matchingRequestId, matchSearch, branchId]);
+
+  function approveRequest(request: ProductRequestJSON) {
+    setRequestError(null);
+    setApprovingRequestId(request._id);
+    setShowForm(true);
+    setBulkMode(false);
+    setForm({
+      ...emptyForm,
+      itemName: request.itemName,
+      brand: request.brand,
+      size: request.size,
+      category: request.category,
+      retailPrice: String(request.requestedPrice),
+    });
+  }
+
+  async function linkRequestToProduct(requestId: string, productId: string, action: "resolve_duplicate" | "approve") {
+    setRequestError(null);
+    const res = await fetch(`/api/product-requests/${requestId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, productId, branchId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setRequestError(data.error || "Failed to update request");
+      return;
+    }
+    setMatchingRequestId(null);
+    setMatchSearch("");
+    setMatchResults([]);
+    loadProductRequests();
+  }
+
+  async function rejectRequest(requestId: string) {
+    if (!confirm("Reject this request? No product will be created or adjusted.")) return;
+    setRequestError(null);
+    const res = await fetch(`/api/product-requests/${requestId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reject", branchId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setRequestError(data.error || "Failed to reject request");
+      return;
+    }
+    loadProductRequests();
+  }
+
   async function createProduct() {
     setError(null);
     if (!form.itemName.trim()) {
@@ -225,6 +314,10 @@ export default function ProductsClient({
       setError(data.error || "Failed to create product");
       return;
     }
+    if (approvingRequestId) {
+      await linkRequestToProduct(approvingRequestId, data.product._id, "approve");
+      setApprovingRequestId(null);
+    }
     setForm(emptyForm);
     setShowForm(false);
     setHierarchyEnabled(false);
@@ -268,6 +361,10 @@ export default function ProductsClient({
       setResolvingSimilar(false);
       setSimilarMatches(null);
       setPendingPayload(null);
+      // If approving a product request led here via "batch"/"merge" instead of "new", the
+      // request itself is left pending rather than guessing how to reconcile it — the merge
+      // already adjusted stock its own way, so admin can match the request to it manually.
+      setApprovingRequestId(null);
     }
   }
 
@@ -466,6 +563,8 @@ export default function ProductsClient({
               onClick={() => {
                 setShowForm((v) => !v);
                 setBulkMode(false);
+                setApprovingRequestId(null);
+                setForm(emptyForm);
               }}
               className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
             >
@@ -483,6 +582,87 @@ export default function ProductsClient({
           </div>
         )}
       </div>
+
+      {isAdmin && productRequests.length > 0 && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-amber-900">
+            Pending item requests ({productRequests.length})
+          </h2>
+          <p className="mb-3 text-xs text-amber-800">
+            Sold at POS as a custom item because it wasn&apos;t in the catalog. Add it as a new product, or match
+            it to an existing product to reconcile the stock that already left the shelf.
+          </p>
+          {requestError && <p className="mb-2 text-sm text-red-600">{requestError}</p>}
+          <div className="flex flex-col gap-3">
+            {productRequests.map((req) => (
+              <div key={req._id} className="rounded border border-amber-200 bg-white p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="font-medium text-zinc-900">
+                      {formatProductLabel(req)} <span className="text-zinc-400">({req.category})</span>
+                    </span>
+                    <p className="text-xs text-zinc-500">
+                      Sold {req.quantitySold} at ₦{req.requestedPrice.toFixed(2)} each by {req.requestedByName} on{" "}
+                      {new Date(req.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => approveRequest(req)}
+                      className="rounded border border-teal-700 px-2 py-1 text-xs font-medium text-teal-700 hover:bg-teal-50"
+                    >
+                      Add as new product
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMatchingRequestId(matchingRequestId === req._id ? null : req._id);
+                        setMatchSearch("");
+                        setMatchResults([]);
+                      }}
+                      className="rounded border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Match existing product
+                    </button>
+                    <button
+                      onClick={() => rejectRequest(req._id)}
+                      className="rounded border border-red-300 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+                {matchingRequestId === req._id && (
+                  <div className="mt-2 rounded border border-zinc-200 bg-zinc-50 p-2">
+                    <input
+                      placeholder="Search existing products..."
+                      value={matchSearch}
+                      onChange={(e) => setMatchSearch(e.target.value)}
+                      className="mb-2 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                    />
+                    <div className="flex flex-col gap-1">
+                      {matchResults.map((product) => (
+                        <button
+                          key={product._id}
+                          onClick={() => linkRequestToProduct(req._id, product._id, "resolve_duplicate")}
+                          className="rounded px-2 py-1 text-left text-sm text-teal-700 hover:bg-teal-100"
+                        >
+                          {formatProductLabel(product)} — Stock: {product.quantityInStock}
+                        </button>
+                      ))}
+                      {matchSearch.trim() && matchResults.length === 0 && (
+                        <p className="px-2 py-1 text-xs text-zinc-500">No matches.</p>
+                      )}
+                    </div>
+                    <p className="mt-1 px-2 text-xs text-zinc-500">
+                      Selecting a product deducts {req.quantitySold} from its stock, reconciling the sale.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <input
         type="text"
