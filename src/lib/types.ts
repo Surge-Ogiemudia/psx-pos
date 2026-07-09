@@ -22,12 +22,17 @@ export interface ProductJSON {
 }
 
 export interface SaleItemJSON {
-  productId: string;
+  productId: string | null;
   productName: string;
+  isCustom?: boolean;
+  itemName?: string | null;
+  brand?: string | null;
+  size?: string | null;
+  category?: ProductCategory | null;
   quantity: number;
   form?: string | null;
   formQuantity?: number | null;
-  priceTierUsed: PriceTier;
+  priceTierUsed: PriceTier | "custom";
   unitPrice: number;
   lineTotal: number;
 }
@@ -173,4 +178,25 @@ export interface ActivityLogJSON {
   action: ActivityAction;
   summary: string;
   timestamp: string;
+}
+
+export type ProductRequestStatus = "pending" | "approved" | "resolved_duplicate" | "rejected";
+
+export interface ProductRequestJSON {
+  _id: string;
+  branchId: string;
+  itemName: string;
+  brand: string;
+  size: string;
+  category: ProductCategory;
+  requestedPrice: number;
+  quantitySold: number;
+  saleId: string;
+  requestedByUserId: string;
+  requestedByName?: string;
+  status: ProductRequestStatus;
+  linkedProductId?: string | null;
+  reviewedByUserId?: string | null;
+  reviewNote?: string;
+  createdAt: string;
 }

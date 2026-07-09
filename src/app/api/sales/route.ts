@@ -3,10 +3,13 @@ import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import Sale, { type SaleDoc } from "@/models/Sale";
+import ProductRequest from "@/models/ProductRequest";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { computeBaseUnitsPerLevel } from "@/lib/unitHierarchy";
-import { formatProductLabel } from "@/lib/types";
+import { formatProductLabel, type ProductCategory } from "@/lib/types";
+
+const CATEGORIES: ProductCategory[] = ["medicine", "non-medicine", "supermarket"];
 
 const PRICE_FIELD: Record<string, "retailPrice" | "wholesalePrice" | "distributorPrice"> = {
   retail: "retailPrice",
@@ -29,10 +32,17 @@ function round2(n: number): number {
 const EPS = 0.005;
 
 interface SaleItemInput {
-  productId: string;
+  productId?: string;
   quantity: number;
-  priceTier: "retail" | "wholesale" | "distributor";
+  priceTier?: "retail" | "wholesale" | "distributor";
   form?: string;
+  // A custom line — sold on the spot for an item that isn't in the catalog.
+  custom?: boolean;
+  itemName?: string;
+  brand?: string;
+  size?: string;
+  category?: string;
+  unitPrice?: number;
 }
 
 interface PaymentLineInput {
@@ -99,10 +109,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Sale must include at least one item" }, { status: 400 });
     }
     for (const item of items) {
-      if (!item.productId || !Number.isInteger(item.quantity) || item.quantity < 1) {
+      if (!Number.isInteger(item.quantity) || item.quantity < 1) {
         return NextResponse.json({ error: "Invalid line item" }, { status: 400 });
       }
-      if (!PRICE_FIELD[item.priceTier]) {
+      if (item.custom) {
+        if (!item.itemName?.trim()) {
+          return NextResponse.json({ error: "Custom item name is required" }, { status: 400 });
+        }
+        if (!item.brand?.trim()) {
+          return NextResponse.json({ error: "Custom item brand is required" }, { status: 400 });
+        }
+        if (!item.size?.trim()) {
+          return NextResponse.json({ error: "Custom item size is required" }, { status: 400 });
+        }
+        if (!CATEGORIES.includes(item.category as ProductCategory)) {
+          return NextResponse.json({ error: "Invalid category for custom item" }, { status: 400 });
+        }
+        if (!Number.isFinite(item.unitPrice) || (item.unitPrice as number) <= 0) {
+          return NextResponse.json({ error: "Custom item price must be greater than 0" }, { status: 400 });
+        }
+        continue;
+      }
+      if (!item.productId) {
+        return NextResponse.json({ error: "Invalid line item" }, { status: 400 });
+      }
+      if (!PRICE_FIELD[item.priceTier as string]) {
         return NextResponse.json({ error: "Invalid price tier" }, { status: 400 });
       }
     }
@@ -130,8 +161,40 @@ export async function POST(request: NextRequest) {
         const saleItems = [];
         let totalAmount = 0;
 
+        // Custom lines (items not in the catalog) file a ProductRequest once the sale is
+        // created, so admin review has the sale to reconcile against.
+        const customLines: { itemName: string; brand: string; size: string; category: ProductCategory; unitPrice: number; quantity: number }[] = [];
+
         for (const item of items) {
-          const priceField = PRICE_FIELD[item.priceTier];
+          if (item.custom) {
+            const itemName = item.itemName!.trim();
+            const brand = item.brand!.trim();
+            const size = item.size!.trim();
+            const category = item.category as ProductCategory;
+            const unitPrice = round2(item.unitPrice as number);
+            const lineTotal = round2(unitPrice * item.quantity);
+            totalAmount += lineTotal;
+
+            saleItems.push({
+              productId: null,
+              productName: formatProductLabel({ itemName, brand, size }),
+              isCustom: true,
+              itemName,
+              brand,
+              size,
+              category,
+              quantity: item.quantity,
+              form: null,
+              formQuantity: null,
+              priceTierUsed: "custom",
+              unitPrice,
+              lineTotal,
+            });
+            customLines.push({ itemName, brand, size, category, unitPrice, quantity: item.quantity });
+            continue;
+          }
+
+          const priceField = PRICE_FIELD[item.priceTier as string];
 
           // Stock is always tracked in the base unit, but a product with a unitHierarchy can be
           // sold in any of its forms (e.g. "1 pack" of a product whose base unit is "sachet").
@@ -217,6 +280,23 @@ export async function POST(request: NextRequest) {
           { session: dbSession }
         );
         saleDoc = created[0];
+
+        if (customLines.length > 0) {
+          await ProductRequest.create(
+            customLines.map((line) => ({
+              ...scope,
+              itemName: line.itemName,
+              brand: line.brand,
+              size: line.size,
+              category: line.category,
+              requestedPrice: line.unitPrice,
+              quantitySold: line.quantity,
+              saleId: saleDoc!._id,
+              requestedByUserId: session.user.id,
+            })),
+            { session: dbSession }
+          );
+        }
       });
 
       return NextResponse.json({ sale: saleDoc }, { status: 201 });
