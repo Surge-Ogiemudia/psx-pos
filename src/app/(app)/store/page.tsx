@@ -6,6 +6,5 @@ export default async function StorePage() {
   // A store_keeper only ever browses their own store — the picker is only meaningful
   // for admin/store_manager, who genuinely have more than one store to choose from.
   const fixedStoreId = session.user.role === "store_keeper" ? session.user.storeId : null;
-  const canManage = session.user.role === "admin" || session.user.role === "store_manager";
-  return <StoreDashboardClient fixedStoreId={fixedStoreId} canManage={canManage} />;
+  return <StoreDashboardClient fixedStoreId={fixedStoreId} />;
 }
