@@ -75,6 +75,8 @@ export interface StaffJSON {
   phoneNumber: string;
   branchId?: string | null;
   storeId?: string | null;
+  branchName?: string | null;
+  storeName?: string | null;
 }
 
 export interface StoreJSON {

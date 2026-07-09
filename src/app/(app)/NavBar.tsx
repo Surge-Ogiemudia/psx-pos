@@ -27,6 +27,7 @@ export default function NavBar({
   userRole,
   branches,
   activeBranchId,
+  scopeLabel,
 }: {
   pharmacyName: string;
   logoUrl: string;
@@ -34,6 +35,7 @@ export default function NavBar({
   userRole: UserRole;
   branches: BranchOption[];
   activeBranchId: string | null;
+  scopeLabel?: string | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -105,6 +107,14 @@ export default function NavBar({
             {branchSwitcher}
             <span className="whitespace-nowrap text-sm text-zinc-500">
               {userName} <span className="text-zinc-400">({userRole})</span>
+              {scopeLabel && (
+                <>
+                  {" "}
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600">
+                    {scopeLabel}
+                  </span>
+                </>
+              )}
             </span>
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
@@ -155,6 +165,14 @@ export default function NavBar({
             <div className="mt-2 flex items-center justify-between border-t border-zinc-200 px-1 pt-3">
               <span className="text-sm text-zinc-500">
                 {userName} <span className="text-zinc-400">({userRole})</span>
+              {scopeLabel && (
+                <>
+                  {" "}
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600">
+                    {scopeLabel}
+                  </span>
+                </>
+              )}
               </span>
               <button
                 onClick={() => signOut({ callbackUrl: "/login" })}
