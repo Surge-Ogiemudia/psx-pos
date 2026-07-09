@@ -46,8 +46,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "No branch access" }, { status: 403 });
     }
 
+    // Staff only ever see their own sales/refunds, never branch-wide totals or other staff's numbers.
+    const isStaff = session.user.role === "staff";
+    const saleMatch = isStaff
+      ? { ...match, userId: new mongoose.Types.ObjectId(session.user.id) }
+      : match;
+    const refundMatch = isStaff
+      ? { ...match, processedByUserId: new mongoose.Types.ObjectId(session.user.id) }
+      : match;
+
     const results = await Sale.aggregate([
-      { $match: match },
+      { $match: saleMatch },
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$timestamp" } },
@@ -68,7 +77,7 @@ export async function GET(request: NextRequest) {
     );
 
     const refundResults = await Refund.aggregate([
-      { $match: match },
+      { $match: refundMatch },
       { $group: { _id: null, refundAmount: { $sum: "$totalAmount" }, refundCount: { $sum: 1 } } },
     ]);
     const refundAmount = refundResults[0]?.refundAmount ?? 0;
@@ -78,7 +87,7 @@ export async function GET(request: NextRequest) {
     // array — synthesize one from the old paymentMethod/totalAmount so this works correctly
     // whether or not the migration script has been run yet.
     const paymentTotals = await Sale.aggregate([
-      { $match: match },
+      { $match: saleMatch },
       {
         $addFields: {
           _payments: {
@@ -95,18 +104,18 @@ export async function GET(request: NextRequest) {
     ]);
 
     const changeByMethod = await Sale.aggregate([
-      { $match: { ...match, changeGiven: { $gt: 0 } } },
+      { $match: { ...saleMatch, changeGiven: { $gt: 0 } } },
       { $group: { _id: { $ifNull: ["$changeMethod", "cash"] }, amount: { $sum: "$changeGiven" } } },
     ]);
 
     const feeResult = await Sale.aggregate([
-      { $match: match },
+      { $match: saleMatch },
       { $group: { _id: null, feeIncome: { $sum: { $ifNull: ["$changeFee", 0] } } } },
     ]);
     const feeIncome = feeResult[0]?.feeIncome ?? 0;
 
     const refundByMethod = await Refund.aggregate([
-      { $match: match },
+      { $match: refundMatch },
       { $group: { _id: { $ifNull: ["$method", "cash"] }, amount: { $sum: "$totalAmount" } } },
     ]);
 
@@ -117,21 +126,25 @@ export async function GET(request: NextRequest) {
       return { method, salesIn, refundsOut, changeOut, netCash: salesIn - refundsOut - changeOut };
     });
 
-    const byStaffRaw = await Sale.aggregate([
-      { $match: match },
-      { $group: { _id: "$userId", totalAmount: { $sum: "$totalAmount" }, saleCount: { $sum: 1 } } },
-      { $sort: { totalAmount: -1 } },
-    ]);
-    const staffDocs = await User.find({ _id: { $in: byStaffRaw.map((s) => s._id) } })
-      .select("name")
-      .lean();
-    const staffNameById = new Map(staffDocs.map((u) => [u._id.toString(), u.name]));
-    const byStaff = byStaffRaw.map((s) => ({
-      userId: s._id.toString(),
-      userName: staffNameById.get(s._id.toString()) ?? "Unknown",
-      totalAmount: s.totalAmount,
-      saleCount: s.saleCount,
-    }));
+    // Per-staff breakdown is admin-only — staff already see only their own numbers above.
+    let byStaff: { userId: string; userName: string; totalAmount: number; saleCount: number }[] = [];
+    if (!isStaff) {
+      const byStaffRaw = await Sale.aggregate([
+        { $match: saleMatch },
+        { $group: { _id: "$userId", totalAmount: { $sum: "$totalAmount" }, saleCount: { $sum: 1 } } },
+        { $sort: { totalAmount: -1 } },
+      ]);
+      const staffDocs = await User.find({ _id: { $in: byStaffRaw.map((s) => s._id) } })
+        .select("name")
+        .lean();
+      const staffNameById = new Map(staffDocs.map((u) => [u._id.toString(), u.name]));
+      byStaff = byStaffRaw.map((s) => ({
+        userId: s._id.toString(),
+        userName: staffNameById.get(s._id.toString()) ?? "Unknown",
+        totalAmount: s.totalAmount,
+        saleCount: s.saleCount,
+      }));
+    }
 
     return NextResponse.json({
       from: from.toISOString(),
