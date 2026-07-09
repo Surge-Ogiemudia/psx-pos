@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { StaffJSON, StoreJSON } from "@/lib/types";
 
 type Role = "admin" | "staff" | "store_manager" | "store_keeper";
@@ -157,41 +157,54 @@ export default function StaffClient({ branchId }: { branchId: string | null }) {
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2">Phone</th>
               <th className="px-3 py-2">Role</th>
+              <th className="px-3 py-2">Branch / Store</th>
               <th className="px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {staff.map((member) => (
-              <tr key={member._id} className="border-b border-zinc-100 last:border-0">
-                <td className="px-3 py-2 font-medium text-zinc-900">{member.name}</td>
-                <td className="px-3 py-2 text-zinc-600">{member.phoneNumber}</td>
-                <td className="px-3 py-2">
-                  {member.role === "admin" || member.role === "staff" ? (
-                    <select
-                      value={member.role}
-                      onChange={(e) => updateRole(member._id, e.target.value as "admin" | "staff")}
-                      className="rounded border border-zinc-300 px-2 py-1 text-sm"
-                    >
-                      <option value="staff">Staff</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  ) : (
-                    <span className="text-zinc-700">{ROLE_LABEL[member.role]}</span>
-                  )}
-                </td>
-                <td className="flex gap-3 px-3 py-2">
-                  <button onClick={() => resetPassword(member._id)} className="text-teal-700 hover:underline">
-                    Reset password
-                  </button>
-                  <button onClick={() => deleteStaff(member._id)} className="text-red-600 hover:underline">
-                    Remove
-                  </button>
-                </td>
-              </tr>
+            {groupStaff(staff).map((section) => (
+              <Fragment key={section.label}>
+                <tr className="bg-zinc-50">
+                  <td colSpan={5} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    {section.label} ({section.members.length})
+                  </td>
+                </tr>
+                {section.members.map((member) => (
+                  <tr key={member._id} className="border-b border-zinc-100 last:border-0">
+                    <td className="px-3 py-2 font-medium text-zinc-900">{member.name}</td>
+                    <td className="px-3 py-2 text-zinc-600">{member.phoneNumber}</td>
+                    <td className="px-3 py-2">
+                      {member.role === "admin" || member.role === "staff" ? (
+                        <select
+                          value={member.role}
+                          onChange={(e) => updateRole(member._id, e.target.value as "admin" | "staff")}
+                          className="rounded border border-zinc-300 px-2 py-1 text-sm"
+                        >
+                          <option value="staff">Staff</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      ) : (
+                        <span className="text-zinc-700">{ROLE_LABEL[member.role]}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-zinc-600">
+                      {member.branchName || member.storeName || "—"}
+                    </td>
+                    <td className="flex gap-3 px-3 py-2">
+                      <button onClick={() => resetPassword(member._id)} className="text-teal-700 hover:underline">
+                        Reset password
+                      </button>
+                      <button onClick={() => deleteStaff(member._id)} className="text-red-600 hover:underline">
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </Fragment>
             ))}
             {staff.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-zinc-500">
+                <td colSpan={5} className="px-3 py-6 text-center text-zinc-500">
                   No staff accounts yet.
                 </td>
               </tr>
@@ -201,4 +214,45 @@ export default function StaffClient({ branchId }: { branchId: string | null }) {
       </div>
     </div>
   );
+}
+
+interface StaffSection {
+  label: string;
+  members: StaffJSON[];
+}
+
+/** Groups the roster into Admin / Store Manager / one section per branch / one section per bulk store. */
+function groupStaff(staff: StaffJSON[]): StaffSection[] {
+  const admins = staff.filter((s) => s.role === "admin");
+  const storeManagers = staff.filter((s) => s.role === "store_manager");
+
+  const byBranch = new Map<string, StaffJSON[]>();
+  staff
+    .filter((s) => s.role === "staff")
+    .forEach((s) => {
+      const key = s.branchName || "Unassigned branch";
+      byBranch.set(key, [...(byBranch.get(key) || []), s]);
+    });
+
+  const byStore = new Map<string, StaffJSON[]>();
+  staff
+    .filter((s) => s.role === "store_keeper")
+    .forEach((s) => {
+      const key = s.storeName || "Unassigned store";
+      byStore.set(key, [...(byStore.get(key) || []), s]);
+    });
+
+  const sections: StaffSection[] = [];
+  if (admins.length > 0) sections.push({ label: "Admin", members: admins });
+  if (storeManagers.length > 0) {
+    sections.push({ label: "Store Manager (all bulk stores)", members: storeManagers });
+  }
+  Array.from(byBranch.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .forEach(([label, members]) => sections.push({ label: `${label} (branch)`, members }));
+  Array.from(byStore.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .forEach(([label, members]) => sections.push({ label: `${label} (bulk store)`, members }));
+
+  return sections;
 }
