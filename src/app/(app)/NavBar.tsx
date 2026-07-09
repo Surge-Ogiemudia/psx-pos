@@ -27,6 +27,8 @@ export default function NavBar({
   userRole,
   branches,
   activeBranchId,
+  activeBranchName,
+  activeStoreName,
 }: {
   pharmacyName: string;
   logoUrl: string;
@@ -34,10 +36,21 @@ export default function NavBar({
   userRole: UserRole;
   branches: BranchOption[];
   activeBranchId: string | null;
+  activeBranchName?: string | null;
+  activeStoreName?: string | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Staff/store keeper are locked to one place — always show it, so it's never ambiguous
+  // which branch or store a login is scoped to.
+  const locationLabel =
+    userRole === "staff" && activeBranchName
+      ? `Branch: ${activeBranchName}`
+      : userRole === "store_keeper" && activeStoreName
+        ? `Store: ${activeStoreName}`
+        : null;
   const links = [
     ...(userRole === "admin" || userRole === "staff" ? RETAIL_LINKS : []),
     ...(userRole === "admin" ? ADMIN_LINKS : []),
@@ -120,6 +133,11 @@ export default function NavBar({
 
         <div className="hidden items-center gap-3 md:flex">
           {branchSwitcher}
+          {locationLabel && (
+            <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
+              {locationLabel}
+            </span>
+          )}
           <span className="text-sm text-zinc-500">
             {userName} <span className="text-zinc-400">({userRole})</span>
           </span>
@@ -150,6 +168,13 @@ export default function NavBar({
               );
             })}
             {branchSwitcher && <div className="px-1 pt-2">{branchSwitcher}</div>}
+            {locationLabel && (
+              <div className="px-1 pt-2">
+                <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
+                  {locationLabel}
+                </span>
+              </div>
+            )}
             <div className="mt-2 flex items-center justify-between border-t border-zinc-200 px-1 pt-3">
               <span className="text-sm text-zinc-500">
                 {userName} <span className="text-zinc-400">({userRole})</span>
