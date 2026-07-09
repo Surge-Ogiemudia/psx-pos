@@ -430,9 +430,9 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
         </div>
       </div>
 
-      <div className="order-first self-start sticky top-16 md:top-24 lg:order-none">
+      <div>
         <h2 className="mb-3 text-lg font-semibold text-zinc-900">Current sale</h2>
-        <div className="max-h-[calc(100vh-8rem)] overflow-y-auto rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           {cart.length === 0 && <p className="text-sm text-zinc-500">Cart is empty.</p>}
           <div className="flex flex-col gap-3">
             {cart.map((line) => {
