@@ -6,6 +6,7 @@ import Sale, { type SaleDoc } from "@/models/Sale";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { computeBaseUnitsPerLevel } from "@/lib/unitHierarchy";
+import { formatProductLabel } from "@/lib/types";
 
 const PRICE_FIELD: Record<string, "retailPrice" | "wholesalePrice" | "distributorPrice"> = {
   retail: "retailPrice",
@@ -150,7 +151,7 @@ export async function POST(request: NextRequest) {
           if (existingProduct.unitHierarchy?.length && item.form) {
             const piecesPerForm = computeBaseUnitsPerLevel(existingProduct.unitHierarchy)[item.form];
             if (piecesPerForm === undefined) {
-              throw new Error(`"${item.form}" is not a valid unit for ${existingProduct.name}`);
+              throw new Error(`"${item.form}" is not a valid unit for ${formatProductLabel(existingProduct)}`);
             }
             baseQuantity = piecesPerForm * item.quantity;
             form = item.form;
@@ -177,7 +178,7 @@ export async function POST(request: NextRequest) {
 
           saleItems.push({
             productId: product._id,
-            productName: product.name,
+            productName: formatProductLabel(product),
             quantity: baseQuantity,
             form,
             formQuantity,

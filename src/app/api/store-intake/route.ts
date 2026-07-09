@@ -7,11 +7,13 @@ import { requireStoreApiSession, getStoreScope } from "@/lib/session";
 import { logActivity } from "@/lib/activityLog";
 import { convertToBaseUnits, pluralize, type UnitLevel } from "@/lib/unitHierarchy";
 import { handleApiError } from "@/lib/apiError";
-import type { ProductCategory } from "@/lib/types";
+import { formatProductLabel, type ProductCategory } from "@/lib/types";
 
 interface IntakeBody {
   storeId?: string;
-  productName?: string;
+  itemName?: string;
+  brand?: string;
+  size?: string;
   category?: ProductCategory;
   unitHierarchy?: UnitLevel[];
   receivedForm?: string;
@@ -30,14 +32,28 @@ export async function POST(request: NextRequest) {
     await dbConnect();
 
     const body: IntakeBody = await request.json();
-    const productName = typeof body.productName === "string" ? body.productName.trim() : "";
+    const itemName = typeof body.itemName === "string" ? body.itemName.trim() : "";
+    const brand = typeof body.brand === "string" ? body.brand.trim() : "";
+    const size = typeof body.size === "string" ? body.size.trim() : "";
     const category = CATEGORIES.includes(body.category as ProductCategory) ? body.category! : "supermarket";
     const hierarchy = Array.isArray(body.unitHierarchy) ? body.unitHierarchy : [];
     const receivedForm = typeof body.receivedForm === "string" ? body.receivedForm.trim() : "";
     const receivedQuantity = Number(body.receivedQuantity);
     const purchaseAmount = Number(body.purchaseAmount);
 
-    if (!productName) return NextResponse.json({ error: "Product name is required" }, { status: 400 });
+    if (!itemName) return NextResponse.json({ error: "Item name is required" }, { status: 400 });
+    if (!brand) {
+      return NextResponse.json(
+        { error: "Brand is required — if it's not printed on the packaging, look up the manufacturer" },
+        { status: 400 }
+      );
+    }
+    if (!size) {
+      return NextResponse.json(
+        { error: 'Size is required — use "Standard" if the item has no size/strength variation' },
+        { status: 400 }
+      );
+    }
     if (hierarchy.length === 0) {
       return NextResponse.json({ error: "At least one unit level is required" }, { status: 400 });
     }
@@ -66,6 +82,7 @@ export async function POST(request: NextRequest) {
     const baseUnitQuantity = convertToBaseUnits(hierarchy, receivedForm, receivedQuantity);
     const purchaseUnitCost = baseUnitQuantity > 0 ? purchaseAmount / baseUnitQuantity : 0;
     const baseUnitName = hierarchy[hierarchy.length - 1].unitName;
+    const productLabel = formatProductLabel({ itemName, brand, size });
 
     const dbSession = await mongoose.startSession();
     try {
@@ -73,14 +90,14 @@ export async function POST(request: NextRequest) {
 
       await dbSession.withTransaction(async () => {
         let storeProduct = await StoreProduct.findOne(
-          { ...scope, name: productName },
+          { ...scope, itemName, brand, size },
           null,
           { session: dbSession }
         );
 
         if (!storeProduct) {
           const created = await StoreProduct.create(
-            [{ ...scope, name: productName, category, baseUnitName, quantityInStock: 0 }],
+            [{ ...scope, itemName, brand, size, category, baseUnitName, quantityInStock: 0 }],
             { session: dbSession }
           );
           storeProduct = created[0];
@@ -91,7 +108,7 @@ export async function POST(request: NextRequest) {
             {
               ...scope,
               storeProductId: storeProduct._id,
-              productName,
+              productName: productLabel,
               unitHierarchy: hierarchy,
               receivedForm,
               receivedQuantity,
@@ -123,7 +140,7 @@ export async function POST(request: NextRequest) {
           actorUserId: session.user.id,
           actorName: session.user.name ?? "Unknown",
           action: "intake",
-          summary: `${session.user.name} received ${receivedQuantity} ${pluralize(receivedForm, receivedQuantity)} of ${productName} for ₦${purchaseAmount.toFixed(2)}`,
+          summary: `${session.user.name} received ${receivedQuantity} ${pluralize(receivedForm, receivedQuantity)} of ${productLabel} for ₦${purchaseAmount.toFixed(2)}`,
           metadata: { receivedForm, receivedQuantity, baseUnitQuantity, purchaseAmount },
           refCollection: "StoreBatch",
           refId: batch._id,

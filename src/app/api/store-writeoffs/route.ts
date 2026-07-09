@@ -8,6 +8,7 @@ import { requireStoreApiSession, getStoreScope } from "@/lib/session";
 import { logActivity } from "@/lib/activityLog";
 import { compareBatchesFifo, computeBaseUnitsPerLevel, planDraw, pluralize } from "@/lib/unitHierarchy";
 import { handleApiError } from "@/lib/apiError";
+import { formatProductLabel } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,7 +43,10 @@ export async function POST(request: NextRequest) {
     const referenceHierarchy = batches[0].unitHierarchy;
     const piecesPerForm = computeBaseUnitsPerLevel(referenceHierarchy)[form];
     if (piecesPerForm === undefined) {
-      return NextResponse.json({ error: `"${form}" is not a valid unit for ${storeProduct.name}` }, { status: 400 });
+      return NextResponse.json(
+        { error: `"${form}" is not a valid unit for ${formatProductLabel(storeProduct)}` },
+        { status: 400 }
+      );
     }
     const neededBaseUnits = piecesPerForm * quantity;
 
@@ -86,7 +90,7 @@ export async function POST(request: NextRequest) {
           actorUserId: session.user.id,
           actorName: session.user.name ?? "Unknown",
           action: "write_off",
-          summary: `${session.user.name} wrote off ${quantity} ${pluralize(form, quantity)} of ${storeProduct.name}${
+          summary: `${session.user.name} wrote off ${quantity} ${pluralize(form, quantity)} of ${formatProductLabel(storeProduct)}${
             store ? ` at ${store.storeName}` : ""
           }${reason ? ` (${reason})` : ""}`,
           metadata: { form, quantity, neededBaseUnits, reason },

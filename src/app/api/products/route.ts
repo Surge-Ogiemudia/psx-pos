@@ -15,10 +15,11 @@ export async function GET(request: NextRequest) {
       request.nextUrl.searchParams.get("branchId")
     );
     if (search) {
-      query.name = { $regex: search, $options: "i" };
+      const regex = { $regex: search, $options: "i" };
+      query.$or = [{ itemName: regex }, { brand: regex }, { size: regex }];
     }
 
-    const products = await Product.find(query).sort({ name: 1 }).lean();
+    const products = await Product.find(query).sort({ itemName: 1, brand: 1 }).lean();
     return NextResponse.json({ products });
   } catch (error) {
     return handleApiError(error);
@@ -33,7 +34,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       branchId,
-      name,
+      itemName,
+      brand,
+      size,
       category,
       quantityInStock,
       retailPrice,
@@ -45,11 +48,30 @@ export async function POST(request: NextRequest) {
     } = body;
 
     const missing = (v: unknown) => v === undefined || v === null || v === "";
-    // Only the selling (retail) price is required — wholesale/distributor tiers are an
-    // optional refinement for pharmacies that want them, defaulting to the retail price
-    // so a quick stock-take (item, qty, selling price) doesn't need all three typed in.
-    if (!name || !category || missing(retailPrice)) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    const trimmed = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+
+    // Only the selling (retail) price is optional to relax — item name, brand, and size are
+    // always required so the same item can never be entered inconsistently across rows.
+    if (!trimmed(itemName)) {
+      return NextResponse.json({ error: "Item name is required" }, { status: 400 });
+    }
+    if (!trimmed(brand)) {
+      return NextResponse.json(
+        { error: "Brand is required — if it's not printed on the packaging, look up the manufacturer" },
+        { status: 400 }
+      );
+    }
+    if (!trimmed(size)) {
+      return NextResponse.json(
+        { error: 'Size is required — use "Standard" if the item has no size/strength variation' },
+        { status: 400 }
+      );
+    }
+    if (!category) {
+      return NextResponse.json({ error: "Category is required" }, { status: 400 });
+    }
+    if (missing(retailPrice)) {
+      return NextResponse.json({ error: "Selling (retail) price is required" }, { status: 400 });
     }
     if (!["medicine", "non-medicine", "supermarket"].includes(category)) {
       return NextResponse.json({ error: "Invalid category" }, { status: 400 });
@@ -72,7 +94,9 @@ export async function POST(request: NextRequest) {
 
     const product = await Product.create({
       ...scope,
-      name,
+      itemName: trimmed(itemName),
+      brand: trimmed(brand),
+      size: trimmed(size),
       category,
       quantityInStock: missing(quantityInStock) ? 0 : Number(quantityInStock),
       retailPrice: retail,

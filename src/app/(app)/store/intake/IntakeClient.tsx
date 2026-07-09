@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { describeBreakdown, pluralize, type UnitLevel } from "@/lib/unitHierarchy";
-import type { ProductCategory } from "@/lib/types";
+import { formatProductLabel, type ProductCategory } from "@/lib/types";
 
 interface LevelForm {
   unitName: string;
@@ -18,7 +18,9 @@ const emptyLevels: LevelForm[] = [
 export default function IntakeClient({ initialStoreId }: { initialStoreId: string }) {
   const router = useRouter();
   const [storeId] = useState(initialStoreId);
-  const [productName, setProductName] = useState("");
+  const [itemName, setItemName] = useState("");
+  const [brand, setBrand] = useState("");
+  const [size, setSize] = useState("");
   const [category, setCategory] = useState<ProductCategory>("supermarket");
   const [levels, setLevels] = useState<LevelForm[]>(emptyLevels);
   const [receivedForm, setReceivedForm] = useState("carton");
@@ -48,7 +50,13 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
   function goToConfirm() {
     setError(null);
     if (!storeId) return setError("No store selected.");
-    if (!productName.trim()) return setError("Product name is required.");
+    if (!itemName.trim()) return setError("Item name is required.");
+    if (!brand.trim()) {
+      return setError("Brand is required — if it's not printed on the packaging, look up the manufacturer.");
+    }
+    if (!size.trim()) {
+      return setError('Size is required — use "Standard" if the item has no size/strength variation.');
+    }
     if (levels.some((l) => !l.unitName.trim())) return setError("Every unit level needs a name.");
     if (!levels.some((l) => l.unitName === receivedForm)) {
       return setError("Received form must match one of the unit levels.");
@@ -83,7 +91,9 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         storeId,
-        productName: productName.trim(),
+        itemName: itemName.trim(),
+        brand: brand.trim(),
+        size: size.trim(),
         category,
         unitHierarchy: hierarchy,
         receivedForm,
@@ -110,7 +120,8 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
         <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           <p className="mb-3 text-sm text-zinc-700">
             Receiving <strong>{receivedQuantity}</strong> {pluralize(receivedForm, Number(receivedQuantity))} of{" "}
-            <strong>{productName}</strong> for <strong>₦{Number(purchaseAmount).toFixed(2)}</strong>.
+            <strong>{formatProductLabel({ itemName, brand, size })}</strong> for{" "}
+            <strong>₦{Number(purchaseAmount).toFixed(2)}</strong>.
           </p>
 
           {breakdownError && <p className="mb-3 text-sm text-red-600">{breakdownError}</p>}
@@ -167,11 +178,27 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
       <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
-        <label className="mb-1 block text-sm font-medium text-zinc-700">Product name</label>
+        <label className="mb-1 block text-sm font-medium text-zinc-700">Item name</label>
         <input
-          value={productName}
-          onChange={(e) => setProductName(e.target.value)}
-          placeholder="e.g. Tanzol 500mg"
+          value={itemName}
+          onChange={(e) => setItemName(e.target.value)}
+          placeholder="e.g. Tanzol"
+          className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+        />
+
+        <label className="mb-1 block text-sm font-medium text-zinc-700">Brand / manufacturer</label>
+        <input
+          value={brand}
+          onChange={(e) => setBrand(e.target.value)}
+          placeholder="e.g. GSK"
+          className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+        />
+
+        <label className="mb-1 block text-sm font-medium text-zinc-700">Size / strength</label>
+        <input
+          value={size}
+          onChange={(e) => setSize(e.target.value)}
+          placeholder='e.g. 500mg, or "Standard" if none'
           className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
         />
 

@@ -101,6 +101,16 @@ export async function POST(request: NextRequest) {
           dbSession,
         });
 
+        // Destination products (whether a sister store or a branch) are matched/created by the
+        // source item's itemName/brand/size, not by re-parsing the batch's composed productName
+        // snapshot string.
+        const sourceProduct = await StoreProduct.findOne(
+          { _id: storeProductId, ...scope },
+          null,
+          { session: dbSession }
+        );
+        if (!sourceProduct) throw new Error("Source product not found");
+
         const transferIds: mongoose.Types.ObjectId[] = [];
 
         for (const item of plan.items) {
@@ -140,7 +150,13 @@ export async function POST(request: NextRequest) {
 
           if (destinationType === "store") {
             let destProduct = await StoreProduct.findOne(
-              { pharmacyId: scope.pharmacyId, storeId: toStoreId, name: item.batch.productName },
+              {
+                pharmacyId: scope.pharmacyId,
+                storeId: toStoreId,
+                itemName: sourceProduct.itemName,
+                brand: sourceProduct.brand,
+                size: sourceProduct.size,
+              },
               null,
               { session: dbSession }
             );
@@ -150,7 +166,9 @@ export async function POST(request: NextRequest) {
                   {
                     pharmacyId: scope.pharmacyId,
                     storeId: toStoreId,
-                    name: item.batch.productName,
+                    itemName: sourceProduct.itemName,
+                    brand: sourceProduct.brand,
+                    size: sourceProduct.size,
                     category: "medicine",
                     baseUnitName,
                     quantityInStock: 0,
@@ -203,7 +221,13 @@ export async function POST(request: NextRequest) {
           const weightedPricePerBaseUnit = plan.totalValue / plan.totalBaseUnitQuantity;
           const firstBatch = plan.items[0].batch;
           let destProduct = await Product.findOne(
-            { pharmacyId: scope.pharmacyId, branchId: toBranchId, name: firstBatch.productName },
+            {
+              pharmacyId: scope.pharmacyId,
+              branchId: toBranchId,
+              itemName: sourceProduct.itemName,
+              brand: sourceProduct.brand,
+              size: sourceProduct.size,
+            },
             null,
             { session: dbSession }
           );
@@ -213,7 +237,9 @@ export async function POST(request: NextRequest) {
                 {
                   pharmacyId: scope.pharmacyId,
                   branchId: toBranchId,
-                  name: firstBatch.productName,
+                  itemName: sourceProduct.itemName,
+                  brand: sourceProduct.brand,
+                  size: sourceProduct.size,
                   category: "medicine",
                   quantityInStock: 0,
                   unitHierarchy: firstBatch.unitHierarchy,

@@ -5,7 +5,9 @@ import { requireAdminApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 
 interface BulkRow {
-  name?: string;
+  itemName?: string;
+  brand?: string;
+  size?: string;
   category?: string;
   quantityInStock?: string | number;
   retailPrice?: string | number;
@@ -58,21 +60,41 @@ export async function POST(request: NextRequest) {
 
     rows.forEach((row, index) => {
       const rowNumber = index + 1;
-      const name = typeof row.name === "string" ? row.name.trim() : "";
-      if (!name) {
-        errors.push({ row: rowNumber, error: "Missing name" });
+      const itemName = typeof row.itemName === "string" ? row.itemName.trim() : "";
+      const brand = typeof row.brand === "string" ? row.brand.trim() : "";
+      const size = typeof row.size === "string" ? row.size.trim() : "";
+      // Once we know the item name, reference it in later errors so a pharmacist scanning
+      // the report knows exactly which product to fix without cross-referencing row numbers.
+      const label = itemName ? `"${itemName}"` : "this row";
+
+      if (!itemName) {
+        errors.push({ row: rowNumber, error: "Missing item name — every row needs one" });
+        return;
+      }
+      if (!brand) {
+        errors.push({
+          row: rowNumber,
+          error: `${label}: missing brand — if it's not printed on the packaging, look up the manufacturer and enter it`,
+        });
+        return;
+      }
+      if (!size) {
+        errors.push({
+          row: rowNumber,
+          error: `${label}: missing size — enter the strength/size, or "Standard" if the item has no size variation`,
+        });
         return;
       }
       const category = isMissing(row.category) ? "supermarket" : row.category;
       if (!["medicine", "non-medicine", "supermarket"].includes(category as string)) {
         errors.push({
           row: rowNumber,
-          error: `Category must be "medicine", "non-medicine", or "supermarket", got "${row.category}"`,
+          error: `${label}: category must be "medicine", "non-medicine", or "supermarket", got "${row.category}"`,
         });
         return;
       }
       if (isMissing(row.retailPrice)) {
-        errors.push({ row: rowNumber, error: "Missing selling (retail) price" });
+        errors.push({ row: rowNumber, error: `${label}: missing selling (retail) price` });
         return;
       }
       const retailPrice = Number(row.retailPrice);
@@ -81,19 +103,19 @@ export async function POST(request: NextRequest) {
       const wholesalePrice = isMissing(row.wholesalePrice) ? retailPrice : Number(row.wholesalePrice);
       const distributorPrice = isMissing(row.distributorPrice) ? retailPrice : Number(row.distributorPrice);
       if ([retailPrice, wholesalePrice, distributorPrice].some((n) => Number.isNaN(n) || n < 0)) {
-        errors.push({ row: rowNumber, error: "Prices must be non-negative numbers" });
+        errors.push({ row: rowNumber, error: `${label}: prices must be non-negative numbers` });
         return;
       }
       const quantityInStock = isMissing(row.quantityInStock) ? 0 : Number(row.quantityInStock);
       if (Number.isNaN(quantityInStock) || quantityInStock < 0) {
-        errors.push({ row: rowNumber, error: "Stock quantity must be a non-negative number" });
+        errors.push({ row: rowNumber, error: `${label}: stock quantity must be a non-negative number` });
         return;
       }
       let expiryDate: Date | null = null;
       if (row.expiryDate) {
         const parsed = new Date(row.expiryDate);
         if (Number.isNaN(parsed.getTime())) {
-          errors.push({ row: rowNumber, error: `Invalid expiry date "${row.expiryDate}"` });
+          errors.push({ row: rowNumber, error: `${label}: invalid expiry date "${row.expiryDate}" — use YYYY-MM-DD` });
           return;
         }
         expiryDate = parsed;
@@ -101,7 +123,7 @@ export async function POST(request: NextRequest) {
 
       const hierarchy = parseHierarchyString(row.unitHierarchy as string | undefined);
       if (hierarchy && hierarchy.some((l) => !l.unitName)) {
-        errors.push({ row: rowNumber, error: "Every unit level in unitHierarchy needs a name" });
+        errors.push({ row: rowNumber, error: `${label}: every unit level in unitHierarchy needs a name` });
         return;
       }
 
@@ -122,7 +144,9 @@ export async function POST(request: NextRequest) {
 
       toInsert.push({
         ...scope,
-        name,
+        itemName,
+        brand,
+        size,
         category,
         quantityInStock,
         retailPrice: storedRetail,

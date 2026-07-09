@@ -15,7 +15,9 @@ export async function PATCH(
 
     const body = await request.json();
     const allowedFields = [
-      "name",
+      "itemName",
+      "brand",
+      "size",
       "category",
       "quantityInStock",
       "unitHierarchy",
