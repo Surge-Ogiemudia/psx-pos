@@ -15,9 +15,18 @@ export interface BranchOption {
  */
 export async function resolveActiveBranch(
   session: Session
-): Promise<{ activeBranchId: string | null; branches: BranchOption[] }> {
+): Promise<{ activeBranchId: string | null; activeBranchName: string | null; branches: BranchOption[] }> {
   if (session.user.role !== "admin") {
-    return { activeBranchId: session.user.branchId, branches: [] };
+    if (!session.user.branchId) {
+      return { activeBranchId: null, activeBranchName: null, branches: [] };
+    }
+    await dbConnect();
+    const branch = await Branch.findById(session.user.branchId).lean();
+    return {
+      activeBranchId: session.user.branchId,
+      activeBranchName: branch?.branchName ?? null,
+      branches: [],
+    };
   }
 
   await dbConnect();
@@ -32,9 +41,11 @@ export async function resolveActiveBranch(
   const cookieStore = await cookies();
   const cookieBranchId = cookieStore.get("activeBranchId")?.value ?? null;
   const isValid = cookieBranchId ? branches.some((b) => b._id === cookieBranchId) : false;
+  const activeBranchId = isValid ? cookieBranchId : (branches[0]?._id ?? null);
 
   return {
-    activeBranchId: isValid ? cookieBranchId : (branches[0]?._id ?? null),
+    activeBranchId,
+    activeBranchName: branches.find((b) => b._id === activeBranchId)?.branchName ?? null,
     branches,
   };
 }
