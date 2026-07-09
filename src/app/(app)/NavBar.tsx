@@ -144,7 +144,7 @@ export default function NavBar({
         </nav>
 
         {menuOpen && (
-          <div className="order-last flex w-full flex-col gap-1 border-t border-zinc-200 pt-3 md:hidden">
+          <div className="order-last flex w-full flex-col gap-1 border-t border-zinc-200 pt-3 pb-3 md:hidden">
             {links.map((link) => {
               const active = pathname === link.href || pathname.startsWith(link.href + "/");
               return (
