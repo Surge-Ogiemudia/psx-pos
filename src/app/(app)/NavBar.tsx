@@ -68,39 +68,54 @@ export default function NavBar({
 
   return (
     <header className="border-b border-zinc-200 bg-white">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-4 px-4 py-3 sm:px-6">
-        <div className="flex flex-1 items-center gap-2 md:flex-none">
-          {logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt={pharmacyName} className="h-8 w-8 rounded object-contain" />
-          ) : (
-            <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-sm font-bold text-white"
-              style={{ backgroundColor: "var(--brand-color)" }}
+      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
+        <div className="flex items-center gap-4 py-3">
+          <div className="flex flex-1 items-center gap-2 md:flex-none">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt={pharmacyName} className="h-8 w-8 rounded object-contain" />
+            ) : (
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-sm font-bold text-white"
+                style={{ backgroundColor: "var(--brand-color)" }}
+              >
+                {pharmacyName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <span className="font-semibold text-zinc-900">{pharmacyName}</span>
+          </div>
+
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="rounded-lg border border-zinc-300 p-2 text-zinc-600 md:hidden"
+            aria-label="Toggle menu"
+          >
+            {menuOpen ? (
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 5h14M3 10h14M3 15h14" strokeLinecap="round" />
+              </svg>
+            )}
+          </button>
+
+          <div className="hidden items-center gap-3 md:ml-auto md:flex">
+            {branchSwitcher}
+            <span className="whitespace-nowrap text-sm text-zinc-500">
+              {userName} <span className="text-zinc-400">({userRole})</span>
+            </span>
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="whitespace-nowrap rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
             >
-              {pharmacyName.charAt(0).toUpperCase()}
-            </div>
-          )}
-          <span className="font-semibold text-zinc-900">{pharmacyName}</span>
+              Sign out
+            </button>
+          </div>
         </div>
 
-        <button
-          onClick={() => setMenuOpen((v) => !v)}
-          className="rounded-lg border border-zinc-300 p-2 text-zinc-600 md:hidden"
-          aria-label="Toggle menu"
-        >
-          {menuOpen ? (
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
-            </svg>
-          ) : (
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 5h14M3 10h14M3 15h14" strokeLinecap="round" />
-            </svg>
-          )}
-        </button>
-
-        <nav className="hidden flex-1 flex-wrap items-center gap-1 md:flex">
+        <nav className="hidden flex-wrap items-center gap-1 border-t border-zinc-100 py-2 md:flex">
           {links.map((link) => {
             const active = pathname === link.href || pathname.startsWith(link.href + "/");
             return (
@@ -117,19 +132,6 @@ export default function NavBar({
             );
           })}
         </nav>
-
-        <div className="hidden items-center gap-3 md:flex">
-          {branchSwitcher}
-          <span className="text-sm text-zinc-500">
-            {userName} <span className="text-zinc-400">({userRole})</span>
-          </span>
-          <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
-          >
-            Sign out
-          </button>
-        </div>
 
         {menuOpen && (
           <div className="order-last flex w-full flex-col gap-1 border-t border-zinc-200 pt-3 md:hidden">
