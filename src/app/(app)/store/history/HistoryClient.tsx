@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ActivityLogJSON } from "@/lib/types";
+import BackButton from "@/components/BackButton";
 
 const ACTION_LABEL: Record<string, string> = {
   intake: "Received stock",
@@ -39,6 +40,7 @@ export default function HistoryClient({ initialStoreId }: { initialStoreId: stri
 
   return (
     <div>
+      <BackButton fallbackHref={storeId ? `/store?storeId=${storeId}` : "/store"} />
       <h1 className="mb-4 text-lg font-semibold text-zinc-900">History</h1>
       <div className="flex flex-col gap-3">
         {entries.map((entry) => (

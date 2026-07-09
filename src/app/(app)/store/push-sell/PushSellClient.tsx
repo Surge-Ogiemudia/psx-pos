@@ -13,6 +13,7 @@ import {
 import type { BranchOption } from "@/lib/branchScope";
 import { describeBreakdown, describeStock, pluralize } from "@/lib/unitHierarchy";
 import { parseNumeric } from "@/lib/numberInput";
+import BackButton from "@/components/BackButton";
 
 type Step = "catalog" | "action" | "destination" | "buyer" | "details" | "confirm";
 type DestinationType = "store" | "branch";
@@ -312,6 +313,7 @@ export default function PushSellClient({
   if (step === "catalog") {
     return (
       <div>
+        <BackButton fallbackHref={storeId ? `/store?storeId=${storeId}` : "/store"} />
         <h1 className="mb-4 text-lg font-semibold text-zinc-900">Push / Sell</h1>
         {successMessage && <p className="mb-3 text-sm text-teal-700">{successMessage}</p>}
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}

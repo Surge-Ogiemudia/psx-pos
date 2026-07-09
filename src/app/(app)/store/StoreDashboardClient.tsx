@@ -102,7 +102,10 @@ export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: s
             {products.map((product) => (
               <tr key={product._id} className="border-b border-zinc-100 last:border-0">
                 <td className="px-3 py-2 font-medium text-zinc-900">
-                  <Link href={`/store/products/${product._id}/batches`} className="text-teal-700 hover:underline">
+                  <Link
+                    href={`/store/products/${product._id}/batches?storeId=${storeId}`}
+                    className="text-teal-700 hover:underline"
+                  >
                     {product.itemName}
                   </Link>
                 </td>
