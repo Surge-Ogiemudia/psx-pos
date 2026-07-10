@@ -8,7 +8,7 @@ interface LogActivityInput {
   storeId?: string | null;
   actorUserId: string;
   actorName: string;
-  action: "intake" | "dispense_setting" | "push" | "sell" | "write_off" | "store_created" | "buyer_created";
+  action: "intake" | "dispense_setting" | "push" | "sell" | "write_off" | "store_created" | "buyer_created" | "delete";
   summary: string;
   metadata?: Record<string, unknown>;
   refCollection?: string;

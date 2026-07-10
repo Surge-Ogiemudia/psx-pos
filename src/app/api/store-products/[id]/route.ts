@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import StoreProduct from "@/models/StoreProduct";
 import StoreBatch from "@/models/StoreBatch";
-import { requireStoreApiSession, getStoreScope } from "@/lib/session";
+import DispenseSetting from "@/models/DispenseSetting";
+import { requireStoreApiSession, getStoreScope, ApiAuthError } from "@/lib/session";
+import { logActivity } from "@/lib/activityLog";
+import { formatProductLabel } from "@/lib/types";
 import { handleApiError } from "@/lib/apiError";
 
 export async function GET(
@@ -64,20 +68,42 @@ export async function DELETE(
 ) {
   try {
     const session = await requireStoreApiSession();
+    if (session.user.role !== "admin" && session.user.role !== "store_manager") {
+      throw new ApiAuthError(403, "Only an admin or store manager can delete a store item");
+    }
     await dbConnect();
     const { id } = await ctx.params;
     const scope = getStoreScope(session, request.nextUrl.searchParams.get("storeId"));
-    
+
     const product = await StoreProduct.findOne({ _id: id, ...scope }).lean();
     if (!product) return NextResponse.json({ error: "Product not found" }, { status: 404 });
-    if (product.quantityInStock > 0) {
-      return NextResponse.json({ error: "Cannot delete product with stock" }, { status: 400 });
+
+    const label = formatProductLabel(product);
+    const batches = await StoreBatch.find({ storeProductId: id, ...scope }).select("_id").lean();
+    const batchIds = batches.map((b) => b._id);
+
+    const dbSession = await mongoose.startSession();
+    try {
+      await dbSession.withTransaction(async () => {
+        await DispenseSetting.deleteMany({ storeBatchId: { $in: batchIds }, ...scope }, { session: dbSession });
+        await StoreBatch.deleteMany({ storeProductId: id, ...scope }, { session: dbSession });
+        await StoreProduct.deleteOne({ _id: id, ...scope }, { session: dbSession });
+
+        await logActivity(dbSession, {
+          pharmacyId: scope.pharmacyId,
+          scope: "store",
+          storeId: scope.storeId,
+          actorUserId: session.user.id,
+          actorName: session.user.name ?? "Unknown",
+          action: "delete",
+          summary: `${session.user.name} deleted ${label}${product.quantityInStock > 0 ? ` (had ${product.quantityInStock} ${product.baseUnitName} in stock)` : ""}`,
+          metadata: { quantityInStock: product.quantityInStock, batchesRemoved: batchIds.length },
+        });
+      });
+    } finally {
+      await dbSession.endSession();
     }
-    
-    // Also delete any zero-quantity batches associated with it
-    await StoreBatch.deleteMany({ storeProductId: id, ...scope });
-    await StoreProduct.deleteOne({ _id: id, ...scope });
-    
+
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleApiError(error);
