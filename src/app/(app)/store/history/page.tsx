@@ -1,4 +1,5 @@
 import { requireStorePageSession } from "@/lib/session";
+import { resolveActiveStore } from "@/lib/storeScope";
 import HistoryClient from "./HistoryClient";
 
 export default async function HistoryPage({
@@ -6,7 +7,9 @@ export default async function HistoryPage({
 }: {
   searchParams: Promise<{ storeId?: string }>;
 }) {
-  await requireStorePageSession();
+  const session = await requireStorePageSession();
   const { storeId } = await searchParams;
-  return <HistoryClient initialStoreId={storeId ?? ""} />;
+  const { activeStoreId } = await resolveActiveStore(session);
+  const resolvedStoreId = storeId || activeStoreId || "";
+  return <HistoryClient key={resolvedStoreId} initialStoreId={resolvedStoreId} />;
 }

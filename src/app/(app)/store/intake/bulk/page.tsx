@@ -1,4 +1,5 @@
 import { requireStorePageSession } from "@/lib/session";
+import { resolveActiveStore } from "@/lib/storeScope";
 import BulkIntakeClient from "./BulkIntakeClient";
 
 export default async function BulkIntakePage({
@@ -6,7 +7,9 @@ export default async function BulkIntakePage({
 }: {
   searchParams: Promise<{ storeId?: string }>;
 }) {
-  await requireStorePageSession();
+  const session = await requireStorePageSession();
   const { storeId } = await searchParams;
-  return <BulkIntakeClient initialStoreId={storeId ?? ""} />;
+  const { activeStoreId } = await resolveActiveStore(session);
+  const resolvedStoreId = storeId || activeStoreId || "";
+  return <BulkIntakeClient key={resolvedStoreId} initialStoreId={resolvedStoreId} />;
 }
