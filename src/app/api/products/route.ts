@@ -3,9 +3,11 @@ import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import ImportBatch from "@/models/ImportBatch";
+import DeletionLog from "@/models/DeletionLog";
 import { requireAdminApiSession, requireApiSession, getBranchScope } from "@/lib/session";
 import { normalizeText, productSearchScore } from "@/lib/productSimilarity";
 import { parseNumeric } from "@/lib/numberInput";
+import { productsToCsv } from "@/lib/csv";
 import { handleApiError } from "@/lib/apiError";
 
 export async function GET(request: NextRequest) {
@@ -167,6 +169,8 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    const productsToDelete = await Product.find(scope).lean();
+
     const dbSession = await mongoose.startSession();
     let deletedCount = 0;
     try {
@@ -174,6 +178,24 @@ export async function DELETE(request: NextRequest) {
         const result = await Product.deleteMany(scope, { session: dbSession });
         deletedCount = result.deletedCount ?? 0;
         await ImportBatch.deleteMany(scope, { session: dbSession });
+
+        if (productsToDelete.length > 0) {
+          await DeletionLog.create(
+            [
+              {
+                ...scope,
+                type: "delete_all",
+                deletedByUserId: session.user.id,
+                deletedByName: session.user.name ?? "Unknown",
+                itemCount: productsToDelete.length,
+                summary: `Deleted the entire catalog (${productsToDelete.length} item${productsToDelete.length === 1 ? "" : "s"})`,
+                csvContent: productsToCsv(productsToDelete),
+                csvFileName: `deleted-catalog-${new Date().toISOString().slice(0, 10)}.csv`,
+              },
+            ],
+            { session: dbSession }
+          );
+        }
       });
     } finally {
       await dbSession.endSession();

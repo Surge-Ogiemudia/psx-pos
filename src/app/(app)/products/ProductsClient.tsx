@@ -7,6 +7,7 @@ import {
   type ProductJSON,
   type ProductRequestJSON,
   type ImportBatchJSON,
+  type DeletionLogJSON,
 } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expiry";
 import { parseNumeric } from "@/lib/numberInput";
@@ -168,6 +169,21 @@ export default function ProductsClient({
   const [importBatches, setImportBatches] = useState<ImportBatchJSON[]>([]);
   const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
 
+  // Collapsed by default — import batches, the deletion log, and the delete-all danger zone
+  // are all housekeeping/destructive tools, kept out of the way of day-to-day catalog use.
+  const [toolsExpanded, setToolsExpanded] = useState(false);
+  const [deletionLogs, setDeletionLogs] = useState<DeletionLogJSON[]>([]);
+  const [expandedDeletionLogs, setExpandedDeletionLogs] = useState<Set<string>>(new Set());
+
+  function toggleDeletionLogExpanded(id: string) {
+    setExpandedDeletionLogs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   // "Delete all products in the catalog" — the most destructive action on this page, gated
   // behind fetching a fresh count and typing a literal confirmation phrase.
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
@@ -293,6 +309,20 @@ export default function ProductsClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, branchId]);
 
+  async function loadDeletionLogs() {
+    if (!isAdmin) return;
+    const params = new URLSearchParams();
+    if (branchId) params.set("branchId", branchId);
+    const res = await fetch(`/api/deletion-logs?${params}`);
+    if (res.ok) setDeletionLogs((await res.json()).logs);
+  }
+
+  useEffect(() => {
+    const timeout = setTimeout(loadDeletionLogs, 0);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, branchId]);
+
   async function deleteImportBatch(batch: ImportBatchJSON) {
     if (
       !confirm(
@@ -308,6 +338,7 @@ export default function ProductsClient({
       if (res.ok) {
         setImportBatches((prev) => prev.filter((b) => b._id !== batch._id));
         loadProducts();
+        loadDeletionLogs();
       } else {
         const data = await res.json();
         setBulkError(data.error || "Failed to delete batch");
@@ -586,7 +617,10 @@ export default function ProductsClient({
     if (!confirm("Delete this product?")) return;
     const params = branchId ? `?branchId=${branchId}` : "";
     const res = await fetch(`/api/products/${id}${params}`, { method: "DELETE" });
-    if (res.ok) loadProducts();
+    if (res.ok) {
+      loadProducts();
+      loadDeletionLogs();
+    }
   }
 
   async function openDeleteAllConfirm() {
@@ -622,6 +656,7 @@ export default function ProductsClient({
       setDeleteAllOpen(false);
       setImportBatches([]);
       loadProducts();
+      loadDeletionLogs();
     } finally {
       setDeleteAllSubmitting(false);
     }
@@ -1408,42 +1443,6 @@ export default function ProductsClient({
         </div>
       )}
 
-      {isAdmin && importBatches.length > 0 && (
-        <div className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-2 text-sm font-semibold text-zinc-900">Import batches</h2>
-          <p className="mb-3 text-sm text-zinc-600">
-            Every bulk file upload is saved as a batch. Deleting a batch removes every item it added to the
-            catalog in one action — handy for undoing a bad file without hunting down each row.
-          </p>
-          <div className="flex flex-col gap-2">
-            {importBatches.map((batch) => (
-              <div
-                key={batch._id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-200 p-2 text-sm"
-              >
-                <div className="text-zinc-700">
-                  <span className="font-medium">{batch.fileName || "Pasted CSV"}</span>{" "}
-                  <span className="text-zinc-400">
-                    · {new Date(batch.createdAt).toLocaleString()} · by {batch.uploadedByName}
-                  </span>
-                  <div className="text-zinc-500">
-                    {batch.remainingCount} item{batch.remainingCount === 1 ? "" : "s"} still in the catalog
-                    {batch.remainingCount !== batch.itemCount && ` (added ${batch.itemCount})`}
-                  </div>
-                </div>
-                <button
-                  disabled={deletingBatchId === batch._id}
-                  onClick={() => deleteImportBatch(batch)}
-                  className="rounded border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-                >
-                  {deletingBatchId === batch._id ? "Deleting..." : "Delete batch"}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
@@ -1681,57 +1680,199 @@ export default function ProductsClient({
       </div>
 
       {isAdmin && (
-        <div className="mt-8 rounded-lg border border-red-200 bg-red-50 p-4">
-          <h2 className="mb-1 text-sm font-semibold text-red-900">Danger zone</h2>
-          <p className="mb-3 text-sm text-red-800">
-            Permanently delete every product in this branch&apos;s catalog. This cannot be undone.
-          </p>
-          {!deleteAllOpen ? (
-            <button
-              onClick={openDeleteAllConfirm}
-              className="rounded-lg border border-red-600 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100"
-            >
-              Delete all products in this catalog
-            </button>
-          ) : (
-            <div className="rounded border border-red-300 bg-white p-3">
-              {deleteAllCount === null ? (
-                <p className="text-sm text-zinc-600">Checking the current catalog...</p>
-              ) : (
-                <>
-                  <p className="mb-2 text-sm text-zinc-800">
-                    This will permanently delete <strong>{deleteAllCount}</strong> product
-                    {deleteAllCount === 1 ? "" : "s"} from this branch&apos;s catalog, plus any saved import
-                    batches. Type <strong>DELETE</strong> to confirm.
+        <div className="mt-8">
+          <button
+            onClick={() => setToolsExpanded((v) => !v)}
+            className="flex w-full items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+          >
+            <span className={`inline-block transition-transform ${toolsExpanded ? "rotate-90" : ""}`}>›</span>
+            Catalog management (import batches, deletion log, danger zone)
+          </button>
+
+          {toolsExpanded && (
+            <div className="mt-3 flex flex-col gap-6">
+              {importBatches.length > 0 && (
+                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+                  <h2 className="mb-2 text-sm font-semibold text-zinc-900">Import batches</h2>
+                  <p className="mb-3 text-sm text-zinc-600">
+                    Every bulk file upload is saved as a batch. Deleting a batch removes every item it added to
+                    the catalog in one action — handy for undoing a bad file without hunting down each row.
                   </p>
-                  <input
-                    type="text"
-                    value={deleteAllConfirmText}
-                    onChange={(e) => setDeleteAllConfirmText(e.target.value)}
-                    placeholder="DELETE"
-                    className="mb-2 w-full max-w-xs rounded border border-zinc-300 px-2 py-1.5 text-sm focus:border-red-600 focus:outline-none focus:ring-1 focus:ring-red-600"
-                  />
-                </>
+                  <div className="flex flex-col gap-2">
+                    {importBatches.map((batch) => (
+                      <div
+                        key={batch._id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-200 p-2 text-sm"
+                      >
+                        <div className="text-zinc-700">
+                          <span className="font-medium">{batch.fileName || "Pasted CSV"}</span>{" "}
+                          <span className="text-zinc-400">
+                            · {new Date(batch.createdAt).toLocaleString()} · by {batch.uploadedByName}
+                          </span>
+                          <div className="text-zinc-500">
+                            {batch.remainingCount} item{batch.remainingCount === 1 ? "" : "s"} still in the
+                            catalog
+                            {batch.remainingCount !== batch.itemCount && ` (added ${batch.itemCount})`}
+                          </div>
+                        </div>
+                        <button
+                          disabled={deletingBatchId === batch._id}
+                          onClick={() => deleteImportBatch(batch)}
+                          className="rounded border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                        >
+                          {deletingBatchId === batch._id ? "Deleting..." : "Delete batch"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
-              {deleteAllError && <p className="mb-2 text-sm text-red-600">{deleteAllError}</p>}
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={confirmDeleteAll}
-                  disabled={deleteAllCount === null || deleteAllConfirmText !== "DELETE" || deleteAllSubmitting}
-                  className="rounded-lg bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-50"
-                >
-                  {deleteAllSubmitting
-                    ? "Deleting..."
-                    : deleteAllCount === null
-                    ? "Loading..."
-                    : `Permanently delete ${deleteAllCount} product${deleteAllCount === 1 ? "" : "s"}`}
-                </button>
-                <button
-                  onClick={() => setDeleteAllOpen(false)}
-                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-                >
-                  Cancel
-                </button>
+
+              <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-2 text-sm font-semibold text-zinc-900">Deletion log</h2>
+                <p className="mb-3 text-sm text-zinc-600">
+                  Every deletion on this page — single item, batch, or the whole catalog — is recorded here.
+                  Batch and whole-catalog deletions include a downloadable CSV of exactly what was removed, in
+                  the same format the bulk importer accepts, so you can re-add it if the deletion turns out to
+                  have been in error.
+                </p>
+                {deletionLogs.length === 0 ? (
+                  <p className="text-sm text-zinc-500">No deletions recorded yet.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {deletionLogs.map((log) => (
+                      <div key={log._id} className="rounded border border-zinc-200 p-2 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-zinc-700">
+                            <span className="font-medium">{log.summary}</span>{" "}
+                            <span className="text-zinc-400">
+                              · {new Date(log.createdAt).toLocaleString()} · by {log.deletedByName}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {log.type === "single" && (
+                              <button
+                                onClick={() => toggleDeletionLogExpanded(log._id)}
+                                className="text-xs font-medium text-teal-700 hover:underline"
+                              >
+                                {expandedDeletionLogs.has(log._id) ? "Hide details" : "View details"}
+                              </button>
+                            )}
+                            {log.hasCsv && (
+                              <a
+                                href={`/api/deletion-logs/${log._id}/download${branchId ? `?branchId=${branchId}` : ""}`}
+                                className="rounded border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                              >
+                                Download CSV
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        {log.type === "single" && expandedDeletionLogs.has(log._id) && log.productSnapshot && (
+                          <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded bg-zinc-50 p-2 text-xs text-zinc-700 sm:grid-cols-3">
+                            <div>
+                              <dt className="text-zinc-400">Item name</dt>
+                              <dd>{log.productSnapshot.itemName}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-zinc-400">Brand</dt>
+                              <dd>{log.productSnapshot.brand}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-zinc-400">Size</dt>
+                              <dd>{log.productSnapshot.size}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-zinc-400">Category</dt>
+                              <dd>{log.productSnapshot.category}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-zinc-400">Stock at deletion</dt>
+                              <dd>{log.productSnapshot.quantityInStock}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-zinc-400">Retail price</dt>
+                              <dd>₦{log.productSnapshot.retailPrice.toFixed(2)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-zinc-400">Wholesale price</dt>
+                              <dd>₦{log.productSnapshot.wholesalePrice.toFixed(2)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-zinc-400">Distributor price</dt>
+                              <dd>₦{log.productSnapshot.distributorPrice.toFixed(2)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-zinc-400">Batch number</dt>
+                              <dd>{log.productSnapshot.batchNumber || "—"}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-zinc-400">Expiry date</dt>
+                              <dd>{log.productSnapshot.expiryDate ? log.productSnapshot.expiryDate.slice(0, 10) : "—"}</dd>
+                            </div>
+                          </dl>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                <h2 className="mb-1 text-sm font-semibold text-red-900">Danger zone</h2>
+                <p className="mb-3 text-sm text-red-800">
+                  Permanently delete every product in this branch&apos;s catalog. This cannot be undone.
+                </p>
+                {!deleteAllOpen ? (
+                  <button
+                    onClick={openDeleteAllConfirm}
+                    className="rounded-lg border border-red-600 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100"
+                  >
+                    Delete all products in this catalog
+                  </button>
+                ) : (
+                  <div className="rounded border border-red-300 bg-white p-3">
+                    {deleteAllCount === null ? (
+                      <p className="text-sm text-zinc-600">Checking the current catalog...</p>
+                    ) : (
+                      <>
+                        <p className="mb-2 text-sm text-zinc-800">
+                          This will permanently delete <strong>{deleteAllCount}</strong> product
+                          {deleteAllCount === 1 ? "" : "s"} from this branch&apos;s catalog, plus any saved
+                          import batches. A downloadable copy will be kept in the deletion log below. Type{" "}
+                          <strong>DELETE</strong> to confirm.
+                        </p>
+                        <input
+                          type="text"
+                          value={deleteAllConfirmText}
+                          onChange={(e) => setDeleteAllConfirmText(e.target.value)}
+                          placeholder="DELETE"
+                          className="mb-2 w-full max-w-xs rounded border border-zinc-300 px-2 py-1.5 text-sm focus:border-red-600 focus:outline-none focus:ring-1 focus:ring-red-600"
+                        />
+                      </>
+                    )}
+                    {deleteAllError && <p className="mb-2 text-sm text-red-600">{deleteAllError}</p>}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={confirmDeleteAll}
+                        disabled={deleteAllCount === null || deleteAllConfirmText !== "DELETE" || deleteAllSubmitting}
+                        className="rounded-lg bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-50"
+                      >
+                        {deleteAllSubmitting
+                          ? "Deleting..."
+                          : deleteAllCount === null
+                          ? "Loading..."
+                          : `Permanently delete ${deleteAllCount} product${deleteAllCount === 1 ? "" : "s"}`}
+                      </button>
+                      <button
+                        onClick={() => setDeleteAllOpen(false)}
+                        className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
