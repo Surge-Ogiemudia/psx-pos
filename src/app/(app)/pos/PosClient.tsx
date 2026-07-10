@@ -395,38 +395,49 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
           </div>
         )}
 
-        <div className="grid max-h-96 grid-cols-1 gap-2 overflow-y-auto rounded-lg border border-zinc-100 p-1 sm:grid-cols-2">
-          {products.map((product) => {
-            const expiryStatus = getExpiryStatus(product.expiryDate);
-            return (
-              <button
-                key={product._id}
-                onClick={() => addToCart(product)}
-                disabled={product.quantityInStock < 1}
-                className="flex flex-col rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-sm hover:border-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-zinc-900">{formatProductLabel(product)}</span>
-                  {expiryStatus.label && (
-                    <span
-                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${EXPIRY_BADGE_CLASS[expiryStatus.level]}`}
-                    >
-                      {expiryStatus.label}
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 shadow-inner">
+          <div className="mb-2 flex items-center justify-between text-xs font-medium text-zinc-500">
+            <span>{products.length} product{products.length === 1 ? "" : "s"}</span>
+            {products.length > 4 && <span>Scroll for more ↓</span>}
+          </div>
+          <div className="relative">
+            <div className="grid max-h-96 grid-cols-1 gap-2 overflow-y-auto pb-1 sm:grid-cols-2">
+              {products.map((product) => {
+                const expiryStatus = getExpiryStatus(product.expiryDate);
+                return (
+                  <button
+                    key={product._id}
+                    onClick={() => addToCart(product)}
+                    disabled={product.quantityInStock < 1}
+                    className="flex flex-col rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-sm hover:border-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-zinc-900">{formatProductLabel(product)}</span>
+                      {expiryStatus.label && (
+                        <span
+                          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${EXPIRY_BADGE_CLASS[expiryStatus.level]}`}
+                        >
+                          {expiryStatus.label}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-zinc-500">
+                      {CATEGORY_LABEL[product.category]} · Stock: {product.quantityInStock}
                     </span>
-                  )}
-                </div>
-                <span className="text-xs text-zinc-500">
-                  {CATEGORY_LABEL[product.category]} · Stock: {product.quantityInStock}
-                </span>
-                <span className="mt-1 text-sm font-semibold text-teal-700">
-                  ₦{product.retailPrice.toFixed(2)}
-                </span>
-              </button>
-            );
-          })}
-          {products.length === 0 && (
-            <p className="col-span-2 text-sm text-zinc-500">No products found.</p>
-          )}
+                    <span className="mt-1 text-sm font-semibold text-teal-700">
+                      ₦{product.retailPrice.toFixed(2)}
+                    </span>
+                  </button>
+                );
+              })}
+              {products.length === 0 && (
+                <p className="col-span-2 text-sm text-zinc-500">No products found.</p>
+              )}
+            </div>
+            {products.length > 4 && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-zinc-50 to-transparent" />
+            )}
+          </div>
         </div>
       </div>
 
