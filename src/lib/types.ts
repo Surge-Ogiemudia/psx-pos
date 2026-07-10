@@ -211,3 +211,17 @@ export interface ImportBatchJSON {
   uploadedByName: string;
   createdAt: string;
 }
+
+export type DeletionLogType = "single" | "batch" | "delete_all";
+
+export interface DeletionLogJSON {
+  _id: string;
+  type: DeletionLogType;
+  deletedByName: string;
+  itemCount: number;
+  summary: string;
+  productSnapshot?: ProductJSON | null;
+  csvFileName?: string;
+  hasCsv: boolean;
+  createdAt: string;
+}
