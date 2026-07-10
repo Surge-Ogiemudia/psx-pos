@@ -21,6 +21,16 @@ export interface ProductJSON {
   expiryDate?: string | null;
 }
 
+export interface ProductBatchJSON {
+  _id: string;
+  productId: string;
+  quantity: number;
+  remainingQuantity: number;
+  batchNumber?: string;
+  expiryDate?: string | null;
+  receivedAt: string;
+}
+
 export interface SaleItemJSON {
   productId: string | null;
   productName: string;
