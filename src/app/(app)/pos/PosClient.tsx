@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatProductLabel, type PaymentMethod, type ProductCategory, type ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
@@ -74,6 +74,14 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
   });
   const [customMatches, setCustomMatches] = useState<ProductJSON[]>([]);
   const [customError, setCustomError] = useState<string | null>(null);
+
+  const cartSectionRef = useRef<HTMLDivElement>(null);
+
+  // So staff get visual confirmation an item landed in the cart, instead of it silently
+  // updating somewhere off-screen while the catalog list stays put.
+  function scrollToCart() {
+    cartSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   function productParams() {
     const params = new URLSearchParams();
@@ -188,6 +196,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
     setCustomForm({ itemName: "", brand: "", size: "", category: "supermarket", price: "", quantity: "1" });
     setCustomMatches([]);
     setCustomMode(false);
+    scrollToCart();
   }
 
   // Fast path: keep the single payment line synced to the cart total until the staff
@@ -376,6 +385,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
                         setCustomMode(false);
                         setCustomForm({ itemName: "", brand: "", size: "", category: "supermarket", price: "", quantity: "1" });
                         setCustomMatches([]);
+                        scrollToCart();
                       }}
                       className="rounded px-2 py-1 text-left text-sm text-teal-700 hover:bg-teal-50"
                     >
@@ -409,7 +419,10 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
                 return (
                   <button
                     key={product._id}
-                    onClick={() => addToCart(product)}
+                    onClick={() => {
+                      addToCart(product);
+                      scrollToCart();
+                    }}
                     disabled={product.quantityInStock < 1}
                     className="flex flex-col rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-sm hover:border-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
@@ -443,7 +456,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
         </div>
       </div>
 
-      <div>
+      <div ref={cartSectionRef} className="scroll-mt-20 md:scroll-mt-32">
         <h2 className="mb-3 text-lg font-semibold text-zinc-900">Current sale</h2>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           {cart.length === 0 && <p className="text-sm text-zinc-500">Cart is empty.</p>}
