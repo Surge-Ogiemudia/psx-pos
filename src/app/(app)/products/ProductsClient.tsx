@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   formatProductLabel,
   type ProductCategory,
@@ -1651,7 +1652,13 @@ export default function ProductsClient({
                         {expiryStatus.label && <div className="text-xs">{expiryStatus.label}</div>}
                       </td>
                       {isAdmin && (
-                        <td className="flex gap-2 px-3 py-2">
+                        <td className="flex flex-wrap gap-2 px-3 py-2">
+                          <Link
+                            href={`/products/${product._id}/batches${branchId ? `?branchId=${branchId}` : ""}`}
+                            className="text-zinc-600 hover:underline"
+                          >
+                            Batches
+                          </Link>
                           <button onClick={() => startEdit(product)} className="text-teal-700 hover:underline">
                             Edit
                           </button>
