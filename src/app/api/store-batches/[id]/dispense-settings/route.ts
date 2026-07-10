@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import StoreBatch from "@/models/StoreBatch";
+import StoreProduct from "@/models/StoreProduct";
 import DispenseSetting from "@/models/DispenseSetting";
+import Product from "@/models/Product";
 import { requireStoreApiSession, getStoreScope } from "@/lib/session";
 import { logActivity } from "@/lib/activityLog";
 import { handleApiError } from "@/lib/apiError";
 import { parseNumeric } from "@/lib/numberInput";
+import { computeBaseUnitsPerLevel } from "@/lib/unitHierarchy";
 
 const CHANNELS = ["sister_store", "branch", "distributor", "wholesaler", "retailer"] as const;
 const CHANNEL_LABEL: Record<string, string> = {
@@ -15,6 +18,16 @@ const CHANNEL_LABEL: Record<string, string> = {
   distributor: "distributor",
   wholesaler: "wholesaler",
   retailer: "retailer",
+};
+
+// Channels that correspond to one of a branch Product's own price tiers — setting one of these
+// updates every branch's matching item live, the same instant, with no push required. The
+// other two channels (sister-store, retailer) only ever affect stock actually moved via push/
+// sell, so they have no catalog equivalent.
+const CATALOG_PRICE_FIELD: Partial<Record<(typeof CHANNELS)[number], "retailPrice" | "wholesalePrice" | "distributorPrice">> = {
+  branch: "retailPrice",
+  distributor: "distributorPrice",
+  wholesaler: "wholesalePrice",
 };
 
 export async function GET(
@@ -75,6 +88,7 @@ export async function PUT(
     const dbSession = await mongoose.startSession();
     try {
       let setting;
+      let catalogUpdated = 0;
       await dbSession.withTransaction(async () => {
         setting = await DispenseSetting.findOneAndUpdate(
           { pharmacyId: session.user.pharmacyId, storeBatchId: id, channel },
@@ -90,6 +104,30 @@ export async function PUT(
           { new: true, upsert: true, session: dbSession, setDefaultsOnInsert: true }
         );
 
+        const catalogField = CATALOG_PRICE_FIELD[channel as (typeof CHANNELS)[number]];
+        if (catalogField) {
+          const storeProduct = await StoreProduct.findOne(
+            { _id: batch.storeProductId, pharmacyId: session.user.pharmacyId },
+            null,
+            { session: dbSession }
+          );
+          if (storeProduct) {
+            const piecesPerForm = computeBaseUnitsPerLevel(batch.unitHierarchy)[priceForm];
+            const unitPriceAtBaseUnit = priceAmount / (piecesPerForm ?? 1);
+            const result = await Product.updateMany(
+              {
+                pharmacyId: session.user.pharmacyId,
+                itemName: storeProduct.itemName,
+                brand: storeProduct.brand,
+                size: storeProduct.size,
+              },
+              { $set: { [catalogField]: unitPriceAtBaseUnit } },
+              { session: dbSession }
+            );
+            catalogUpdated = result.modifiedCount ?? 0;
+          }
+        }
+
         await logActivity(dbSession, {
           pharmacyId: session.user.pharmacyId,
           scope: "store",
@@ -97,14 +135,14 @@ export async function PUT(
           actorUserId: session.user.id,
           actorName: session.user.name ?? "Unknown",
           action: "dispense_setting",
-          summary: `${session.user.name} set the ${CHANNEL_LABEL[channel]} price for ${batch.productName} to ₦${priceAmount.toFixed(2)} per ${priceForm}`,
-          metadata: { channel, priceForm, priceAmount },
+          summary: `${session.user.name} set the ${CHANNEL_LABEL[channel]} price for ${batch.productName} to ₦${priceAmount.toFixed(2)} per ${priceForm}${catalogUpdated > 0 ? ` — updated ${catalogUpdated} branch catalog entr${catalogUpdated === 1 ? "y" : "ies"}` : ""}`,
+          metadata: { channel, priceForm, priceAmount, catalogUpdated },
           refCollection: "DispenseSetting",
           refId: setting!._id,
         });
       });
 
-      return NextResponse.json({ setting });
+      return NextResponse.json({ setting, catalogUpdated });
     } finally {
       await dbSession.endSession();
     }
