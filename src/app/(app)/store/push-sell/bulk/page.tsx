@@ -1,4 +1,5 @@
 import { requireStorePageSession } from "@/lib/session";
+import { resolveActiveStore } from "@/lib/storeScope";
 import BulkPushClient from "./BulkPushClient";
 
 export default async function BulkPushPage({
@@ -6,7 +7,9 @@ export default async function BulkPushPage({
 }: {
   searchParams: Promise<{ storeId?: string }>;
 }) {
-  await requireStorePageSession();
+  const session = await requireStorePageSession();
   const { storeId } = await searchParams;
-  return <BulkPushClient initialStoreId={storeId ?? ""} />;
+  const { activeStoreId } = await resolveActiveStore(session);
+  const resolvedStoreId = storeId || activeStoreId || "";
+  return <BulkPushClient key={resolvedStoreId} initialStoreId={resolvedStoreId} />;
 }

@@ -2,21 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { StoreJSON, StoreProductJSON } from "@/lib/types";
+import type { StoreProductJSON } from "@/lib/types";
 import { describeStock } from "@/lib/unitHierarchy";
 
 export default function StoreDashboardClient({
   fixedStoreId,
+  activeStoreId,
   canDelete,
 }: {
   fixedStoreId: string | null;
+  activeStoreId: string | null;
   canDelete: boolean;
 }) {
-  const canSwitch = !fixedStoreId;
-  const [stores, setStores] = useState<StoreJSON[]>([]);
-  const [storeId, setStoreId] = useState<string>(fixedStoreId ?? "");
+  const storeId = fixedStoreId ?? activeStoreId ?? "";
   const [products, setProducts] = useState<StoreProductJSON[]>([]);
-  const [loaded, setLoaded] = useState(!canSwitch);
 
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deleteAllCount, setDeleteAllCount] = useState<number | null>(null);
@@ -30,17 +29,6 @@ export default function StoreDashboardClient({
       .then((res) => res.json())
       .then((data) => setProducts(data.storeProducts || []));
   }
-
-  useEffect(() => {
-    if (!canSwitch) return;
-    fetch("/api/stores")
-      .then((res) => res.json())
-      .then((data) => {
-        setStores(data.stores);
-        if (data.stores.length > 0) setStoreId(data.stores[0]._id);
-        setLoaded(true);
-      });
-  }, [canSwitch]);
 
   useEffect(loadProducts, [storeId]);
 
@@ -78,7 +66,7 @@ export default function StoreDashboardClient({
     }
   }
 
-  if (canSwitch && loaded && stores.length === 0) {
+  if (!storeId) {
     return (
       <div>
         <h1 className="mb-3 text-lg font-semibold text-zinc-900">Bulk store</h1>
@@ -91,22 +79,7 @@ export default function StoreDashboardClient({
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold text-zinc-900">Bulk store</h1>
-        {canSwitch && stores.length > 1 && (
-          <select
-            value={storeId}
-            onChange={(e) => setStoreId(e.target.value)}
-            className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
-          >
-            {stores.map((store) => (
-              <option key={store._id} value={store._id}>
-                {store.storeName}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
+      <h1 className="mb-4 text-lg font-semibold text-zinc-900">Bulk store</h1>
 
       <div className="mb-6 flex flex-wrap gap-2">
         <Link
@@ -188,7 +161,7 @@ export default function StoreDashboardClient({
         </table>
       </div>
 
-      {canDelete && storeId && (
+      {canDelete && (
         <div className="mt-8 rounded-lg border border-red-200 bg-red-50 p-4">
           <h2 className="mb-1 text-sm font-semibold text-red-900">Danger zone</h2>
           <p className="mb-3 text-sm text-red-800">

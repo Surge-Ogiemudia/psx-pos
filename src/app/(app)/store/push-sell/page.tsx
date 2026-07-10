@@ -1,4 +1,5 @@
 import { requireStorePageSession } from "@/lib/session";
+import { resolveActiveStore } from "@/lib/storeScope";
 import PushSellClient from "./PushSellClient";
 
 export default async function PushSellPage({
@@ -8,6 +9,8 @@ export default async function PushSellPage({
 }) {
   const session = await requireStorePageSession();
   const { storeId } = await searchParams;
+  const { activeStoreId } = await resolveActiveStore(session);
+  const resolvedStoreId = storeId || activeStoreId || "";
   const canWriteOff = session.user.role === "admin" || session.user.role === "store_manager";
-  return <PushSellClient initialStoreId={storeId ?? ""} canWriteOff={canWriteOff} />;
+  return <PushSellClient key={resolvedStoreId} initialStoreId={resolvedStoreId} canWriteOff={canWriteOff} />;
 }

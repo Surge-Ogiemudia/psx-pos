@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import type { UserRole } from "@/types/next-auth";
 import type { BranchOption } from "@/lib/branchScope";
+import type { StoreOption } from "@/lib/storeScope";
 
 const RETAIL_LINKS = [
   { href: "/pos", label: "Point of Sale" },
@@ -20,6 +21,13 @@ const ADMIN_LINKS = [
 const STORE_LINKS = [{ href: "/store", label: "Bulk Store" }];
 const ADMIN_STORE_LINKS = [{ href: "/stores", label: "Stores" }];
 
+interface Pending {
+  kind: "branch" | "store";
+  id: string;
+  name: string;
+  currentName: string;
+}
+
 export default function NavBar({
   pharmacyName,
   logoUrl,
@@ -27,6 +35,8 @@ export default function NavBar({
   userRole,
   branches,
   activeBranchId,
+  stores,
+  activeStoreId,
   scopeLabel,
 }: {
   pharmacyName: string;
@@ -35,11 +45,14 @@ export default function NavBar({
   userRole: UserRole;
   branches: BranchOption[];
   activeBranchId: string | null;
+  stores: StoreOption[];
+  activeStoreId: string | null;
   scopeLabel?: string | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pending, setPending] = useState<Pending | null>(null);
   const links = [
     ...(userRole === "admin" || userRole === "staff" ? RETAIL_LINKS : []),
     ...(userRole === "admin" ? ADMIN_LINKS : []),
@@ -47,22 +60,55 @@ export default function NavBar({
     ...(userRole === "admin" ? ADMIN_STORE_LINKS : []),
   ];
 
-  function switchBranch(branchId: string) {
-    document.cookie = `activeBranchId=${branchId}; path=/; max-age=31536000`;
+  function requestSwitch(kind: "branch" | "store", id: string, name: string, currentName: string) {
+    if (id === (kind === "branch" ? activeBranchId : activeStoreId)) return;
+    setPending({ kind, id, name, currentName });
+  }
+
+  function confirmSwitch() {
+    if (!pending) return;
+    const cookieName = pending.kind === "branch" ? "activeBranchId" : "activeStoreId";
+    document.cookie = `${cookieName}=${pending.id}; path=/; max-age=31536000`;
+    setPending(null);
     router.refresh();
   }
+
+  const activeBranchName = branches.find((b) => b._id === activeBranchId)?.branchName ?? "";
+  const activeStoreName = stores.find((s) => s._id === activeStoreId)?.storeName ?? "";
 
   const branchSwitcher =
     userRole === "admin" && branches.length > 0 ? (
       <select
         value={activeBranchId ?? ""}
-        onChange={(e) => switchBranch(e.target.value)}
+        onChange={(e) => {
+          const branch = branches.find((b) => b._id === e.target.value);
+          if (branch) requestSwitch("branch", branch._id, branch.branchName, activeBranchName);
+        }}
         className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm md:w-auto"
         title="Branch you're currently managing"
       >
         {branches.map((branch) => (
           <option key={branch._id} value={branch._id}>
             {branch.branchName}
+          </option>
+        ))}
+      </select>
+    ) : null;
+
+  const storeSwitcher =
+    (userRole === "admin" || userRole === "store_manager") && stores.length > 0 ? (
+      <select
+        value={activeStoreId ?? ""}
+        onChange={(e) => {
+          const store = stores.find((s) => s._id === e.target.value);
+          if (store) requestSwitch("store", store._id, store.storeName, activeStoreName);
+        }}
+        className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm md:w-auto"
+        title="Store you're currently managing"
+      >
+        {stores.map((store) => (
+          <option key={store._id} value={store._id}>
+            {store.storeName}
           </option>
         ))}
       </select>
@@ -105,6 +151,7 @@ export default function NavBar({
 
           <div className="hidden items-center gap-3 md:ml-auto md:flex">
             {branchSwitcher}
+            {storeSwitcher}
             <span className="whitespace-nowrap text-sm text-zinc-500">
               {userName} <span className="text-zinc-400">({userRole})</span>
               {scopeLabel && (
@@ -162,6 +209,7 @@ export default function NavBar({
               );
             })}
             {branchSwitcher && <div className="px-1 pt-2">{branchSwitcher}</div>}
+            {storeSwitcher && <div className="px-1 pt-2">{storeSwitcher}</div>}
             <div className="mt-2 flex items-center justify-between border-t border-zinc-200 px-1 pt-3">
               <span className="text-sm text-zinc-500">
                 {userName} <span className="text-zinc-400">({userRole})</span>
@@ -184,6 +232,36 @@ export default function NavBar({
           </div>
         )}
       </div>
+
+      {pending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-lg">
+            <h2 className="mb-2 text-base font-semibold text-zinc-900">
+              Switch {pending.kind === "branch" ? "branch" : "store"}?
+            </h2>
+            <p className="mb-4 text-sm text-zinc-600">
+              You&apos;re about to leave <strong>{pending.currentName || "your current location"}</strong> and
+              start managing <strong>{pending.name}</strong> instead. Everything you do afterward — stock,
+              prices, sales — will apply to {pending.name}, not{" "}
+              {pending.currentName || "where you are now"}.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={confirmSwitch}
+                className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800"
+              >
+                Yes, switch to {pending.name}
+              </button>
+              <button
+                onClick={() => setPending(null)}
+                className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }
