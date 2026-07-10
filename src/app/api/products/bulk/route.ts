@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
+import ImportBatch from "@/models/ImportBatch";
 import { requireAdminApiSession, getBranchScope } from "@/lib/session";
 import { normalizeText, findSimilarProducts } from "@/lib/productSimilarity";
 import { parseNumeric } from "@/lib/numberInput";
@@ -283,12 +284,32 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    let importBatch = null;
     if (toInsert.length > 0) {
-      await Product.insertMany(toInsert);
+      const fileName = typeof body.fileName === "string" ? body.fileName.trim().slice(0, 200) : "";
+      const [batch] = await ImportBatch.create([
+        {
+          ...scope,
+          uploadedByUserId: session.user.id,
+          uploadedByName: session.user.name ?? "Unknown",
+          fileName,
+          itemCount: toInsert.length,
+        },
+      ]);
+      importBatch = batch;
+      await Product.insertMany(toInsert.map((p) => ({ ...p, importBatchId: batch._id })));
     }
 
     return NextResponse.json(
-      { created: toInsert.length, byCategory, existingDuplicates, fileDuplicates, errors, needsReview },
+      {
+        created: toInsert.length,
+        importBatchId: importBatch ? String(importBatch._id) : null,
+        byCategory,
+        existingDuplicates,
+        fileDuplicates,
+        errors,
+        needsReview,
+      },
       { status: toInsert.length === 0 && needsReview.length === 0 ? 400 : 201 }
     );
   } catch (error) {

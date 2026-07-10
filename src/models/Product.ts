@@ -30,6 +30,9 @@ const ProductSchema = new Schema(
     distributorPrice: { type: Number, required: true, min: 0 },
     batchNumber: { type: String, default: "" },
     expiryDate: { type: Date, default: null },
+    // Set only when this product was created via a bulk file import — lets the whole
+    // batch be deleted together in one action instead of one product at a time.
+    importBatchId: { type: Schema.Types.ObjectId, ref: "ImportBatch", default: null, index: true },
   },
   { timestamps: true }
 );

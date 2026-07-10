@@ -202,3 +202,12 @@ export interface ProductRequestJSON {
   reviewNote?: string;
   createdAt: string;
 }
+
+export interface ImportBatchJSON {
+  _id: string;
+  fileName: string;
+  itemCount: number;
+  remainingCount: number;
+  uploadedByName: string;
+  createdAt: string;
+}

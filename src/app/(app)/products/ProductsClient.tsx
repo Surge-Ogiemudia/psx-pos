@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatProductLabel, type ProductCategory, type ProductJSON, type ProductRequestJSON } from "@/lib/types";
+import {
+  formatProductLabel,
+  type ProductCategory,
+  type ProductJSON,
+  type ProductRequestJSON,
+  type ImportBatchJSON,
+} from "@/lib/types";
 import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expiry";
 import { parseNumeric } from "@/lib/numberInput";
 
@@ -158,6 +164,9 @@ export default function ProductsClient({
   const [bulkAnalysis, setBulkAnalysis] = useState<BulkAnalysis | null>(null);
   const [bulkAnalyzing, setBulkAnalyzing] = useState(false);
   const [bulkExpanded, setBulkExpanded] = useState<Set<string>>(new Set());
+  const [bulkFileName, setBulkFileName] = useState("");
+  const [importBatches, setImportBatches] = useState<ImportBatchJSON[]>([]);
+  const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
 
   function toggleBulkExpanded(key: string) {
     setBulkExpanded((prev) => {
@@ -261,6 +270,44 @@ export default function ProductsClient({
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, branchId]);
+
+  async function loadImportBatches() {
+    if (!isAdmin) return;
+    const params = new URLSearchParams();
+    if (branchId) params.set("branchId", branchId);
+    const res = await fetch(`/api/import-batches?${params}`);
+    if (res.ok) setImportBatches((await res.json()).batches);
+  }
+
+  useEffect(() => {
+    const timeout = setTimeout(loadImportBatches, 0);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, branchId]);
+
+  async function deleteImportBatch(batch: ImportBatchJSON) {
+    if (
+      !confirm(
+        `Delete this batch? This removes all ${batch.remainingCount} item${batch.remainingCount === 1 ? "" : "s"} it added to the catalog.`
+      )
+    ) {
+      return;
+    }
+    setDeletingBatchId(batch._id);
+    try {
+      const params = branchId ? `?branchId=${branchId}` : "";
+      const res = await fetch(`/api/import-batches/${batch._id}${params}`, { method: "DELETE" });
+      if (res.ok) {
+        setImportBatches((prev) => prev.filter((b) => b._id !== batch._id));
+        loadProducts();
+      } else {
+        const data = await res.json();
+        setBulkError(data.error || "Failed to delete batch");
+      }
+    } finally {
+      setDeletingBatchId(null);
+    }
+  }
 
   useEffect(() => {
     if (!matchingRequestId || !matchSearch.trim()) {
@@ -536,6 +583,7 @@ export default function ProductsClient({
 
   function updateBulkText(text: string) {
     setBulkText(text);
+    setBulkFileName("");
     setBulkAnalysis(null);
     setBulkExpanded(new Set());
     setBulkError(null);
@@ -551,6 +599,7 @@ export default function ProductsClient({
     setBulkResult(null);
     setBulkAnalysis(null);
     setBulkExpanded(new Set());
+    setBulkFileName(file.name);
     const isExcel = /\.xlsx?$/i.test(file.name);
 
     try {
@@ -625,7 +674,7 @@ export default function ProductsClient({
     const res = await fetch("/api/products/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ products, branchId }),
+      body: JSON.stringify({ products, branchId, fileName: bulkFileName }),
     });
     const data = await res.json();
     setBulkSubmitting(false);
@@ -650,8 +699,12 @@ export default function ProductsClient({
       (data.existingDuplicates || []).length === 0 &&
       (data.fileDuplicates || []).length === 0 &&
       !(data.needsReview || []).length;
-    if (nothingLeftToFix) setBulkText("");
+    if (nothingLeftToFix) {
+      setBulkText("");
+      setBulkFileName("");
+    }
     loadProducts();
+    loadImportBatches();
   }
 
   async function resolveBulkReviewRow(reviewRow: BulkReviewRow, choice: "new" | "batch" | "merge") {
@@ -1306,6 +1359,42 @@ export default function ProductsClient({
               {bulkAnalyzing ? "Checking..." : "Check file"}
             </button>
           )}
+        </div>
+      )}
+
+      {isAdmin && importBatches.length > 0 && (
+        <div className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-2 text-sm font-semibold text-zinc-900">Import batches</h2>
+          <p className="mb-3 text-sm text-zinc-600">
+            Every bulk file upload is saved as a batch. Deleting a batch removes every item it added to the
+            catalog in one action — handy for undoing a bad file without hunting down each row.
+          </p>
+          <div className="flex flex-col gap-2">
+            {importBatches.map((batch) => (
+              <div
+                key={batch._id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-200 p-2 text-sm"
+              >
+                <div className="text-zinc-700">
+                  <span className="font-medium">{batch.fileName || "Pasted CSV"}</span>{" "}
+                  <span className="text-zinc-400">
+                    · {new Date(batch.createdAt).toLocaleString()} · by {batch.uploadedByName}
+                  </span>
+                  <div className="text-zinc-500">
+                    {batch.remainingCount} item{batch.remainingCount === 1 ? "" : "s"} still in the catalog
+                    {batch.remainingCount !== batch.itemCount && ` (added ${batch.itemCount})`}
+                  </div>
+                </div>
+                <button
+                  disabled={deletingBatchId === batch._id}
+                  onClick={() => deleteImportBatch(batch)}
+                  className="rounded border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                >
+                  {deletingBatchId === batch._id ? "Deleting..." : "Delete batch"}
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
