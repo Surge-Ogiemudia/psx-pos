@@ -1,11 +1,23 @@
 import { Schema, model, models, type InferSchemaType, type Model } from "mongoose";
 
+const BatchDrawSchema = new Schema(
+  {
+    batchId: { type: Schema.Types.ObjectId, ref: "ProductBatch", required: true },
+    quantity: { type: Number, required: true, min: 1 },
+  },
+  { _id: false }
+);
+
 const SaleItemSchema = new Schema(
   {
     // null for a custom line — an item sold on the spot that isn't in the catalog yet.
     productId: { type: Schema.Types.ObjectId, ref: "Product", default: null },
     productName: { type: String, required: true },
     isCustom: { type: Boolean, default: false },
+    // Which ProductBatch(es) this line's stock was drawn from, in draw order, so a refund can
+    // credit quantity back to the right batch instead of just an aggregate count. Empty for
+    // custom lines, and for legacy sales/products that predate batch tracking.
+    batchDraws: { type: [BatchDrawSchema], default: [] },
     // Structured fields for custom lines only, carried through so a ProductRequest can be
     // filed without re-parsing the composed productName back apart.
     itemName: { type: String, default: null },
