@@ -13,6 +13,7 @@ interface RowState {
   priceForm: string;
   priceAmount: string;
   saved: boolean;
+  catalogUpdated: number | null;
   error: string | null;
   saving: boolean;
 }
@@ -40,6 +41,7 @@ export default function DispenseSettingClient({ batchId }: { batchId: string }) 
             priceForm: existing.priceForm,
             priceAmount: String(existing.priceAmount),
             saved: true,
+            catalogUpdated: null,
             error: null,
             saving: false,
           };
@@ -49,6 +51,7 @@ export default function DispenseSettingClient({ batchId }: { batchId: string }) 
             priceForm: data.batch.receivedForm,
             priceAmount: String(data.batch.purchaseAmount),
             saved: false,
+            catalogUpdated: null,
             error: null,
             saving: false,
           };
@@ -57,6 +60,7 @@ export default function DispenseSettingClient({ batchId }: { batchId: string }) 
             priceForm: data.batch.unitHierarchy[0]?.unitName ?? "",
             priceAmount: "",
             saved: false,
+            catalogUpdated: null,
             error: null,
             saving: false,
           };
@@ -69,7 +73,7 @@ export default function DispenseSettingClient({ batchId }: { batchId: string }) 
   }, [batchId]);
 
   function updateRow(channel: DispenseChannel, changes: Partial<RowState>) {
-    setRows((prev) => ({ ...prev, [channel]: { ...prev[channel], ...changes, saved: false } }));
+    setRows((prev) => ({ ...prev, [channel]: { ...prev[channel], ...changes, saved: false, catalogUpdated: null } }));
   }
 
   async function saveChannel(channel: DispenseChannel) {
@@ -92,7 +96,10 @@ export default function DispenseSettingClient({ batchId }: { batchId: string }) 
       updateRow(channel, { saving: false, error: data.error || "Failed to save" });
       return;
     }
-    updateRow(channel, { saving: false, saved: true, error: null });
+    setRows((prev) => ({
+      ...prev,
+      [channel]: { ...prev[channel], saving: false, saved: true, catalogUpdated: data.catalogUpdated ?? null, error: null },
+    }));
   }
 
   if (loading) return <p className="text-sm text-zinc-500">Loading...</p>;
@@ -167,6 +174,14 @@ export default function DispenseSettingClient({ batchId }: { batchId: string }) 
               </div>
               {row.error && <p className="text-sm text-red-600">{row.error}</p>}
               {breakdown && <p className="text-xs text-zinc-500">{breakdown.summarySentence}</p>}
+              {(channel === "branch" || channel === "distributor" || channel === "wholesaler") &&
+                row.catalogUpdated !== null && (
+                <p className="text-xs text-teal-700">
+                  {row.catalogUpdated > 0
+                    ? `Updated ${row.catalogUpdated} branch catalog entr${row.catalogUpdated === 1 ? "y" : "ies"} to match, instantly — no push needed.`
+                    : "No branch has this item yet, so nothing to update there — it'll apply automatically once one does."}
+                </p>
+              )}
             </div>
           );
         })}
