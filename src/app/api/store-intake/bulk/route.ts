@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import StoreProduct from "@/models/StoreProduct";
 import StoreBatch from "@/models/StoreBatch";
 import DispenseSetting from "@/models/DispenseSetting";
+import ActivityLog from "@/models/ActivityLog";
 import { requireStoreApiSession, getStoreScope } from "@/lib/session";
-import { logActivity } from "@/lib/activityLog";
-import { convertToBaseUnits, parseHierarchyString, pluralize, type UnitLevel } from "@/lib/unitHierarchy";
+import { convertToBaseUnits, parseHierarchyString, type UnitLevel } from "@/lib/unitHierarchy";
 import { normalizeText } from "@/lib/productSimilarity";
 import { parseExpiryDateLoose } from "@/lib/dateInput";
 import { parseNumeric } from "@/lib/numberInput";
 import { formatProductLabel, type ProductCategory } from "@/lib/types";
 import { handleApiError } from "@/lib/apiError";
+
+// Bulk files can run into the thousands of rows — give this route more room than the
+// platform default before treating it as hung.
+export const maxDuration = 60;
 
 interface IntakeRow {
   itemName?: string;
@@ -57,6 +60,10 @@ function isMissing(v: unknown): boolean {
   return v === undefined || v === null || v === "";
 }
 
+function itemKey(itemName: string, brand: string, size: string): string {
+  return `${normalizeText(itemName)}|${normalizeText(brand)}|${normalizeText(size)}`;
+}
+
 interface ParsedRow {
   rowNumber: number;
   itemName: string;
@@ -78,14 +85,12 @@ interface ParsedRow {
   prices: { channel: Channel; priceForm: string; priceAmount: number }[];
 }
 
-async function analyzeRows(rows: IntakeRow[], scope: { pharmacyId: string; storeId: string }) {
+function analyzeRows(
+  rows: IntakeRow[],
+  existingKeyToId: Map<string, string>
+): { errors: { row: number; error: string }[]; toReceive: ParsedRow[]; priceCounts: Record<Channel, number> } {
   const errors: { row: number; error: string }[] = [];
   const toReceive: ParsedRow[] = [];
-
-  const existingProducts = await StoreProduct.find(scope).select("itemName brand size").lean();
-  const existingKeys = new Set(
-    existingProducts.map((p) => `${normalizeText(p.itemName)}|${normalizeText(p.brand)}|${normalizeText(p.size)}`)
-  );
   const seenInFile = new Set<string>();
 
   rows.forEach((row, index) => {
@@ -174,8 +179,8 @@ async function analyzeRows(rows: IntakeRow[], scope: { pharmacyId: string; store
       prices.push({ channel, priceForm, priceAmount: amount });
     }
 
-    const dedupeKey = `${normalizeText(itemName)}|${normalizeText(brand)}|${normalizeText(size)}`;
-    const isNewItem = !existingKeys.has(dedupeKey) && !seenInFile.has(dedupeKey);
+    const dedupeKey = itemKey(itemName, brand, size);
+    const isNewItem = !existingKeyToId.has(dedupeKey) && !seenInFile.has(dedupeKey);
     seenInFile.add(dedupeKey);
 
     const baseUnitQuantity = convertToBaseUnits(hierarchy, receivedForm, receivedQuantity);
@@ -233,7 +238,12 @@ export async function POST(request: NextRequest) {
     }
 
     const scope = getStoreScope(session, body.storeId);
-    const { errors, toReceive, priceCounts } = await analyzeRows(rows, scope);
+    const existingProducts = await StoreProduct.find(scope).select("itemName brand size").lean();
+    const existingKeyToId = new Map(
+      existingProducts.map((p) => [itemKey(p.itemName, p.brand, p.size), p._id.toString()])
+    );
+
+    const { errors, toReceive, priceCounts } = analyzeRows(rows, existingKeyToId);
 
     if (dryRun) {
       const newItems = toReceive.filter((r) => r.isNewItem).length;
@@ -246,111 +256,102 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    let received = 0;
-    for (const parsed of toReceive) {
-      const dbSession = await mongoose.startSession();
-      try {
-        await dbSession.withTransaction(async () => {
-          let storeProduct = await StoreProduct.findOne(
-            { ...scope, itemName: parsed.itemName, brand: parsed.brand, size: parsed.size },
-            null,
-            { session: dbSession }
-          );
-
-          if (!storeProduct) {
-            const created = await StoreProduct.create(
-              [
-                {
-                  ...scope,
-                  itemName: parsed.itemName,
-                  brand: parsed.brand,
-                  size: parsed.size,
-                  category: parsed.category,
-                  baseUnitName: parsed.baseUnitName,
-                  quantityInStock: 0,
-                },
-              ],
-              { session: dbSession }
-            );
-            storeProduct = created[0];
-          }
-
-          const batchDocs = await StoreBatch.create(
-            [
-              {
-                ...scope,
-                storeProductId: storeProduct._id,
-                productName: parsed.productLabel,
-                unitHierarchy: parsed.hierarchy,
-                receivedForm: parsed.receivedForm,
-                receivedQuantity: parsed.receivedQuantity,
-                baseUnitQuantity: parsed.baseUnitQuantity,
-                remainingBaseUnitQuantity: parsed.baseUnitQuantity,
-                purchaseAmount: parsed.purchaseAmount,
-                purchaseUnitCost: parsed.purchaseUnitCost,
-                supplierName: parsed.supplierName,
-                batchNumber: parsed.batchNumber,
-                expiryDate: parsed.expiryDate,
-                receivedByUserId: session.user.id,
-                receivedAt: new Date(),
-              },
-            ],
-            { session: dbSession }
-          );
-          const batch = batchDocs[0];
-
-          await StoreProduct.findOneAndUpdate(
-            { _id: storeProduct._id },
-            { $inc: { quantityInStock: parsed.baseUnitQuantity } },
-            { session: dbSession }
-          );
-
-          for (const price of parsed.prices) {
-            await DispenseSetting.create(
-              [
-                {
-                  pharmacyId: scope.pharmacyId,
-                  storeId: scope.storeId,
-                  storeBatchId: batch._id,
-                  storeProductId: storeProduct._id,
-                  channel: price.channel,
-                  priceForm: price.priceForm,
-                  priceAmount: price.priceAmount,
-                  setByUserId: session.user.id,
-                },
-              ],
-              { session: dbSession }
-            );
-          }
-
-          await logActivity(dbSession, {
-            pharmacyId: session.user.pharmacyId,
-            scope: "store",
-            storeId: scope.storeId,
-            actorUserId: session.user.id,
-            actorName: session.user.name ?? "Unknown",
-            action: "intake",
-            summary: `${session.user.name} received ${parsed.receivedQuantity} ${pluralize(parsed.receivedForm, parsed.receivedQuantity)} of ${parsed.productLabel} for ₦${parsed.purchaseAmount.toFixed(2)} (bulk receive)`,
-            metadata: {
-              receivedForm: parsed.receivedForm,
-              receivedQuantity: parsed.receivedQuantity,
-              baseUnitQuantity: parsed.baseUnitQuantity,
-              purchaseAmount: parsed.purchaseAmount,
-              pricesSet: parsed.prices.map((p) => p.channel),
-            },
-            refCollection: "StoreBatch",
-            refId: batch._id,
-          });
-        });
-        received++;
-      } catch (err) {
-        errors.push({ row: parsed.rowNumber, error: err instanceof Error ? err.message : "Failed to record this row" });
-      } finally {
-        await dbSession.endSession();
-      }
+    if (toReceive.length === 0) {
+      return NextResponse.json({ received: 0, errors }, { status: 400 });
     }
 
-    return NextResponse.json({ received, errors }, { status: received === 0 ? 400 : 201 });
+    // Bulk-write in a handful of round trips instead of one full transaction per row — with
+    // thousands of rows, a per-row transaction loop is slow enough to blow past the platform's
+    // request timeout and leave the client stuck with no response. This trades strict
+    // all-or-nothing atomicity for speed, same trade-off the catalog's bulk importer already
+    // makes (a single insertMany, no transaction wrapper).
+    const keyToId = new Map(existingKeyToId);
+    const newItemKeys: string[] = [];
+    const newItemDocs: Record<string, unknown>[] = [];
+    for (const r of toReceive) {
+      const key = itemKey(r.itemName, r.brand, r.size);
+      if (!keyToId.has(key) && !newItemKeys.includes(key)) {
+        newItemKeys.push(key);
+        newItemDocs.push({
+          ...scope,
+          itemName: r.itemName,
+          brand: r.brand,
+          size: r.size,
+          category: r.category,
+          baseUnitName: r.baseUnitName,
+          quantityInStock: 0,
+        });
+      }
+    }
+    if (newItemDocs.length > 0) {
+      const created = await StoreProduct.insertMany(newItemDocs);
+      created.forEach((doc, i) => keyToId.set(newItemKeys[i], String(doc._id)));
+    }
+
+    const now = new Date();
+    const batchDocs = toReceive.map((r) => ({
+      ...scope,
+      storeProductId: keyToId.get(itemKey(r.itemName, r.brand, r.size)),
+      productName: r.productLabel,
+      unitHierarchy: r.hierarchy,
+      receivedForm: r.receivedForm,
+      receivedQuantity: r.receivedQuantity,
+      baseUnitQuantity: r.baseUnitQuantity,
+      remainingBaseUnitQuantity: r.baseUnitQuantity,
+      purchaseAmount: r.purchaseAmount,
+      purchaseUnitCost: r.purchaseUnitCost,
+      supplierName: r.supplierName,
+      batchNumber: r.batchNumber,
+      expiryDate: r.expiryDate,
+      receivedByUserId: session.user.id,
+      receivedAt: now,
+    }));
+    const insertedBatches = await StoreBatch.insertMany(batchDocs);
+
+    const priceDocs: Record<string, unknown>[] = [];
+    toReceive.forEach((r, i) => {
+      const batch = insertedBatches[i];
+      for (const price of r.prices) {
+        priceDocs.push({
+          pharmacyId: scope.pharmacyId,
+          storeId: scope.storeId,
+          storeBatchId: batch._id,
+          storeProductId: batch.storeProductId,
+          channel: price.channel,
+          priceForm: price.priceForm,
+          priceAmount: price.priceAmount,
+          setByUserId: session.user.id,
+        });
+      }
+    });
+    if (priceDocs.length > 0) {
+      await DispenseSetting.insertMany(priceDocs);
+    }
+
+    const incByProductId = new Map<string, number>();
+    toReceive.forEach((r) => {
+      const id = keyToId.get(itemKey(r.itemName, r.brand, r.size))!;
+      incByProductId.set(id, (incByProductId.get(id) ?? 0) + r.baseUnitQuantity);
+    });
+    await StoreProduct.bulkWrite(
+      [...incByProductId.entries()].map(([id, inc]) => ({
+        updateOne: { filter: { _id: id }, update: { $inc: { quantityInStock: inc } } },
+      }))
+    );
+
+    await ActivityLog.create({
+      pharmacyId: scope.pharmacyId,
+      scope: "store",
+      storeId: scope.storeId,
+      actorUserId: session.user.id,
+      actorName: session.user.name ?? "Unknown",
+      action: "intake",
+      summary: `${session.user.name} bulk-received ${toReceive.length} row${toReceive.length === 1 ? "" : "s"} (${newItemDocs.length} new item${newItemDocs.length === 1 ? "" : "s"})`,
+      metadata: { rows: toReceive.length, newItems: newItemDocs.length, priceCounts },
+      timestamp: now,
+    });
+
+    return NextResponse.json({ received: toReceive.length, errors }, { status: 201 });
   } catch (error) {
     return handleApiError(error);
   }
