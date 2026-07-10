@@ -1,7 +1,26 @@
+import { parseNumeric } from "@/lib/numberInput";
+
 export interface UnitLevel {
   unitName: string;
   /** How many of this unit make up one of the level above it (the root level's own value is conventionally 1). */
   unitsPerParent: number;
+}
+
+/**
+ * Parse a compact hierarchy string like "carton:1>box:4>piece:10" (largest to smallest, with
+ * units-per-parent after the colon) into UnitLevel[]. The first level's unitsPerParent is
+ * always forced to 1 (it's the root). Returns null if the string is empty/missing.
+ */
+export function parseHierarchyString(raw: string | undefined): UnitLevel[] | null {
+  if (!raw || !raw.trim()) return null;
+  const levels = raw.split(">").map((part) => part.trim());
+  return levels.map((part, i) => {
+    const [unitName, countStr] = part.split(":").map((s) => s.trim());
+    return {
+      unitName: unitName || "",
+      unitsPerParent: i === 0 ? 1 : Math.max(1, parseNumeric(countStr) || 1),
+    };
+  });
 }
 
 export interface BreakdownLevel {

@@ -7,6 +7,7 @@ import { requireAdminApiSession, getBranchScope } from "@/lib/session";
 import { normalizeText, findSimilarProducts } from "@/lib/productSimilarity";
 import { parseNumeric } from "@/lib/numberInput";
 import { parseExpiryDateLoose } from "@/lib/dateInput";
+import { parseHierarchyString } from "@/lib/unitHierarchy";
 import { handleApiError } from "@/lib/apiError";
 
 interface BulkRow {
@@ -50,23 +51,6 @@ interface ExistingDuplicateRef extends DuplicateRef {
 
 interface FileDuplicateRef extends DuplicateRef {
   firstRow: number;
-}
-
-/**
- * Parse a compact unit-hierarchy string like "carton:1>box:4>piece:10" into
- * [{unitName, unitsPerParent}]. The first level's unitsPerParent is always
- * forced to 1 (it's the root). Returns null if the string is empty/missing.
- */
-function parseHierarchyString(raw: string | undefined): { unitName: string; unitsPerParent: number }[] | null {
-  if (!raw || !raw.trim()) return null;
-  const levels = raw.split(">").map((part) => part.trim());
-  return levels.map((part, i) => {
-    const [unitName, countStr] = part.split(":").map((s) => s.trim());
-    return {
-      unitName: unitName || "",
-      unitsPerParent: i === 0 ? 1 : Math.max(1, parseNumeric(countStr) || 1),
-    };
-  });
 }
 
 function isMissing(v: unknown): boolean {

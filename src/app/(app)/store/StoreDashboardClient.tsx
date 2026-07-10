@@ -68,10 +68,22 @@ export default function StoreDashboardClient({ fixedStoreId }: { fixedStoreId: s
           Receive stock
         </Link>
         <Link
+          href={`/store/intake/bulk?storeId=${storeId}`}
+          className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
+        >
+          Bulk receive
+        </Link>
+        <Link
           href={`/store/push-sell?storeId=${storeId}`}
           className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
         >
           Push / Sell
+        </Link>
+        <Link
+          href={`/store/push-sell/bulk?storeId=${storeId}`}
+          className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
+        >
+          Bulk push
         </Link>
         <Link
           href={`/store/history?storeId=${storeId}`}
