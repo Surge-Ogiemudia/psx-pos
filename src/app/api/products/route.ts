@@ -4,6 +4,7 @@ import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import ImportBatch from "@/models/ImportBatch";
 import DeletionLog from "@/models/DeletionLog";
+import ProductBatch from "@/models/ProductBatch";
 import { requireAdminApiSession, requireApiSession, getBranchScope } from "@/lib/session";
 import { normalizeText, productSearchScore } from "@/lib/productSimilarity";
 import { parseNumeric } from "@/lib/numberInput";
@@ -128,20 +129,56 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const product = await Product.create({
-      ...scope,
-      itemName: trimmed(itemName),
-      brand: trimmed(brand),
-      size: trimmed(size),
-      category,
-      quantityInStock: missing(quantityInStock) ? 0 : parseNumeric(quantityInStock),
-      retailPrice: retail,
-      wholesalePrice: missing(wholesalePrice) ? retail : parseNumeric(wholesalePrice),
-      distributorPrice: missing(distributorPrice) ? retail : parseNumeric(distributorPrice),
-      batchNumber: batchNumber || "",
-      expiryDate: expiryDate ? new Date(expiryDate) : null,
-      ...(hierarchy ? { unitHierarchy: hierarchy } : {}),
-    });
+    const initialQuantity = missing(quantityInStock) ? 0 : parseNumeric(quantityInStock);
+    const initialBatchNumber = batchNumber || "";
+    const initialExpiryDate = expiryDate ? new Date(expiryDate) : null;
+
+    const dbSession = await mongoose.startSession();
+    let product;
+    try {
+      await dbSession.withTransaction(async () => {
+        const created = await Product.create(
+          [
+            {
+              ...scope,
+              itemName: trimmed(itemName),
+              brand: trimmed(brand),
+              size: trimmed(size),
+              category,
+              quantityInStock: initialQuantity,
+              retailPrice: retail,
+              wholesalePrice: missing(wholesalePrice) ? retail : parseNumeric(wholesalePrice),
+              distributorPrice: missing(distributorPrice) ? retail : parseNumeric(distributorPrice),
+              batchNumber: initialBatchNumber,
+              expiryDate: initialExpiryDate,
+              ...(hierarchy ? { unitHierarchy: hierarchy } : {}),
+            },
+          ],
+          { session: dbSession }
+        );
+        product = created[0];
+
+        if (initialQuantity > 0) {
+          await ProductBatch.create(
+            [
+              {
+                ...scope,
+                productId: product._id,
+                quantity: initialQuantity,
+                remainingQuantity: initialQuantity,
+                batchNumber: initialBatchNumber,
+                expiryDate: initialExpiryDate,
+                receivedByUserId: session.user.id,
+                receivedAt: new Date(),
+              },
+            ],
+            { session: dbSession }
+          );
+        }
+      });
+    } finally {
+      await dbSession.endSession();
+    }
 
     return NextResponse.json({ product }, { status: 201 });
   } catch (error) {
@@ -178,6 +215,7 @@ export async function DELETE(request: NextRequest) {
         const result = await Product.deleteMany(scope, { session: dbSession });
         deletedCount = result.deletedCount ?? 0;
         await ImportBatch.deleteMany(scope, { session: dbSession });
+        await ProductBatch.deleteMany(scope, { session: dbSession });
 
         if (productsToDelete.length > 0) {
           await DeletionLog.create(
