@@ -8,6 +8,12 @@ import { executeTransfer } from "@/lib/storeTransfer";
 import { handleApiError } from "@/lib/apiError";
 import { parseNumeric } from "@/lib/numberInput";
 
+// Each item gets its own full transaction (draw down source stock, create the destination
+// record) since a partial write here — stock decremented with nothing recorded at the other
+// end — would be worse than a timeout. A large batch can take a while; give it more room than
+// the platform default before treating it as hung.
+export const maxDuration = 300;
+
 interface BulkPushItem {
   storeProductId?: string;
   form?: string;
@@ -43,8 +49,8 @@ export async function POST(request: NextRequest) {
     if (items.length === 0) {
       return NextResponse.json({ error: "Select at least one item to push" }, { status: 400 });
     }
-    if (items.length > 500) {
-      return NextResponse.json({ error: "Limit is 500 items per bulk push" }, { status: 400 });
+    if (items.length > 2000) {
+      return NextResponse.json({ error: "Limit is 2000 items per bulk push" }, { status: 400 });
     }
 
     const scope = getStoreScope(session, body.storeId);
