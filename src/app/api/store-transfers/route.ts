@@ -7,6 +7,7 @@ import StoreProduct from "@/models/StoreProduct";
 import StoreBatch from "@/models/StoreBatch";
 import StoreTransfer from "@/models/StoreTransfer";
 import Product from "@/models/Product";
+import ProductBatch from "@/models/ProductBatch";
 import { requireStoreApiSession, getStoreScope } from "@/lib/session";
 import { logActivity } from "@/lib/activityLog";
 import { pluralize } from "@/lib/unitHierarchy";
@@ -112,6 +113,55 @@ export async function POST(request: NextRequest) {
         );
         if (!sourceProduct) throw new Error("Source product not found");
 
+        // For a branch destination, find-or-create the branch's Product row up front (using the
+        // first batch's price/unitHierarchy as the representative snapshot) so each store batch
+        // pushed can get its own ProductBatch record against it inside the loop below.
+        let branchDestProduct: Awaited<ReturnType<typeof Product.findOne>> | null = null;
+        if (destinationType === "branch") {
+          const weightedPricePerBaseUnit = plan.totalValue / plan.totalBaseUnitQuantity;
+          const firstBatch = plan.items[0].batch;
+          branchDestProduct = await Product.findOne(
+            {
+              pharmacyId: scope.pharmacyId,
+              branchId: toBranchId,
+              itemName: sourceProduct.itemName,
+              brand: sourceProduct.brand,
+              size: sourceProduct.size,
+            },
+            null,
+            { session: dbSession }
+          );
+          if (!branchDestProduct) {
+            const created = await Product.create(
+              [
+                {
+                  pharmacyId: scope.pharmacyId,
+                  branchId: toBranchId,
+                  itemName: sourceProduct.itemName,
+                  brand: sourceProduct.brand,
+                  size: sourceProduct.size,
+                  category: "medicine",
+                  quantityInStock: 0,
+                  unitHierarchy: firstBatch.unitHierarchy,
+                  retailPrice: weightedPricePerBaseUnit,
+                  wholesalePrice: weightedPricePerBaseUnit,
+                  distributorPrice: weightedPricePerBaseUnit,
+                  batchNumber: firstBatch.batchNumber,
+                  expiryDate: firstBatch.expiryDate,
+                },
+              ],
+              { session: dbSession }
+            );
+            branchDestProduct = created[0];
+          } else {
+            await Product.findOneAndUpdate(
+              { _id: branchDestProduct._id },
+              { $set: { retailPrice: weightedPricePerBaseUnit, unitHierarchy: firstBatch.unitHierarchy } },
+              { session: dbSession }
+            );
+          }
+        }
+
         const transferIds: mongoose.Types.ObjectId[] = [];
 
         for (const item of plan.items) {
@@ -210,6 +260,32 @@ export async function POST(request: NextRequest) {
               { session: dbSession }
             );
           }
+
+          if (destinationType === "branch" && branchDestProduct) {
+            await ProductBatch.create(
+              [
+                {
+                  pharmacyId: scope.pharmacyId,
+                  branchId: toBranchId,
+                  productId: branchDestProduct._id,
+                  quantity: item.baseUnitsDrawn,
+                  remainingQuantity: item.baseUnitsDrawn,
+                  batchNumber: item.batch.batchNumber,
+                  expiryDate: item.batch.expiryDate,
+                  sourceTransferId: transferCreated[0]._id,
+                  receivedByUserId: session.user.id,
+                  receivedAt: new Date(),
+                },
+              ],
+              { session: dbSession }
+            );
+
+            await Product.findOneAndUpdate(
+              { _id: branchDestProduct._id },
+              { $inc: { quantityInStock: item.baseUnitsDrawn } },
+              { session: dbSession }
+            );
+          }
         }
 
         await StoreProduct.findOneAndUpdate(
@@ -217,57 +293,6 @@ export async function POST(request: NextRequest) {
           { $inc: { quantityInStock: -plan.totalBaseUnitQuantity } },
           { session: dbSession }
         );
-
-        if (destinationType === "branch") {
-          const weightedPricePerBaseUnit = plan.totalValue / plan.totalBaseUnitQuantity;
-          const firstBatch = plan.items[0].batch;
-          let destProduct = await Product.findOne(
-            {
-              pharmacyId: scope.pharmacyId,
-              branchId: toBranchId,
-              itemName: sourceProduct.itemName,
-              brand: sourceProduct.brand,
-              size: sourceProduct.size,
-            },
-            null,
-            { session: dbSession }
-          );
-          if (!destProduct) {
-            const created = await Product.create(
-              [
-                {
-                  pharmacyId: scope.pharmacyId,
-                  branchId: toBranchId,
-                  itemName: sourceProduct.itemName,
-                  brand: sourceProduct.brand,
-                  size: sourceProduct.size,
-                  category: "medicine",
-                  quantityInStock: 0,
-                  unitHierarchy: firstBatch.unitHierarchy,
-                  retailPrice: weightedPricePerBaseUnit,
-                  wholesalePrice: weightedPricePerBaseUnit,
-                  distributorPrice: weightedPricePerBaseUnit,
-                  batchNumber: firstBatch.batchNumber,
-                  expiryDate: firstBatch.expiryDate,
-                },
-              ],
-              { session: dbSession }
-            );
-            destProduct = created[0];
-          } else {
-            await Product.findOneAndUpdate(
-              { _id: destProduct._id },
-              { $set: { retailPrice: weightedPricePerBaseUnit, unitHierarchy: firstBatch.unitHierarchy } },
-              { session: dbSession }
-            );
-          }
-
-          await Product.findOneAndUpdate(
-            { _id: destProduct._id },
-            { $inc: { quantityInStock: plan.totalBaseUnitQuantity } },
-            { session: dbSession }
-          );
-        }
 
         await logActivity(dbSession, {
           pharmacyId: scope.pharmacyId,

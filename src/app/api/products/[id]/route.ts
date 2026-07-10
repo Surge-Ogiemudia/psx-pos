@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import DeletionLog from "@/models/DeletionLog";
+import ProductBatch from "@/models/ProductBatch";
 import { requireAdminApiSession, getBranchScope } from "@/lib/session";
 import { parseNumeric } from "@/lib/numberInput";
 import { formatProductLabel } from "@/lib/types";
@@ -83,6 +84,7 @@ export async function DELETE(
     }
 
     await Product.deleteOne({ _id: id, ...scope });
+    await ProductBatch.deleteMany({ productId: id, ...scope });
 
     const label = formatProductLabel(product);
     await DeletionLog.create({

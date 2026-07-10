@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import ImportBatch from "@/models/ImportBatch";
 import Product from "@/models/Product";
+import ProductBatch from "@/models/ProductBatch";
 import DeletionLog from "@/models/DeletionLog";
 import { requireAdminApiSession, getBranchScope } from "@/lib/session";
 import { productsToCsv } from "@/lib/csv";
@@ -31,6 +32,10 @@ export async function DELETE(
       await dbSession.withTransaction(async () => {
         const result = await Product.deleteMany({ importBatchId: id, ...scope }, { session: dbSession });
         deletedCount = result.deletedCount ?? 0;
+        await ProductBatch.deleteMany(
+          { productId: { $in: productsToDelete.map((p) => p._id) }, ...scope },
+          { session: dbSession }
+        );
         await ImportBatch.deleteOne({ _id: id, ...scope }, { session: dbSession });
 
         if (productsToDelete.length > 0) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import ImportBatch from "@/models/ImportBatch";
+import ProductBatch from "@/models/ProductBatch";
 import { requireAdminApiSession, getBranchScope } from "@/lib/session";
 import { normalizeText, findSimilarProducts } from "@/lib/productSimilarity";
 import { parseNumeric } from "@/lib/numberInput";
@@ -297,7 +298,24 @@ export async function POST(request: NextRequest) {
         },
       ]);
       importBatch = batch;
-      await Product.insertMany(toInsert.map((p) => ({ ...p, importBatchId: batch._id })));
+      const insertedProducts = await Product.insertMany(toInsert.map((p) => ({ ...p, importBatchId: batch._id })));
+
+      const now = new Date();
+      const batchDocs = insertedProducts
+        .filter((p) => p.quantityInStock > 0)
+        .map((p) => ({
+          ...scope,
+          productId: p._id,
+          quantity: p.quantityInStock,
+          remainingQuantity: p.quantityInStock,
+          batchNumber: p.batchNumber || "",
+          expiryDate: p.expiryDate,
+          receivedByUserId: session.user.id,
+          receivedAt: now,
+        }));
+      if (batchDocs.length > 0) {
+        await ProductBatch.insertMany(batchDocs);
+      }
     }
 
     return NextResponse.json(
