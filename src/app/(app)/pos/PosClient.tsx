@@ -395,7 +395,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="grid max-h-96 grid-cols-1 gap-2 overflow-y-auto rounded-lg border border-zinc-100 p-1 sm:grid-cols-2">
           {products.map((product) => {
             const expiryStatus = getExpiryStatus(product.expiryDate);
             return (
