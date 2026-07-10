@@ -161,6 +161,16 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
     setCart((prev) => prev.filter((line) => line.key !== key));
   }
 
+  function clearCart() {
+    if (cart.length === 0) return;
+    if (!confirm("Clear all items from the current sale?")) return;
+    setCart([]);
+    setPayments([{ method: "cash", amount: "" }]);
+    setPaymentsTouched(false);
+    setChangeFee("0");
+    setMessage(null);
+  }
+
   const total = useMemo(
     () =>
       cart.reduce(
@@ -488,7 +498,14 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
       </div>
 
       <div ref={cartSectionRef} className="scroll-mt-20 md:scroll-mt-32">
-        <h2 className="mb-3 text-lg font-semibold text-zinc-900">Current sale</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-zinc-900">Current sale</h2>
+          {cart.length > 0 && (
+            <button onClick={clearCart} className="text-xs font-medium text-red-600 hover:underline">
+              Clear all
+            </button>
+          )}
+        </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           {cart.length === 0 && <p className="text-sm text-zinc-500">Cart is empty.</p>}
           <div className="flex flex-col gap-3">
