@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
+import ProductBatch from "@/models/ProductBatch";
 import Sale, { type SaleDoc } from "@/models/Sale";
 import ProductRequest from "@/models/ProductRequest";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
-import { computeBaseUnitsPerLevel } from "@/lib/unitHierarchy";
+import { computeBaseUnitsPerLevel, compareBatchesFifo, planBestEffortDraw } from "@/lib/unitHierarchy";
 import { formatProductLabel, type ProductCategory } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
 
@@ -244,6 +245,29 @@ export async function POST(request: NextRequest) {
             throw new Error(`Insufficient stock or product not found for item ${item.productId}`);
           }
 
+          // Draw down real batches FIFO (soonest expiry first) on a best-effort basis — the
+          // guarded decrement above is what actually gates the sale, so stock that predates
+          // batch tracking (or is otherwise short a batch record) never blocks a sale the flat
+          // count allows. It just won't have a batch to credit back on refund.
+          const rawBatches = await ProductBatch.find(
+            { productId: product._id, ...scope, remainingQuantity: { $gt: 0 } },
+            null,
+            { session: dbSession }
+          ).lean();
+          const drawPlan = planBestEffortDraw(
+            rawBatches.sort(compareBatchesFifo).map((b) => ({ id: b._id.toString(), remainingBaseUnitQuantity: b.remainingQuantity })),
+            baseQuantity
+          );
+          const batchDraws: { batchId: string; quantity: number }[] = [];
+          for (const draw of drawPlan) {
+            await ProductBatch.findOneAndUpdate(
+              { _id: draw.id, ...scope, remainingQuantity: { $gte: draw.baseUnitsDrawn } },
+              { $inc: { remainingQuantity: -draw.baseUnitsDrawn } },
+              { session: dbSession }
+            );
+            batchDraws.push({ batchId: draw.id, quantity: draw.baseUnitsDrawn });
+          }
+
           const unitPrice = product[priceField] as number;
           const lineTotal = unitPrice * baseQuantity;
           totalAmount += lineTotal;
@@ -257,6 +281,7 @@ export async function POST(request: NextRequest) {
             priceTierUsed: item.priceTier,
             unitPrice,
             lineTotal,
+            batchDraws,
           });
         }
 

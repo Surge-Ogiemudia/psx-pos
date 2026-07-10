@@ -111,6 +111,29 @@ export function planDraw(
 }
 
 /**
+ * Like planDraw, but never fails — draws as much as is available across the given batches, in
+ * order, and simply stops short if there isn't enough, instead of returning null. For places
+ * where batch bookkeeping is a best-effort overlay on top of an already-authoritative stock
+ * check (e.g. a product's stock that predates batch tracking shouldn't block a sale the real,
+ * flat stock count allows — it just won't have a batch to record against).
+ */
+export function planBestEffortDraw(
+  batchesFifoOrder: { id: string; remainingBaseUnitQuantity: number }[],
+  neededBaseUnits: number
+): DrawAllocation[] {
+  let remaining = neededBaseUnits;
+  const plan: DrawAllocation[] = [];
+  for (const batch of batchesFifoOrder) {
+    if (remaining <= 0) break;
+    if (batch.remainingBaseUnitQuantity <= 0) continue;
+    const draw = Math.min(batch.remainingBaseUnitQuantity, remaining);
+    plan.push({ id: batch.id, baseUnitsDrawn: draw });
+    remaining -= draw;
+  }
+  return plan;
+}
+
+/**
  * Given a hierarchy, a form + quantity + total amount for that quantity, break it down
  * into every level of the hierarchy (qty and per-unit amount at each level) plus a
  * human-readable summary sentence, per the "always show qty of form for amount" rule.

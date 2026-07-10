@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
+import ProductBatch from "@/models/ProductBatch";
 import Sale from "@/models/Sale";
 import Refund from "@/models/Refund";
 import { requireApiSession, getBranchScope } from "@/lib/session";
@@ -11,6 +12,36 @@ import { parseNumeric } from "@/lib/numberInput";
 interface RefundItemInput {
   productId: string;
   quantity: number;
+}
+
+/**
+ * A sale line's batchDraws records which batches it drew from, in order, and how much from
+ * each. A refund credits quantity back the same way — skipping past whatever's already been
+ * returned by earlier refunds of this line (alreadyReturned), then crediting forward from there.
+ */
+function allocateReturn(
+  batchDraws: { batchId: mongoose.Types.ObjectId | string; quantity: number }[],
+  alreadyReturned: number,
+  toReturn: number
+): { batchId: string; quantity: number }[] {
+  const result: { batchId: string; quantity: number }[] = [];
+  let skip = alreadyReturned;
+  let remaining = toReturn;
+  for (const draw of batchDraws) {
+    if (remaining <= 0) break;
+    if (skip >= draw.quantity) {
+      skip -= draw.quantity;
+      continue;
+    }
+    const availableInBatch = draw.quantity - skip;
+    skip = 0;
+    const take = Math.min(availableInBatch, remaining);
+    if (take > 0) {
+      result.push({ batchId: draw.batchId.toString(), quantity: take });
+      remaining -= take;
+    }
+  }
+  return result;
 }
 
 const PAYMENT_METHODS = ["cash", "card", "mobile_money"] as const;
@@ -92,6 +123,7 @@ export async function POST(request: NextRequest) {
     }
 
     const refundItems: { productId: string; productName: string; quantity: number; unitPrice: number; lineTotal: number }[] = [];
+    const batchCredits: { batchId: string; quantity: number }[] = [];
     let totalAmount = 0;
 
     for (const item of items) {
@@ -116,6 +148,13 @@ export async function POST(request: NextRequest) {
         unitPrice: saleLine.unitPrice,
         lineTotal,
       });
+      // Credit the same batch(es) this line originally drew from — offset past whatever earlier
+      // refunds of this line already returned. Sales/products predating batch tracking simply
+      // have no batchDraws recorded, so this allocates nothing and only the flat count changes.
+      const returns = allocateReturn(saleLine.batchDraws || [], previouslyReturned, item.quantity);
+      for (const r of returns) {
+        batchCredits.push({ batchId: r.batchId, quantity: r.quantity });
+      }
     }
 
     const dbSession = await mongoose.startSession();
@@ -126,6 +165,13 @@ export async function POST(request: NextRequest) {
           await Product.findOneAndUpdate(
             { _id: item.productId, ...scope },
             { $inc: { quantityInStock: item.quantity } },
+            { session: dbSession }
+          );
+        }
+        for (const credit of batchCredits) {
+          await ProductBatch.findOneAndUpdate(
+            { _id: credit.batchId, ...scope },
+            { $inc: { remainingQuantity: credit.quantity } },
             { session: dbSession }
           );
         }
