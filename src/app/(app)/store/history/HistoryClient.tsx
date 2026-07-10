@@ -12,6 +12,7 @@ const ACTION_LABEL: Record<string, string> = {
   write_off: "Wrote off stock",
   store_created: "Store created",
   buyer_created: "New buyer",
+  delete: "Deleted item",
 };
 
 export default function HistoryClient({ initialStoreId }: { initialStoreId: string }) {

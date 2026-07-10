@@ -182,7 +182,15 @@ export interface StoreSaleJSON {
   timestamp: string;
 }
 
-export type ActivityAction = "intake" | "dispense_setting" | "push" | "sell" | "write_off" | "store_created" | "buyer_created";
+export type ActivityAction =
+  | "intake"
+  | "dispense_setting"
+  | "push"
+  | "sell"
+  | "write_off"
+  | "store_created"
+  | "buyer_created"
+  | "delete";
 
 export interface ActivityLogJSON {
   _id: string;

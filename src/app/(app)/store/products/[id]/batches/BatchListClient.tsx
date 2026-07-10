@@ -84,11 +84,11 @@ export default function BatchListClient({ storeProductId }: { storeProductId: st
   }
 
   async function deleteItem() {
-    if (product && product.quantityInStock > 0) {
-      alert("Cannot delete product because it currently has stock in the store.");
-      return;
-    }
-    if (!confirm("Are you sure you want to delete this product? All its empty batch history will be removed.")) return;
+    const stockWarning =
+      product && product.quantityInStock > 0
+        ? ` It currently has ${product.quantityInStock} ${product.baseUnitName} in stock across ${batches.length} batch${batches.length === 1 ? "" : "es"} — deleting it discards that stock permanently, with no write-off record.`
+        : "";
+    if (!confirm(`Are you sure you want to delete this product? This cannot be undone.${stockWarning}`)) return;
     setIsDeleting(true);
     const res = await fetch(`/api/store-products/${storeProductId}?storeId=${storeId}`, {
       method: "DELETE"
@@ -135,8 +135,8 @@ export default function BatchListClient({ storeProductId }: { storeProductId: st
             </button>
             <button
               onClick={deleteItem}
-              disabled={isDeleting || product.quantityInStock > 0}
-              title={product.quantityInStock > 0 ? "Cannot delete while stock > 0" : ""}
+              disabled={isDeleting}
+              title={product.quantityInStock > 0 ? "This item still has stock — deleting discards it" : ""}
               className="rounded border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
             >
               Delete item
