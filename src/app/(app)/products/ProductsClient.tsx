@@ -12,6 +12,7 @@ import {
 } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expiry";
 import { parseNumeric } from "@/lib/numberInput";
+import { parseCsv } from "@/lib/csv";
 
 const emptyForm = {
   itemName: "",
@@ -116,25 +117,6 @@ const BULK_TEMPLATE =
   "Ibuprofen,GSK,200mg,medicine,50,5.00,IBU-01,2027-01-31,carton:1>box:4>pack:10\n" +
   "Groundnut oil,Mamador,1L,non-medicine,20,3200,,";
 
-function parseCsv(text: string): { rows: Record<string, string>[]; error?: string } {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  if (lines.length < 2) {
-    return { rows: [], error: "Paste a header row plus at least one product row." };
-  }
-  const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
-  const rows = lines.slice(1).map((line) => {
-    const cells = line.split(",").map((c) => c.trim());
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => {
-      row[h] = cells[i] ?? "";
-    });
-    return row;
-  });
-  return { rows };
-}
 
 export default function ProductsClient({
   isAdmin,
