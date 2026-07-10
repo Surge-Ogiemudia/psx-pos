@@ -53,6 +53,10 @@ function round2(n: number): number {
 
 const EPS = 0.005;
 
+function cartStorageKey(branchId: string | null): string {
+  return `pos-cart-${branchId ?? "default"}`;
+}
+
 export default function PosClient({ branchId }: { branchId: string | null }) {
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
@@ -82,6 +86,33 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
   function scrollToCart() {
     cartSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+
+  // Survive a refresh instead of silently wiping out whatever was already added — scoped per
+  // branch so switching branches (admin) never shows a cart built from a different branch's
+  // stock. isHydratingRef suppresses the very next persist-effect run so it doesn't immediately
+  // overwrite the just-loaded cart with the stale pre-hydration value.
+  const isHydratingRef = useRef(false);
+
+  useEffect(() => {
+    isHydratingRef.current = true;
+    const saved = localStorage.getItem(cartStorageKey(branchId));
+    const timeout = setTimeout(() => {
+      try {
+        setCart(saved ? JSON.parse(saved) : []);
+      } catch {
+        setCart([]);
+      }
+    }, 0);
+    return () => clearTimeout(timeout);
+  }, [branchId]);
+
+  useEffect(() => {
+    if (isHydratingRef.current) {
+      isHydratingRef.current = false;
+      return;
+    }
+    localStorage.setItem(cartStorageKey(branchId), JSON.stringify(cart));
+  }, [cart, branchId]);
 
   function productParams() {
     const params = new URLSearchParams();
