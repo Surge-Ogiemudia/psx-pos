@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
+import ImportBatch from "@/models/ImportBatch";
 import { requireAdminApiSession, requireApiSession, getBranchScope } from "@/lib/session";
 import { normalizeText, productSearchScore } from "@/lib/productSimilarity";
 import { parseNumeric } from "@/lib/numberInput";
@@ -140,6 +142,44 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ product }, { status: 201 });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await requireAdminApiSession();
+    await dbConnect();
+
+    const scope = getBranchScope(session, request.nextUrl.searchParams.get("branchId"));
+    // Require the caller to state how many rows they expect to wipe — catches a stale page
+    // (someone else added items since it loaded) before it silently deletes more than shown.
+    const expectedCount = parseNumeric(request.nextUrl.searchParams.get("expectedCount"));
+    const actualCount = await Product.countDocuments(scope);
+    if (Number.isNaN(expectedCount) || expectedCount !== actualCount) {
+      return NextResponse.json(
+        {
+          error: `The catalog has changed since you last checked — it now has ${actualCount} item${actualCount === 1 ? "" : "s"}. Refresh and try again.`,
+          actualCount,
+        },
+        { status: 409 }
+      );
+    }
+
+    const dbSession = await mongoose.startSession();
+    let deletedCount = 0;
+    try {
+      await dbSession.withTransaction(async () => {
+        const result = await Product.deleteMany(scope, { session: dbSession });
+        deletedCount = result.deletedCount ?? 0;
+        await ImportBatch.deleteMany(scope, { session: dbSession });
+      });
+    } finally {
+      await dbSession.endSession();
+    }
+
+    return NextResponse.json({ deletedCount });
   } catch (error) {
     return handleApiError(error);
   }

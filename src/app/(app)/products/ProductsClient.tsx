@@ -168,6 +168,14 @@ export default function ProductsClient({
   const [importBatches, setImportBatches] = useState<ImportBatchJSON[]>([]);
   const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
 
+  // "Delete all products in the catalog" — the most destructive action on this page, gated
+  // behind fetching a fresh count and typing a literal confirmation phrase.
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deleteAllCount, setDeleteAllCount] = useState<number | null>(null);
+  const [deleteAllConfirmText, setDeleteAllConfirmText] = useState("");
+  const [deleteAllSubmitting, setDeleteAllSubmitting] = useState(false);
+  const [deleteAllError, setDeleteAllError] = useState<string | null>(null);
+
   function toggleBulkExpanded(key: string) {
     setBulkExpanded((prev) => {
       const next = new Set(prev);
@@ -579,6 +587,44 @@ export default function ProductsClient({
     const params = branchId ? `?branchId=${branchId}` : "";
     const res = await fetch(`/api/products/${id}${params}`, { method: "DELETE" });
     if (res.ok) loadProducts();
+  }
+
+  async function openDeleteAllConfirm() {
+    setDeleteAllError(null);
+    setDeleteAllConfirmText("");
+    setDeleteAllCount(null);
+    setDeleteAllOpen(true);
+    const params = new URLSearchParams();
+    if (branchId) params.set("branchId", branchId);
+    const res = await fetch(`/api/products?${params}`);
+    if (res.ok) {
+      setDeleteAllCount((await res.json()).products.length);
+    } else {
+      setDeleteAllError("Couldn't load the current catalog count — try again.");
+    }
+  }
+
+  async function confirmDeleteAll() {
+    if (deleteAllCount === null || deleteAllConfirmText !== "DELETE") return;
+    setDeleteAllSubmitting(true);
+    setDeleteAllError(null);
+    try {
+      const params = new URLSearchParams({ expectedCount: String(deleteAllCount) });
+      if (branchId) params.set("branchId", branchId);
+      const res = await fetch(`/api/products?${params}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        setDeleteAllError(data.error || "Failed to delete the catalog");
+        setDeleteAllCount(typeof data.actualCount === "number" ? data.actualCount : deleteAllCount);
+        setDeleteAllConfirmText("");
+        return;
+      }
+      setDeleteAllOpen(false);
+      setImportBatches([]);
+      loadProducts();
+    } finally {
+      setDeleteAllSubmitting(false);
+    }
   }
 
   function updateBulkText(text: string) {
@@ -1633,6 +1679,64 @@ export default function ProductsClient({
           </tbody>
         </table>
       </div>
+
+      {isAdmin && (
+        <div className="mt-8 rounded-lg border border-red-200 bg-red-50 p-4">
+          <h2 className="mb-1 text-sm font-semibold text-red-900">Danger zone</h2>
+          <p className="mb-3 text-sm text-red-800">
+            Permanently delete every product in this branch&apos;s catalog. This cannot be undone.
+          </p>
+          {!deleteAllOpen ? (
+            <button
+              onClick={openDeleteAllConfirm}
+              className="rounded-lg border border-red-600 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100"
+            >
+              Delete all products in this catalog
+            </button>
+          ) : (
+            <div className="rounded border border-red-300 bg-white p-3">
+              {deleteAllCount === null ? (
+                <p className="text-sm text-zinc-600">Checking the current catalog...</p>
+              ) : (
+                <>
+                  <p className="mb-2 text-sm text-zinc-800">
+                    This will permanently delete <strong>{deleteAllCount}</strong> product
+                    {deleteAllCount === 1 ? "" : "s"} from this branch&apos;s catalog, plus any saved import
+                    batches. Type <strong>DELETE</strong> to confirm.
+                  </p>
+                  <input
+                    type="text"
+                    value={deleteAllConfirmText}
+                    onChange={(e) => setDeleteAllConfirmText(e.target.value)}
+                    placeholder="DELETE"
+                    className="mb-2 w-full max-w-xs rounded border border-zinc-300 px-2 py-1.5 text-sm focus:border-red-600 focus:outline-none focus:ring-1 focus:ring-red-600"
+                  />
+                </>
+              )}
+              {deleteAllError && <p className="mb-2 text-sm text-red-600">{deleteAllError}</p>}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={confirmDeleteAll}
+                  disabled={deleteAllCount === null || deleteAllConfirmText !== "DELETE" || deleteAllSubmitting}
+                  className="rounded-lg bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-50"
+                >
+                  {deleteAllSubmitting
+                    ? "Deleting..."
+                    : deleteAllCount === null
+                    ? "Loading..."
+                    : `Permanently delete ${deleteAllCount} product${deleteAllCount === 1 ? "" : "s"}`}
+                </button>
+                <button
+                  onClick={() => setDeleteAllOpen(false)}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
