@@ -35,6 +35,60 @@ interface BulkReviewRow {
   candidate: { _id: string; itemName: string; brand: string; size: string; quantityInStock: number; retailPrice: number };
 }
 
+interface BulkDuplicateRow {
+  row: number;
+  itemName: string;
+  brand: string;
+  size: string;
+}
+
+interface BulkExistingDuplicateRow extends BulkDuplicateRow {
+  existing: { _id: string; quantityInStock: number; retailPrice: number };
+}
+
+interface BulkFileDuplicateRow extends BulkDuplicateRow {
+  firstRow: number;
+}
+
+interface BulkRowError {
+  row: number;
+  type: string;
+  error: string;
+}
+
+interface BulkAnalysis {
+  totalRows: number;
+  willAdd: { count: number; byCategory: Record<string, number> };
+  existingDuplicates: BulkExistingDuplicateRow[];
+  fileDuplicates: BulkFileDuplicateRow[];
+  needsReview: BulkReviewRow[];
+  errors: BulkRowError[];
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  medicine: "medicine",
+  "non-medicine": "non-medicine",
+  supermarket: "supermarket",
+};
+
+const ERROR_TYPE_LABELS: Record<string, string> = {
+  missing_field: "missing a required field",
+  invalid_category: "invalid category",
+  invalid_price: "invalid price",
+  invalid_quantity: "invalid stock quantity",
+  invalid_date: "invalid expiry date",
+  invalid_hierarchy: "invalid unit hierarchy",
+};
+
+function countBy<T>(items: T[], key: (item: T) => string): [string, number][] {
+  const counts: Record<string, number> = {};
+  items.forEach((item) => {
+    const k = key(item);
+    counts[k] = (counts[k] ?? 0) + 1;
+  });
+  return Object.entries(counts);
+}
+
 const BULK_FIELDS = [
   "itemName",
   "brand",
@@ -91,12 +145,28 @@ export default function ProductsClient({
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkError, setBulkError] = useState<string | null>(null);
-  const [bulkResult, setBulkResult] = useState<{ created: number; errors: { row: number; error: string }[] } | null>(
-    null
-  );
+  const [bulkResult, setBulkResult] = useState<{
+    created: number;
+    byCategory: Record<string, number>;
+    existingDuplicates: BulkExistingDuplicateRow[];
+    fileDuplicates: BulkFileDuplicateRow[];
+    errors: BulkRowError[];
+  } | null>(null);
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkReview, setBulkReview] = useState<BulkReviewRow[]>([]);
   const [bulkReviewBusyRow, setBulkReviewBusyRow] = useState<number | null>(null);
+  const [bulkAnalysis, setBulkAnalysis] = useState<BulkAnalysis | null>(null);
+  const [bulkAnalyzing, setBulkAnalyzing] = useState(false);
+  const [bulkExpanded, setBulkExpanded] = useState<Set<string>>(new Set());
+
+  function toggleBulkExpanded(key: string) {
+    setBulkExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   // Unit hierarchy builder state for the single-add form
   const [hierarchyEnabled, setHierarchyEnabled] = useState(false);
@@ -464,6 +534,14 @@ export default function ProductsClient({
     if (res.ok) loadProducts();
   }
 
+  function updateBulkText(text: string) {
+    setBulkText(text);
+    setBulkAnalysis(null);
+    setBulkExpanded(new Set());
+    setBulkError(null);
+    setBulkResult(null);
+  }
+
   async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file later
@@ -471,6 +549,8 @@ export default function ProductsClient({
 
     setBulkError(null);
     setBulkResult(null);
+    setBulkAnalysis(null);
+    setBulkExpanded(new Set());
     const isExcel = /\.xlsx?$/i.test(file.name);
 
     try {
@@ -488,16 +568,9 @@ export default function ProductsClient({
     }
   }
 
-  async function importBulk() {
-    setBulkError(null);
-    setBulkResult(null);
-
+  function buildBulkProducts(): { products: Record<string, string>[]; error?: string } {
     const { rows, error: parseError } = parseCsv(bulkText);
-    if (parseError) {
-      setBulkError(parseError);
-      return;
-    }
-
+    if (parseError) return { products: [], error: parseError };
     const products = rows.map((row) => {
       const product: Record<string, string> = {};
       BULK_FIELDS.forEach((field) => {
@@ -505,6 +578,48 @@ export default function ProductsClient({
       });
       return product;
     });
+    return { products };
+  }
+
+  async function analyzeBulk() {
+    setBulkError(null);
+    setBulkResult(null);
+    setBulkAnalysis(null);
+    setBulkExpanded(new Set());
+
+    const { products, error: parseError } = buildBulkProducts();
+    if (parseError) {
+      setBulkError(parseError);
+      return;
+    }
+
+    setBulkAnalyzing(true);
+    try {
+      const res = await fetch("/api/products/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ products, branchId, dryRun: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBulkError(data.error || "Couldn't analyze that file");
+        return;
+      }
+      setBulkAnalysis(data);
+    } finally {
+      setBulkAnalyzing(false);
+    }
+  }
+
+  async function importBulk() {
+    setBulkError(null);
+    setBulkResult(null);
+
+    const { products, error: parseError } = buildBulkProducts();
+    if (parseError) {
+      setBulkError(parseError);
+      return;
+    }
 
     setBulkSubmitting(true);
     const res = await fetch("/api/products/bulk", {
@@ -520,9 +635,22 @@ export default function ProductsClient({
       return;
     }
 
-    setBulkResult({ created: data.created, errors: data.errors || [] });
+    setBulkResult({
+      created: data.created,
+      byCategory: data.byCategory || {},
+      existingDuplicates: data.existingDuplicates || [],
+      fileDuplicates: data.fileDuplicates || [],
+      errors: data.errors || [],
+    });
     setBulkReview(data.needsReview || []);
-    if ((data.errors || []).length === 0 && !(data.needsReview || []).length) setBulkText("");
+    setBulkAnalysis(null);
+    setBulkExpanded(new Set());
+    const nothingLeftToFix =
+      (data.errors || []).length === 0 &&
+      (data.existingDuplicates || []).length === 0 &&
+      (data.fileDuplicates || []).length === 0 &&
+      !(data.needsReview || []).length;
+    if (nothingLeftToFix) setBulkText("");
     loadProducts();
   }
 
@@ -916,9 +1044,10 @@ export default function ProductsClient({
             (largest to smallest, with units-per-parent after the colon) — leave blank if not needed.
           </p>
           <p className="mb-2 text-sm text-zinc-600">
-            Any row missing itemName, brand, size, or retailPrice is rejected — the report below names
-            the exact row and item, what&apos;s missing, and what to enter. Valid rows in the same
-            upload still go through.
+            Click <strong>Check file</strong> first — it analyzes every row without adding anything, and shows
+            how many will be added (by category), how many are duplicates of items already in the system, how
+            many are duplicated within the file itself, and how many have errors, each with a breakdown you can
+            click to view. Fix the file and re-check, or add the valid rows now and leave the rest out.
           </p>
           <div className="mb-3 flex items-center gap-3">
             <input
@@ -931,17 +1060,186 @@ export default function ProductsClient({
           </div>
           <textarea
             value={bulkText}
-            onChange={(e) => setBulkText(e.target.value)}
+            onChange={(e) => updateBulkText(e.target.value)}
             rows={8}
             placeholder={BULK_TEMPLATE}
             className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 font-mono text-xs focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
           />
           {bulkError && <p className="mb-2 text-sm text-red-600">{bulkError}</p>}
+
+          {bulkAnalysis && (
+            <div className="mb-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+              <p className="mb-2 text-sm font-medium text-zinc-800">
+                Checked {bulkAnalysis.totalRows} row{bulkAnalysis.totalRows === 1 ? "" : "s"} — here&apos;s what
+                will happen if you proceed:
+              </p>
+              <ul className="flex flex-col gap-2 text-sm">
+                <li className="rounded border border-teal-200 bg-teal-50 p-2 text-teal-800">
+                  <strong>{bulkAnalysis.willAdd.count}</strong> item{bulkAnalysis.willAdd.count === 1 ? "" : "s"}{" "}
+                  will be added successfully
+                  {bulkAnalysis.willAdd.count > 0 && (
+                    <>
+                      {" "}
+                      (
+                      {Object.entries(bulkAnalysis.willAdd.byCategory)
+                        .filter(([, n]) => n > 0)
+                        .map(([cat, n]) => `${n} ${CATEGORY_LABELS[cat] ?? cat}`)
+                        .join(", ")}
+                      )
+                    </>
+                  )}
+                  .
+                </li>
+
+                {bulkAnalysis.existingDuplicates.length > 0 && (
+                  <li className="rounded border border-amber-200 bg-amber-50 p-2">
+                    <button
+                      onClick={() => toggleBulkExpanded("existing")}
+                      className="text-left text-amber-800 hover:underline"
+                    >
+                      <strong>{bulkAnalysis.existingDuplicates.length}</strong> already exist
+                      {bulkAnalysis.existingDuplicates.length === 1 ? "s" : ""} in the system as an exact match —
+                      won&apos;t be added ({bulkExpanded.has("existing") ? "hide" : "click to view"})
+                    </button>
+                    {bulkExpanded.has("existing") && (
+                      <ul className="mt-2 list-disc pl-5 text-zinc-700">
+                        {bulkAnalysis.existingDuplicates.map((d) => (
+                          <li key={d.row}>
+                            Row {d.row}: {d.itemName} · {d.brand} · {d.size} — already in stock (
+                            {d.existing.quantityInStock} units, ₦{d.existing.retailPrice.toFixed(2)}). Use
+                            &quot;Add product&quot; to merge stock into it instead.
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )}
+
+                {bulkAnalysis.fileDuplicates.length > 0 && (
+                  <li className="rounded border border-amber-200 bg-amber-50 p-2">
+                    <button
+                      onClick={() => toggleBulkExpanded("file")}
+                      className="text-left text-amber-800 hover:underline"
+                    >
+                      <strong>{bulkAnalysis.fileDuplicates.length}</strong> duplicated within this file — only the
+                      first occurrence will be added ({bulkExpanded.has("file") ? "hide" : "click to view"})
+                    </button>
+                    {bulkExpanded.has("file") && (
+                      <ul className="mt-2 list-disc pl-5 text-zinc-700">
+                        {bulkAnalysis.fileDuplicates.map((d) => (
+                          <li key={d.row}>
+                            Row {d.row}: {d.itemName} · {d.brand} · {d.size} — same as row {d.firstRow}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )}
+
+                {bulkAnalysis.needsReview.length > 0 && (
+                  <li className="rounded border border-amber-200 bg-amber-50 p-2">
+                    <button
+                      onClick={() => toggleBulkExpanded("fuzzy")}
+                      className="text-left text-amber-800 hover:underline"
+                    >
+                      <strong>{bulkAnalysis.needsReview.length}</strong> look similar to an existing product —
+                      you&apos;ll be asked to resolve each one after you proceed (
+                      {bulkExpanded.has("fuzzy") ? "hide" : "click to view"})
+                    </button>
+                    {bulkExpanded.has("fuzzy") && (
+                      <ul className="mt-2 list-disc pl-5 text-zinc-700">
+                        {bulkAnalysis.needsReview.map((r) => (
+                          <li key={r.row}>
+                            Row {r.row}: {String(r.product.itemName)} · {String(r.product.brand)} ·{" "}
+                            {String(r.product.size)} — similar to {r.candidate.itemName} · {r.candidate.brand} ·{" "}
+                            {r.candidate.size}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )}
+
+                {bulkAnalysis.errors.length > 0 && (
+                  <li className="rounded border border-red-200 bg-red-50 p-2">
+                    <button
+                      onClick={() => toggleBulkExpanded("errors")}
+                      className="text-left text-red-800 hover:underline"
+                    >
+                      <strong>{bulkAnalysis.errors.length}</strong> row{bulkAnalysis.errors.length === 1 ? "" : "s"}{" "}
+                      have errors and won&apos;t be added (
+                      {countBy(bulkAnalysis.errors, (e) => e.type)
+                        .map(([type, n]) => `${n} ${ERROR_TYPE_LABELS[type] ?? type}`)
+                        .join(", ")}
+                      ) ({bulkExpanded.has("errors") ? "hide" : "click to view"})
+                    </button>
+                    {bulkExpanded.has("errors") && (
+                      <ul className="mt-2 list-disc pl-5 text-zinc-700">
+                        {bulkAnalysis.errors.map((e) => (
+                          <li key={e.row}>
+                            Row {e.row}: {e.error}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )}
+              </ul>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={importBulk}
+                  disabled={bulkSubmitting || bulkAnalysis.willAdd.count === 0}
+                  className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+                >
+                  {bulkSubmitting
+                    ? "Adding..."
+                    : bulkAnalysis.willAdd.count === 0
+                    ? "Nothing to add"
+                    : `Add ${bulkAnalysis.willAdd.count} item${bulkAnalysis.willAdd.count === 1 ? "" : "s"} now`}
+                </button>
+                <button
+                  onClick={() => {
+                    setBulkAnalysis(null);
+                    setBulkExpanded(new Set());
+                  }}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Go back and edit file
+                </button>
+              </div>
+            </div>
+          )}
+
           {bulkResult && (
             <div className="mb-3 text-sm">
               <p className="text-teal-700">
-                Imported {bulkResult.created} product{bulkResult.created === 1 ? "" : "s"}.
+                Added {bulkResult.created} product{bulkResult.created === 1 ? "" : "s"}
+                {bulkResult.created > 0 && (
+                  <>
+                    {" "}
+                    (
+                    {Object.entries(bulkResult.byCategory)
+                      .filter(([, n]) => n > 0)
+                      .map(([cat, n]) => `${n} ${CATEGORY_LABELS[cat] ?? cat}`)
+                      .join(", ")}
+                    )
+                  </>
+                )}
+                .
               </p>
+              {bulkResult.existingDuplicates.length > 0 && (
+                <p className="mt-1 text-amber-700">
+                  Skipped {bulkResult.existingDuplicates.length} row
+                  {bulkResult.existingDuplicates.length === 1 ? "" : "s"} already in the system as an exact match.
+                </p>
+              )}
+              {bulkResult.fileDuplicates.length > 0 && (
+                <p className="mt-1 text-amber-700">
+                  Skipped {bulkResult.fileDuplicates.length} row{bulkResult.fileDuplicates.length === 1 ? "" : "s"}{" "}
+                  duplicated elsewhere in the file.
+                </p>
+              )}
               {bulkResult.errors.length > 0 && (
                 <ul className="mt-1 list-disc pl-5 text-red-600">
                   {bulkResult.errors.map((e) => (
@@ -999,13 +1297,15 @@ export default function ProductsClient({
               </div>
             </div>
           )}
-          <button
-            onClick={importBulk}
-            disabled={bulkSubmitting || !bulkText.trim()}
-            className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
-          >
-            {bulkSubmitting ? "Importing..." : "Import products"}
-          </button>
+          {!bulkAnalysis && (
+            <button
+              onClick={analyzeBulk}
+              disabled={bulkAnalyzing || !bulkText.trim()}
+              className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+            >
+              {bulkAnalyzing ? "Checking..." : "Check file"}
+            </button>
+          )}
         </div>
       )}
 
