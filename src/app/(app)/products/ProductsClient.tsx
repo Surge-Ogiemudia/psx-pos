@@ -13,6 +13,7 @@ import {
 import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expiry";
 import { parseNumeric } from "@/lib/numberInput";
 import { parseCsv } from "@/lib/csv";
+import IncomingBanner from "@/components/IncomingBanner";
 
 const emptyForm = {
   itemName: "",
@@ -843,30 +844,33 @@ export default function ProductsClient({
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-zinc-900">Product catalog</h1>
-        {isAdmin && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                setShowForm((v) => !v);
-                setBulkMode(false);
-                setApprovingRequestId(null);
-                setForm(emptyForm);
-              }}
-              className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
-            >
-              {showForm ? "Cancel" : "Add product"}
-            </button>
-            <button
-              onClick={() => {
-                setBulkMode((v) => !v);
-                setShowForm(false);
-              }}
-              className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
-            >
-              {bulkMode ? "Cancel" : "Bulk add"}
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          <IncomingBanner scope="branch" scopeId={branchId} />
+          {isAdmin && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowForm((v) => !v);
+                  setBulkMode(false);
+                  setApprovingRequestId(null);
+                  setForm(emptyForm);
+                }}
+                className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
+              >
+                {showForm ? "Cancel" : "Add product"}
+              </button>
+              <button
+                onClick={() => {
+                  setBulkMode((v) => !v);
+                  setShowForm(false);
+                }}
+                className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
+              >
+                {bulkMode ? "Cancel" : "Bulk add"}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {isAdmin && productRequests.length > 0 && (

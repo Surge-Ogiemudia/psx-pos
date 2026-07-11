@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { StoreProductJSON } from "@/lib/types";
 import { describeStock } from "@/lib/unitHierarchy";
+import IncomingBanner from "@/components/IncomingBanner";
 
 export default function StoreDashboardClient({
   fixedStoreId,
@@ -79,7 +80,10 @@ export default function StoreDashboardClient({
 
   return (
     <div>
-      <h1 className="mb-4 text-lg font-semibold text-zinc-900">Bulk store</h1>
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-lg font-semibold text-zinc-900">Bulk store</h1>
+        <IncomingBanner scope="store" scopeId={storeId} />
+      </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
         <Link
@@ -117,6 +121,12 @@ export default function StoreDashboardClient({
           className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
         >
           Buyers
+        </Link>
+        <Link
+          href="/store/suppliers"
+          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+        >
+          Suppliers
         </Link>
       </div>
 
