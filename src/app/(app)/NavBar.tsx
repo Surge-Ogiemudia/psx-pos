@@ -12,15 +12,13 @@ const RETAIL_LINKS = [
   { href: "/pos", label: "Point of Sale" },
   { href: "/products", label: "Catalog" },
   { href: "/reports", label: "Reports" },
-  { href: "/activity", label: "Activity" },
 ];
 
 const ADMIN_LINKS = [
   { href: "/staff", label: "Staff" },
-  { href: "/branches", label: "Branches" },
+  { href: "/locations", label: "Locations" },
 ];
 const STORE_LINKS = [{ href: "/store", label: "Bulk Store" }];
-const ADMIN_STORE_LINKS = [{ href: "/stores", label: "Stores" }];
 
 interface Pending {
   kind: "branch" | "store";
@@ -58,7 +56,6 @@ export default function NavBar({
     ...(userRole === "admin" || userRole === "staff" ? RETAIL_LINKS : []),
     ...(userRole === "admin" ? ADMIN_LINKS : []),
     ...(userRole === "admin" || userRole === "store_manager" || userRole === "store_keeper" ? STORE_LINKS : []),
-    ...(userRole === "admin" ? ADMIN_STORE_LINKS : []),
   ];
 
   function requestSwitch(kind: "branch" | "store", id: string, name: string, currentName: string) {
