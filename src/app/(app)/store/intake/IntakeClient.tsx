@@ -32,7 +32,13 @@ const emptyLevels: LevelForm[] = [
   { unitName: "piece", unitsPerParent: "1" },
 ];
 
-export default function IntakeClient({ initialStoreId }: { initialStoreId: string }) {
+export default function IntakeClient({
+  initialStoreId,
+  initialExistingProductId,
+}: {
+  initialStoreId: string;
+  initialExistingProductId?: string;
+}) {
   const router = useRouter();
   const [storeId] = useState(initialStoreId);
 
@@ -41,6 +47,7 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedExistingId, setSelectedExistingId] = useState<string | null>(null);
+  const [loadingExisting, setLoadingExisting] = useState(!!initialExistingProductId);
 
   const [itemName, setItemName] = useState("");
   const [brand, setBrand] = useState("");
@@ -134,6 +141,28 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
     setStep("form");
   }
 
+  // Jumped here from an item's Batches page — skip search and go straight into the form,
+  // pre-selected for that item, same as picking it from the search results below would.
+  useEffect(() => {
+    if (!initialExistingProductId || !storeId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/store-products/${initialExistingProductId}?storeId=${storeId}`);
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          await selectExisting(data.product);
+        }
+      } finally {
+        if (!cancelled) setLoadingExisting(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function selectNew() {
     setSelectedExistingId(null);
     setItemName(searchQuery.trim());
@@ -214,6 +243,16 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
       return;
     }
     router.push(`/store/batches/${data.batch._id}/dispense`);
+  }
+
+  if (step === "search" && loadingExisting) {
+    return (
+      <div>
+        <BackButton fallbackHref={storeId ? `/store?storeId=${storeId}` : "/store"} />
+        <h1 className="mb-1 text-lg font-semibold text-zinc-900">Receive stock</h1>
+        <p className="text-sm text-zinc-500">Loading item...</p>
+      </div>
+    );
   }
 
   if (step === "search") {

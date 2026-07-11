@@ -5,11 +5,17 @@ import IntakeClient from "./IntakeClient";
 export default async function IntakePage({
   searchParams,
 }: {
-  searchParams: Promise<{ storeId?: string }>;
+  searchParams: Promise<{ storeId?: string; existingProductId?: string }>;
 }) {
   const session = await requireStorePageSession();
-  const { storeId } = await searchParams;
+  const { storeId, existingProductId } = await searchParams;
   const { activeStoreId } = await resolveActiveStore(session);
   const resolvedStoreId = storeId || activeStoreId || "";
-  return <IntakeClient key={resolvedStoreId} initialStoreId={resolvedStoreId} />;
+  return (
+    <IntakeClient
+      key={`${resolvedStoreId}:${existingProductId ?? ""}`}
+      initialStoreId={resolvedStoreId}
+      initialExistingProductId={existingProductId}
+    />
+  );
 }

@@ -127,6 +127,12 @@ export default function BatchListClient({ storeProductId }: { storeProductId: st
 
         {product && !isEditing && (
           <div className="flex gap-2">
+            <Link
+              href={`/store/intake?storeId=${storeId}&existingProductId=${storeProductId}`}
+              className="rounded bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
+            >
+              Receive stock
+            </Link>
             <button
               onClick={() => setIsEditing(true)}
               className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
