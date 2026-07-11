@@ -12,9 +12,19 @@ interface LevelForm {
   unitsPerParent: string;
 }
 
-interface SimilarStoreProduct {
-  product: { itemName: string; brand: string; size: string; quantityInStock: number; baseUnitName: string };
-  score: number;
+interface SearchResult {
+  _id: string;
+  itemName: string;
+  brand: string;
+  size: string;
+  category: ProductCategory;
+  quantityInStock: number;
+  baseUnitName: string;
+}
+
+interface StoreBatchLite {
+  unitHierarchy: UnitLevel[];
+  receivedAt: string;
 }
 
 const emptyLevels: LevelForm[] = [
@@ -25,6 +35,13 @@ const emptyLevels: LevelForm[] = [
 export default function IntakeClient({ initialStoreId }: { initialStoreId: string }) {
   const router = useRouter();
   const [storeId] = useState(initialStoreId);
+
+  const [step, setStep] = useState<"search" | "form" | "confirm">("search");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedExistingId, setSelectedExistingId] = useState<string | null>(null);
+
   const [itemName, setItemName] = useState("");
   const [brand, setBrand] = useState("");
   const [size, setSize] = useState("");
@@ -36,11 +53,31 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
   const [supplierName, setSupplierName] = useState("");
   const [batchNumber, setBatchNumber] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
-  const [step, setStep] = useState<"form" | "confirm">("form");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [similarMatches, setSimilarMatches] = useState<SimilarStoreProduct[] | null>(null);
-  const [checkingSimilar, setCheckingSimilar] = useState(false);
+
+  // Search-as-you-type against this store's existing items, so receiving stock starts with
+  // "do we already have this?" instead of assuming it's new and only finding out afterward.
+  useEffect(() => {
+    if (!storeId) return;
+    const timeout = setTimeout(async () => {
+      if (!searchQuery.trim()) {
+        setSearchResults([]);
+        return;
+      }
+      setSearching(true);
+      try {
+        const params = new URLSearchParams({ storeId, search: searchQuery.trim() });
+        const res = await fetch(`/api/store-products?${params}`);
+        if (res.ok) {
+          setSearchResults((await res.json()).storeProducts || []);
+        }
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [searchQuery, storeId]);
 
   function addLevel() {
     // Insert before the last level, since the last level is always the base unit.
@@ -68,7 +105,52 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
     }
   }, [levels, receivedForm]);
 
-  async function goToConfirm() {
+  async function selectExisting(item: SearchResult) {
+    setSelectedExistingId(item._id);
+    setItemName(item.itemName);
+    setBrand(item.brand);
+    setSize(item.size);
+    setCategory(item.category);
+
+    let lvls = emptyLevels;
+    let form = "carton";
+    try {
+      const res = await fetch(`/api/store-products/${item._id}/batches?storeId=${storeId}`);
+      if (res.ok) {
+        const batches: StoreBatchLite[] = (await res.json()).batches || [];
+        if (batches.length > 0) {
+          const mostRecent = [...batches].sort(
+            (a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
+          )[0];
+          lvls = mostRecent.unitHierarchy.map((l) => ({ unitName: l.unitName, unitsPerParent: String(l.unitsPerParent) }));
+          form = mostRecent.unitHierarchy[mostRecent.unitHierarchy.length - 1].unitName;
+        }
+      }
+    } catch {
+      // Fall back to the defaults below — packaging can still be edited by hand.
+    }
+    setLevels(lvls);
+    setReceivedForm(form);
+    setStep("form");
+  }
+
+  function selectNew() {
+    setSelectedExistingId(null);
+    setItemName(searchQuery.trim());
+    setBrand("");
+    setSize("");
+    setCategory("supermarket");
+    setLevels(emptyLevels);
+    setReceivedForm("carton");
+    setStep("form");
+  }
+
+  function backToSearch() {
+    setError(null);
+    setStep("search");
+  }
+
+  function goToConfirm() {
     setError(null);
     if (!storeId) return setError("No store selected.");
     if (!itemName.trim()) return setError("Item name is required.");
@@ -86,31 +168,6 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
     if (!Number.isFinite(qty) || qty < 1) return setError("Received quantity must be at least 1.");
     const amount = parseNumeric(purchaseAmount);
     if (!Number.isFinite(amount) || amount < 0) return setError("Purchase amount must be a non-negative number.");
-
-    setCheckingSimilar(true);
-    const params = new URLSearchParams({ itemName: itemName.trim(), brand: brand.trim(), size: size.trim(), storeId });
-    const simRes = await fetch(`/api/store-products/similar?${params}`);
-    setCheckingSimilar(false);
-    if (simRes.ok) {
-      const data = await simRes.json();
-      if (data.matches && data.matches.length > 0) {
-        setSimilarMatches(data.matches);
-        return;
-      }
-    }
-    setStep("confirm");
-  }
-
-  function applySameProduct(match: SimilarStoreProduct) {
-    setItemName(match.product.itemName);
-    setBrand(match.product.brand);
-    setSize(match.product.size);
-    setSimilarMatches(null);
-    setStep("confirm");
-  }
-
-  function confirmDifferentProduct() {
-    setSimilarMatches(null);
     setStep("confirm");
   }
 
@@ -157,6 +214,59 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
       return;
     }
     router.push(`/store/batches/${data.batch._id}/dispense`);
+  }
+
+  if (step === "search") {
+    return (
+      <div>
+        <BackButton fallbackHref={storeId ? `/store?storeId=${storeId}` : "/store"} />
+        <h1 className="mb-1 text-lg font-semibold text-zinc-900">Receive stock</h1>
+        <p className="mb-4 text-sm text-zinc-600">
+          Search for the item first — if it&apos;s already in this store, you&apos;ll just be adding a new
+          batch to it. Only add it as new if nothing matches.
+        </p>
+        <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search item name, brand, or size..."
+            className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            autoFocus
+          />
+
+          {searching && <p className="text-sm text-zinc-500">Searching...</p>}
+
+          {!searching && searchQuery.trim() && searchResults.length > 0 && (
+            <div className="mb-3 flex flex-col gap-2">
+              {searchResults.map((item) => (
+                <button
+                  key={item._id}
+                  onClick={() => selectExisting(item)}
+                  className="rounded border border-zinc-200 p-2 text-left text-sm hover:border-teal-600 hover:bg-teal-50"
+                >
+                  <p className="font-medium text-zinc-900">{formatProductLabel(item)}</p>
+                  <p className="text-xs text-zinc-500">
+                    {item.category} · {item.quantityInStock} {item.baseUnitName}
+                    {item.quantityInStock === 1 ? "" : "s"} in stock
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {!searching && searchQuery.trim() && searchResults.length === 0 && (
+            <p className="mb-3 text-sm text-zinc-500">No matching item found in this store yet.</p>
+          )}
+
+          <button
+            onClick={selectNew}
+            className="w-full rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
+          >
+            {searchQuery.trim() ? `+ Add "${searchQuery.trim()}" as a new item` : "+ Add as a new item"}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (step === "confirm") {
@@ -220,45 +330,59 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
 
   return (
     <div>
-      <BackButton fallbackHref={storeId ? `/store?storeId=${storeId}` : "/store"} />
+      <button onClick={backToSearch} className="mb-3 flex items-center gap-1 text-sm font-medium text-zinc-500 hover:text-zinc-900">
+        ← Change item
+      </button>
       <h1 className="mb-4 text-lg font-semibold text-zinc-900">Receive stock</h1>
       <div className="max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
-        <label className="mb-1 block text-sm font-medium text-zinc-700">Item name</label>
-        <input
-          value={itemName}
-          onChange={(e) => setItemName(e.target.value)}
-          placeholder="e.g. Tanzol"
-          className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-        />
+        {selectedExistingId ? (
+          <div className="mb-4 rounded border border-zinc-200 bg-zinc-50 p-3">
+            <p className="text-sm font-medium text-zinc-900">{formatProductLabel({ itemName, brand, size })}</p>
+            <p className="text-xs text-zinc-500">
+              {category} — adding a new batch to this existing item. To change its name/brand/size, edit it from
+              the Catalog instead.
+            </p>
+          </div>
+        ) : (
+          <>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Item name</label>
+            <input
+              value={itemName}
+              onChange={(e) => setItemName(e.target.value)}
+              placeholder="e.g. Tanzol"
+              className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            />
 
-        <label className="mb-1 block text-sm font-medium text-zinc-700">Brand / manufacturer</label>
-        <input
-          value={brand}
-          onChange={(e) => setBrand(e.target.value)}
-          placeholder="e.g. GSK"
-          className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-        />
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Brand / manufacturer</label>
+            <input
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+              placeholder="e.g. GSK"
+              className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            />
 
-        <label className="mb-1 block text-sm font-medium text-zinc-700">Size / strength</label>
-        <input
-          value={size}
-          onChange={(e) => setSize(e.target.value)}
-          placeholder='e.g. 500mg, or "Standard" if none'
-          className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-        />
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Size / strength</label>
+            <input
+              value={size}
+              onChange={(e) => setSize(e.target.value)}
+              placeholder='e.g. 500mg, or "Standard" if none'
+              className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            />
 
-        <label className="mb-1 block text-sm font-medium text-zinc-700">Category</label>
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value as ProductCategory)}
-          className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-        >
-          <option value="supermarket">Supermarket</option>
-          <option value="medicine">Medicine</option>
-          <option value="non-medicine">Non-medicine</option>
-        </select>
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value as ProductCategory)}
+              className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            >
+              <option value="supermarket">Supermarket</option>
+              <option value="medicine">Medicine</option>
+              <option value="non-medicine">Non-medicine</option>
+            </select>
+          </>
+        )}
 
         <label className="mb-1 block text-sm font-medium text-zinc-700">
           Packaging (largest to smallest — last one is the base unit)
@@ -362,51 +486,11 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
 
         <button
           onClick={goToConfirm}
-          disabled={checkingSimilar}
-          className="w-full rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+          className="w-full rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
         >
-          {checkingSimilar ? "Checking catalog..." : "Review"}
+          Review
         </button>
       </div>
-
-      {similarMatches && similarMatches.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-lg">
-            <h2 className="mb-2 text-base font-semibold text-zinc-900">Is this the same product?</h2>
-            <p className="mb-3 text-sm text-zinc-600">
-              You&apos;re receiving <strong>{formatProductLabel({ itemName, brand, size })}</strong>. A very
-              similar item is already in this store&apos;s catalog:
-            </p>
-            <div className="mb-4 rounded border border-zinc-200 bg-zinc-50 p-3 text-sm">
-              <p className="font-medium text-zinc-900">{formatProductLabel(similarMatches[0].product)}</p>
-              <p className="mt-1 text-zinc-600">
-                Stock: {similarMatches[0].product.quantityInStock} {similarMatches[0].product.baseUnitName}
-                {similarMatches[0].product.baseUnitName.endsWith("s") ? "" : "s"}
-              </p>
-              {similarMatches.length > 1 && (
-                <p className="mt-1 text-xs text-zinc-500">+{similarMatches.length - 1} other similar match(es).</p>
-              )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => applySameProduct(similarMatches[0])}
-                className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800"
-              >
-                Yes — same product, add this as a new batch
-              </button>
-              <button
-                onClick={confirmDifferentProduct}
-                className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-              >
-                No — this is a different product
-              </button>
-              <button onClick={() => setSimilarMatches(null)} className="text-xs text-zinc-500 hover:underline">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
