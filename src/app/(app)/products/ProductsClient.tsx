@@ -131,6 +131,11 @@ export default function ProductsClient({
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Record<string, unknown>>({});
+  const [adjustingProduct, setAdjustingProduct] = useState<ProductJSON | null>(null);
+  const [adjustNewQuantity, setAdjustNewQuantity] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [adjustError, setAdjustError] = useState<string | null>(null);
+  const [adjustSubmitting, setAdjustSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
@@ -523,7 +528,6 @@ export default function ProductsClient({
         brand: product.brand,
         size: product.size,
         category: product.category,
-        quantityInStock: product.quantityInStock,
         retailPrice: Math.round(product.retailPrice * multiplier * 100) / 100,
         wholesalePrice: Math.round(product.wholesalePrice * multiplier * 100) / 100,
         distributorPrice: Math.round(product.distributorPrice * multiplier * 100) / 100,
@@ -541,7 +545,6 @@ export default function ProductsClient({
         brand: product.brand,
         size: product.size,
         category: product.category,
-        quantityInStock: product.quantityInStock,
         retailPrice: product.retailPrice,
         wholesalePrice: product.wholesalePrice,
         distributorPrice: product.distributorPrice,
@@ -594,6 +597,44 @@ export default function ProductsClient({
     }
     setEditingId(null);
     loadProducts();
+  }
+
+  function openAdjustStock(product: ProductJSON) {
+    setAdjustingProduct(product);
+    setAdjustNewQuantity(String(product.quantityInStock));
+    setAdjustReason("");
+    setAdjustError(null);
+  }
+
+  async function submitAdjustStock() {
+    if (!adjustingProduct) return;
+    setAdjustError(null);
+    const newQuantity = parseNumeric(adjustNewQuantity);
+    if (!Number.isFinite(newQuantity) || newQuantity < 0) {
+      setAdjustError("Enter a non-negative number.");
+      return;
+    }
+    if (!adjustReason.trim()) {
+      setAdjustError("A reason is required.");
+      return;
+    }
+    setAdjustSubmitting(true);
+    try {
+      const res = await fetch(`/api/products/${adjustingProduct._id}/adjust-stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newQuantity, reason: adjustReason.trim(), branchId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAdjustError(data.error || "Failed to adjust stock");
+        return;
+      }
+      setAdjustingProduct(null);
+      loadProducts();
+    } finally {
+      setAdjustSubmitting(false);
+    }
   }
 
   async function deleteProduct(id: string) {
@@ -1546,14 +1587,8 @@ export default function ProductsClient({
                           )}
                         </div>
                       </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={editForm.quantityInStock as string | number}
-                          onChange={(e) => setEditForm({ ...editForm, quantityInStock: e.target.value })}
-                          className="w-16 rounded border border-zinc-300 px-1.5 py-1"
-                        />
+                      <td className="px-3 py-2 text-zinc-600" title='Use "Adjust stock" to change this'>
+                        {product.quantityInStock}
                       </td>
                       <td className="px-3 py-2">
                         <input
@@ -1643,6 +1678,9 @@ export default function ProductsClient({
                           </Link>
                           <button onClick={() => startEdit(product)} className="text-teal-700 hover:underline">
                             Edit
+                          </button>
+                          <button onClick={() => openAdjustStock(product)} className="text-teal-700 hover:underline">
+                            Adjust stock
                           </button>
                           <button
                             onClick={() => deleteProduct(product._id)}
@@ -1865,6 +1903,58 @@ export default function ProductsClient({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {adjustingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-lg">
+            <h2 className="mb-1 text-base font-semibold text-zinc-900">Adjust stock</h2>
+            <p className="mb-4 text-sm text-zinc-600">{formatProductLabel(adjustingProduct)}</p>
+
+            <label className="mb-1 block text-sm font-medium text-zinc-700">
+              Current: {adjustingProduct.quantityInStock} — new count
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={adjustNewQuantity}
+              onChange={(e) => setAdjustNewQuantity(e.target.value)}
+              className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              autoFocus
+            />
+
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Reason</label>
+            <input
+              value={adjustReason}
+              onChange={(e) => setAdjustReason(e.target.value)}
+              placeholder="e.g. physical recount, damaged, found extra"
+              className="mb-4 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            />
+
+            {adjustError && <p className="mb-3 text-sm text-red-600">{adjustError}</p>}
+
+            <p className="mb-4 text-xs text-zinc-500">
+              An increase creates a new batch for the difference; a decrease draws down existing
+              batches soonest-expiry-first, same as a sale would.
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                onClick={submitAdjustStock}
+                disabled={adjustSubmitting}
+                className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+              >
+                {adjustSubmitting ? "Saving..." : "Save adjustment"}
+              </button>
+              <button
+                onClick={() => setAdjustingProduct(null)}
+                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
