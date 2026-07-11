@@ -12,6 +12,7 @@
     "migrate:sale-payments": "node --env-file=.env.local scripts/migrate-sale-payments.mjs"
   },
   "dependencies": {
+    "@vercel/blob": "^2.6.1",
     "bcryptjs": "^3.0.3",
     "mongoose": "^9.7.3",
     "next": "16.2.10",
