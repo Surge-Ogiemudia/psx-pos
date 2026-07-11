@@ -8,6 +8,7 @@ import ProductRequest from "@/models/ProductRequest";
 import User from "@/models/User";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+import { logActivity } from "@/lib/activityLog";
 import { computeBaseUnitsPerLevel, compareBatchesFifo, planBestEffortDraw } from "@/lib/unitHierarchy";
 import { formatProductLabel, type ProductCategory } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
@@ -341,6 +342,19 @@ export async function POST(request: NextRequest) {
             { session: dbSession }
           );
         }
+
+        await logActivity(dbSession, {
+          pharmacyId: scope.pharmacyId,
+          scope: "branch",
+          branchId: scope.branchId,
+          actorUserId: session.user.id,
+          actorName: session.user.name ?? "Unknown",
+          action: "sell",
+          summary: `Sold ${saleItems.length} item${saleItems.length === 1 ? "" : "s"} for ₦${totalAmount.toFixed(2)}`,
+          metadata: { totalAmount, itemCount: saleItems.length },
+          refCollection: "Sale",
+          refId: saleDoc!._id,
+        });
       });
 
       return NextResponse.json({ sale: saleDoc }, { status: 201 });

@@ -20,6 +20,8 @@ const ActivityLogSchema = new Schema(
         "buyer_created",
         "delete",
         "stock_adjustment",
+        "product_create",
+        "refund",
       ],
       required: true,
     },

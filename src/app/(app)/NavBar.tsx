@@ -12,6 +12,7 @@ const RETAIL_LINKS = [
   { href: "/pos", label: "Point of Sale" },
   { href: "/products", label: "Catalog" },
   { href: "/reports", label: "Reports" },
+  { href: "/activity", label: "Activity" },
 ];
 
 const ADMIN_LINKS = [
