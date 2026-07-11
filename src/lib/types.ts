@@ -190,7 +190,8 @@ export type ActivityAction =
   | "write_off"
   | "store_created"
   | "buyer_created"
-  | "delete";
+  | "delete"
+  | "stock_adjustment";
 
 export interface ActivityLogJSON {
   _id: string;
