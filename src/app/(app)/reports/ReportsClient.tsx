@@ -1,8 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { PaymentMethod, RefundJSON, SaleJSON } from "@/lib/types";
+import type { ActivityLogJSON, PaymentMethod, RefundJSON, SaleJSON } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
+
+const ACTIVITY_ACTION_LABEL: Record<string, string> = {
+  product_create: "Added product",
+  sell: "Sale completed",
+  refund: "Refund processed",
+  receive: "Received transfer",
+};
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -35,6 +42,19 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
   const [refundMethod, setRefundMethod] = useState<PaymentMethod>("cash");
   const [refundError, setRefundError] = useState<string | null>(null);
   const [refundSubmitting, setRefundSubmitting] = useState(false);
+
+  const [showActivity, setShowActivity] = useState(false);
+  const [activityEntries, setActivityEntries] = useState<ActivityLogJSON[]>([]);
+  const [activityLoaded, setActivityLoaded] = useState(false);
+
+  async function loadActivity() {
+    if (activityLoaded) return;
+    const params = new URLSearchParams({ scope: "branch" });
+    if (branchId) params.set("branchId", branchId);
+    const res = await fetch(`/api/activity-log?${params}`);
+    if (res.ok) setActivityEntries((await res.json()).entries || []);
+    setActivityLoaded(true);
+  }
 
   async function load() {
     const params = new URLSearchParams({ from, to });
@@ -394,6 +414,38 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
             </div>
           );
         })()}
+
+      <div className="mt-6 rounded-lg border border-zinc-200 bg-white shadow-sm">
+        <button
+          onClick={() => {
+            setShowActivity((v) => !v);
+            if (!showActivity) loadActivity();
+          }}
+          className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-zinc-700"
+        >
+          <span>Activity — line-by-line log of what happened</span>
+          <span>{showActivity ? "Hide" : "Show"}</span>
+        </button>
+        {showActivity && (
+          <div className="flex flex-col gap-2 border-t border-zinc-100 p-4">
+            {activityEntries.map((entry) => (
+              <div key={entry._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600">
+                    {ACTIVITY_ACTION_LABEL[entry.action] || entry.action}
+                  </span>
+                  <span className="text-xs text-zinc-400">{new Date(entry.timestamp).toLocaleString()}</span>
+                </div>
+                <p className="text-sm text-zinc-800">{entry.summary}</p>
+                <p className="mt-1 text-xs text-zinc-500">{entry.actorName}</p>
+              </div>
+            ))}
+            {activityLoaded && activityEntries.length === 0 && (
+              <p className="text-sm text-zinc-500">Nothing has happened at this branch yet.</p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
