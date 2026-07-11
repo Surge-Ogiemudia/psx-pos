@@ -35,6 +35,15 @@ interface PaymentLine {
   amount: string;
 }
 
+interface HeldSale {
+  id: string;
+  heldAt: number;
+  cart: CartLine[];
+  payments: PaymentLine[];
+  paymentsTouched: boolean;
+  changeFee: string;
+}
+
 const CATEGORY_LABEL: Record<ProductJSON["category"], string> = {
   supermarket: "Supermarket",
   medicine: "Medicine",
@@ -55,6 +64,16 @@ const EPS = 0.005;
 
 function cartStorageKey(branchId: string | null): string {
   return `pos-cart-${branchId ?? "default"}`;
+}
+
+function heldSalesStorageKey(branchId: string | null): string {
+  return `pos-held-${branchId ?? "default"}`;
+}
+
+function lineAmount(line: CartLine): number {
+  return line.kind === "catalog"
+    ? line.product.retailPrice * piecesPerForm(line.product, line.form) * line.quantity
+    : line.unitPrice * line.quantity;
 }
 
 export default function PosClient({ branchId }: { branchId: string | null }) {
@@ -121,6 +140,73 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
     localStorage.setItem(cartStorageKey(branchId), JSON.stringify(cart));
   }, [cart, branchId]);
 
+  const [heldSales, setHeldSales] = useState<HeldSale[]>([]);
+  const [showHeld, setShowHeld] = useState(false);
+  const isHeldHydratingRef = useRef(false);
+
+  useEffect(() => {
+    isHeldHydratingRef.current = true;
+    const saved = localStorage.getItem(heldSalesStorageKey(branchId));
+    const timeout = setTimeout(() => {
+      try {
+        setHeldSales(saved ? JSON.parse(saved) : []);
+      } catch {
+        setHeldSales([]);
+      }
+    }, 0);
+    return () => clearTimeout(timeout);
+  }, [branchId]);
+
+  useEffect(() => {
+    if (isHeldHydratingRef.current) {
+      isHeldHydratingRef.current = false;
+      return;
+    }
+    localStorage.setItem(heldSalesStorageKey(branchId), JSON.stringify(heldSales));
+  }, [heldSales, branchId]);
+
+  function holdSale() {
+    if (cart.length === 0) return;
+    setHeldSales((prev) => [
+      ...prev,
+      {
+        id: `held-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        heldAt: Date.now(),
+        cart,
+        payments,
+        paymentsTouched,
+        changeFee,
+      },
+    ]);
+    setCart([]);
+    setPayments([{ method: "cash", amount: "" }]);
+    setPaymentsTouched(false);
+    setChangeFee("0");
+    setMessage(null);
+  }
+
+  function resumeHeldSale(id: string) {
+    if (cart.length > 0) {
+      alert("Hold or clear the current sale before resuming another one.");
+      return;
+    }
+    const held = heldSales.find((h) => h.id === id);
+    if (!held) return;
+    setCart(held.cart);
+    setPayments(held.payments);
+    setPaymentsTouched(held.paymentsTouched);
+    setChangeFee(held.changeFee);
+    setHeldSales((prev) => prev.filter((h) => h.id !== id));
+    setMessage(null);
+    setShowHeld(false);
+    scrollToCart();
+  }
+
+  function discardHeldSale(id: string) {
+    if (!confirm("Discard this held sale? This can't be undone.")) return;
+    setHeldSales((prev) => prev.filter((h) => h.id !== id));
+  }
+
   function productParams() {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
@@ -178,18 +264,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
     setMessage(null);
   }
 
-  const total = useMemo(
-    () =>
-      cart.reduce(
-        (sum, line) =>
-          sum +
-          (line.kind === "catalog"
-            ? line.product.retailPrice * piecesPerForm(line.product, line.form) * line.quantity
-            : line.unitPrice * line.quantity),
-        0
-      ),
-    [cart]
-  );
+  const total = useMemo(() => cart.reduce((sum, line) => sum + lineAmount(line), 0), [cart]);
 
   // Close matches for whatever the staff is typing as a custom item's name, so they can bail
   // into the normal add-to-cart flow if it turns out the item actually is in the catalog.
@@ -505,12 +580,65 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
       </div>
 
       <div ref={cartSectionRef} className="scroll-mt-20 md:scroll-mt-32">
+        {heldSales.length > 0 && (
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <button
+              onClick={() => setShowHeld((v) => !v)}
+              className="flex w-full items-center justify-between text-sm font-medium text-amber-800"
+            >
+              <span>Held sales ({heldSales.length})</span>
+              <span>{showHeld ? "Hide" : "Show"}</span>
+            </button>
+            {showHeld && (
+              <div className="mt-2 flex flex-col gap-2">
+                {heldSales.map((held) => {
+                  const heldTotal = held.cart.reduce((sum, line) => sum + lineAmount(line), 0);
+                  return (
+                    <div
+                      key={held.id}
+                      className="flex items-center justify-between rounded border border-amber-200 bg-white p-2 text-sm"
+                    >
+                      <div>
+                        <div className="font-medium text-zinc-900">
+                          {held.cart.length} item{held.cart.length === 1 ? "" : "s"} · ₦{heldTotal.toFixed(2)}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          Held {new Date(held.heldAt).toLocaleTimeString()}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => resumeHeldSale(held.id)}
+                          className="text-xs font-medium text-teal-700 hover:underline"
+                        >
+                          Resume
+                        </button>
+                        <button
+                          onClick={() => discardHeldSale(held.id)}
+                          className="text-xs text-red-600 hover:underline"
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-zinc-900">Current sale</h2>
           {cart.length > 0 && (
-            <button onClick={clearCart} className="text-xs font-medium text-red-600 hover:underline">
-              Clear all
-            </button>
+            <div className="flex items-center gap-3">
+              <button onClick={holdSale} className="text-xs font-medium text-amber-700 hover:underline">
+                Hold sale
+              </button>
+              <button onClick={clearCart} className="text-xs font-medium text-red-600 hover:underline">
+                Clear all
+              </button>
+            </div>
           )}
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
