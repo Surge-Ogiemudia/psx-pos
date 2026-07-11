@@ -251,7 +251,9 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
         <table className="w-full text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
             <tr>
+              <th className="px-3 py-2">Sale ID</th>
               <th className="px-3 py-2">Time</th>
+              <th className="px-3 py-2">Staff</th>
               <th className="px-3 py-2">Items</th>
               <th className="px-3 py-2">Payment</th>
               <th className="px-3 py-2">Total</th>
@@ -267,7 +269,11 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
               );
               return (
                 <tr key={sale._id} className="border-b border-zinc-100 last:border-0">
+                  <td className="px-3 py-2 font-mono text-xs text-zinc-500" title={sale._id}>
+                    {sale._id.slice(-8)}
+                  </td>
                   <td className="px-3 py-2 text-zinc-600">{new Date(sale.timestamp).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-zinc-600">{sale.userName}</td>
                   <td className="px-3 py-2 text-zinc-600">
                     {sale.items
                       .map((i) => `${i.productName} ×${i.formQuantity ?? i.quantity}${i.form ? ` ${i.form}${(i.formQuantity ?? i.quantity) === 1 ? "" : "s"}` : ""}`)
@@ -317,6 +323,9 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
             <div className="mt-4 max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
               <h3 className="mb-3 text-sm font-semibold text-zinc-900">
                 Refund sale from {new Date(sale.timestamp).toLocaleString()}
+                <span className="ml-2 font-mono text-xs font-normal text-zinc-400" title={sale._id}>
+                  #{sale._id.slice(-8)}
+                </span>
               </h3>
               <div className="mb-3 flex flex-col gap-2">
                 {sale.items
