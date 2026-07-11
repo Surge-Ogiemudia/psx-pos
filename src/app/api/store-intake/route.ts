@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import StoreProduct from "@/models/StoreProduct";
 import StoreBatch from "@/models/StoreBatch";
+import Supplier from "@/models/Supplier";
 import { requireStoreApiSession, getStoreScope } from "@/lib/session";
 import { logActivity } from "@/lib/activityLog";
 import { convertToBaseUnits, pluralize, type UnitLevel } from "@/lib/unitHierarchy";
@@ -106,6 +107,22 @@ export async function POST(request: NextRequest) {
           storeProduct = created[0];
         }
 
+        const supplierName = typeof body.supplierName === "string" ? body.supplierName.trim() : "";
+        let supplierId = null;
+        if (supplierName) {
+          const nameKey = supplierName.toLowerCase();
+          const supplier = await Supplier.findOneAndUpdate(
+            { pharmacyId: session.user.pharmacyId, nameKey },
+            {
+              $inc: { totalSupplyAmount: purchaseAmount },
+              $set: { lastSupplyAt: new Date() },
+              $setOnInsert: { name: supplierName, nameKey, phoneNumber: "" },
+            },
+            { new: true, upsert: true, session: dbSession, setDefaultsOnInsert: true }
+          );
+          supplierId = supplier._id;
+        }
+
         const batchDocs = await StoreBatch.create(
           [
             {
@@ -119,7 +136,8 @@ export async function POST(request: NextRequest) {
               remainingBaseUnitQuantity: baseUnitQuantity,
               purchaseAmount,
               purchaseUnitCost,
-              supplierName: body.supplierName || "",
+              supplierName,
+              supplierId,
               batchNumber: body.batchNumber || "",
               expiryDate: body.expiryDate ? new Date(body.expiryDate) : null,
               receivedByUserId: session.user.id,

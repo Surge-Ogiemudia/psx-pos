@@ -136,9 +136,35 @@ export interface StoreBatchJSON {
   purchaseAmount: number;
   purchaseUnitCost: number;
   supplierName?: string;
+  supplierId?: string | null;
   batchNumber?: string;
   expiryDate?: string | null;
   receivedAt: string;
+}
+
+export interface SupplierJSON {
+  _id: string;
+  name: string;
+  phoneNumber?: string;
+  totalSupplyAmount: number;
+  lastSupplyAt?: string | null;
+}
+
+export type TransferStatus = "in_transit" | "received";
+
+export interface StoreTransferJSON {
+  _id: string;
+  fromStoreId: string;
+  destinationType: "store" | "branch";
+  toStoreId?: string | null;
+  toBranchId?: string | null;
+  productName: string;
+  pushedForm: string;
+  pushedQuantity: number;
+  baseUnitQuantity: number;
+  totalValue: number;
+  status: TransferStatus;
+  timestamp: string;
 }
 
 export type DispenseChannel = "sister_store" | "branch" | "distributor" | "wholesaler" | "retailer";
@@ -194,7 +220,8 @@ export type ActivityAction =
   | "delete"
   | "stock_adjustment"
   | "product_create"
-  | "refund";
+  | "refund"
+  | "receive";
 
 export interface ActivityLogJSON {
   _id: string;
