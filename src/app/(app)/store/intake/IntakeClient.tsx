@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { describeBreakdown, pluralize, type UnitLevel } from "@/lib/unitHierarchy";
-import { formatProductLabel, type ProductCategory } from "@/lib/types";
+import { formatProductLabel, type ProductCategory, type SupplierJSON } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
 import BackButton from "@/components/BackButton";
 
@@ -58,6 +58,7 @@ export default function IntakeClient({
   const [receivedQuantity, setReceivedQuantity] = useState("");
   const [purchaseAmount, setPurchaseAmount] = useState("");
   const [supplierName, setSupplierName] = useState("");
+  const [supplierResults, setSupplierResults] = useState<SupplierJSON[]>([]);
   const [batchNumber, setBatchNumber] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +86,17 @@ export default function IntakeClient({
     }, 250);
     return () => clearTimeout(timeout);
   }, [searchQuery, storeId]);
+
+  async function searchSuppliers(query: string) {
+    setSupplierName(query);
+    if (!query.trim()) {
+      setSupplierResults([]);
+      return;
+    }
+    const res = await fetch(`/api/suppliers?search=${encodeURIComponent(query.trim())}`);
+    const data = await res.json();
+    setSupplierResults(data.suppliers || []);
+  }
 
   function addLevel() {
     // Insert before the last level, since the last level is always the base unit.
@@ -503,12 +515,32 @@ export default function IntakeClient({
         </div>
 
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <input
-            value={supplierName}
-            onChange={(e) => setSupplierName(e.target.value)}
-            placeholder="Supplier (optional)"
-            className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
-          />
+          <div className="relative">
+            <input
+              value={supplierName}
+              onChange={(e) => searchSuppliers(e.target.value)}
+              placeholder="Supplier (optional) — new or existing"
+              className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            />
+            {supplierResults.length > 0 && (
+              <ul className="absolute z-10 mt-1 w-full rounded border border-zinc-200 bg-white text-sm shadow-sm">
+                {supplierResults.map((s) => (
+                  <li key={s._id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSupplierName(s.name);
+                        setSupplierResults([]);
+                      }}
+                      className="w-full px-3 py-1.5 text-left hover:bg-zinc-50"
+                    >
+                      {s.name} — ₦{s.totalSupplyAmount.toFixed(2)} lifetime
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <input
             value={batchNumber}
             onChange={(e) => setBatchNumber(e.target.value)}

@@ -4,6 +4,7 @@ import StoreProduct from "@/models/StoreProduct";
 import StoreBatch from "@/models/StoreBatch";
 import DispenseSetting from "@/models/DispenseSetting";
 import ActivityLog from "@/models/ActivityLog";
+import Supplier from "@/models/Supplier";
 import { requireStoreApiSession, getStoreScope } from "@/lib/session";
 import { convertToBaseUnits, parseHierarchyString, type UnitLevel } from "@/lib/unitHierarchy";
 import { normalizeText } from "@/lib/productSimilarity";
@@ -289,6 +290,46 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
+
+    // One bulkWrite covering every distinct supplier name in the file, same "handful of round
+    // trips, not one per row" trade-off as the rest of this route — then a single follow-up
+    // find to resolve each name back to an _id (bulkWrite's result only reports the ids of docs
+    // it actually inserted, not ones that matched and were updated).
+    const supplierTotals = new Map<string, { name: string; amount: number }>();
+    for (const r of toReceive) {
+      const trimmedSupplier = r.supplierName.trim();
+      if (!trimmedSupplier) continue;
+      const nameKey = trimmedSupplier.toLowerCase();
+      const existing = supplierTotals.get(nameKey);
+      supplierTotals.set(nameKey, {
+        name: existing?.name ?? trimmedSupplier,
+        amount: (existing?.amount ?? 0) + r.purchaseAmount,
+      });
+    }
+    let supplierIdByNameKey = new Map<string, string>();
+    if (supplierTotals.size > 0) {
+      await Supplier.bulkWrite(
+        [...supplierTotals.entries()].map(([nameKey, { name, amount }]) => ({
+          updateOne: {
+            filter: { pharmacyId: scope.pharmacyId, nameKey },
+            update: {
+              $inc: { totalSupplyAmount: amount },
+              $set: { lastSupplyAt: now },
+              $setOnInsert: { name, nameKey, phoneNumber: "" },
+            },
+            upsert: true,
+          },
+        }))
+      );
+      const supplierDocs = await Supplier.find({
+        pharmacyId: scope.pharmacyId,
+        nameKey: { $in: [...supplierTotals.keys()] },
+      })
+        .select("nameKey")
+        .lean();
+      supplierIdByNameKey = new Map(supplierDocs.map((s) => [s.nameKey, String(s._id)]));
+    }
+
     const batchDocs = toReceive.map((r) => ({
       ...scope,
       storeProductId: keyToId.get(itemKey(r.itemName, r.brand, r.size)),
@@ -301,6 +342,7 @@ export async function POST(request: NextRequest) {
       purchaseAmount: r.purchaseAmount,
       purchaseUnitCost: r.purchaseUnitCost,
       supplierName: r.supplierName,
+      supplierId: supplierIdByNameKey.get(r.supplierName.trim().toLowerCase()) ?? null,
       batchNumber: r.batchNumber,
       expiryDate: r.expiryDate,
       receivedByUserId: session.user.id,

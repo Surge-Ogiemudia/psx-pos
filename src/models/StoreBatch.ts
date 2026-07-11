@@ -26,6 +26,7 @@ const StoreBatchSchema = new Schema(
     purchaseAmount: { type: Number, required: true, min: 0 },
     purchaseUnitCost: { type: Number, required: true, min: 0 },
     supplierName: { type: String, default: "" },
+    supplierId: { type: Schema.Types.ObjectId, ref: "Supplier", default: null },
     batchNumber: { type: String, default: "" },
     expiryDate: { type: Date, default: null },
     sourceTransferId: { type: Schema.Types.ObjectId, ref: "StoreTransfer", default: null },
