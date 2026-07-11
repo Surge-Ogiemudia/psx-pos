@@ -10,6 +10,8 @@ import { normalizeText, productSearchScore } from "@/lib/productSimilarity";
 import { parseNumeric } from "@/lib/numberInput";
 import { productsToCsv } from "@/lib/csv";
 import { handleApiError } from "@/lib/apiError";
+import { logActivity } from "@/lib/activityLog";
+import { formatProductLabel } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   try {
@@ -175,6 +177,18 @@ export async function POST(request: NextRequest) {
             { session: dbSession }
           );
         }
+
+        await logActivity(dbSession, {
+          pharmacyId: scope.pharmacyId,
+          scope: "branch",
+          branchId: scope.branchId,
+          actorUserId: session.user.id,
+          actorName: session.user.name ?? "Unknown",
+          action: "product_create",
+          summary: `Added ${formatProductLabel(product!)} to the catalog`,
+          refCollection: "Product",
+          refId: product!._id,
+        });
       });
     } finally {
       await dbSession.endSession();

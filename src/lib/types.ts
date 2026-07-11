@@ -192,7 +192,9 @@ export type ActivityAction =
   | "store_created"
   | "buyer_created"
   | "delete"
-  | "stock_adjustment";
+  | "stock_adjustment"
+  | "product_create"
+  | "refund";
 
 export interface ActivityLogJSON {
   _id: string;

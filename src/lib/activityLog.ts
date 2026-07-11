@@ -17,7 +17,9 @@ interface LogActivityInput {
     | "store_created"
     | "buyer_created"
     | "delete"
-    | "stock_adjustment";
+    | "stock_adjustment"
+    | "product_create"
+    | "refund";
   summary: string;
   metadata?: Record<string, unknown>;
   refCollection?: string;

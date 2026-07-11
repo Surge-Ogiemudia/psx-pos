@@ -7,6 +7,7 @@ import Sale from "@/models/Sale";
 import Refund from "@/models/Refund";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+import { logActivity } from "@/lib/activityLog";
 import { parseNumeric } from "@/lib/numberInput";
 
 interface RefundItemInput {
@@ -192,6 +193,19 @@ export async function POST(request: NextRequest) {
           { session: dbSession }
         );
         refundDoc = created[0];
+
+        await logActivity(dbSession, {
+          pharmacyId: scope.pharmacyId,
+          scope: "branch",
+          branchId: scope.branchId,
+          actorUserId: session.user.id,
+          actorName: session.user.name ?? "Unknown",
+          action: "refund",
+          summary: `Refunded ${refundItems.length} item${refundItems.length === 1 ? "" : "s"} for ₦${totalAmount.toFixed(2)}${reason ? ` — ${reason}` : ""}`,
+          metadata: { totalAmount, saleId, reason },
+          refCollection: "Refund",
+          refId: refundDoc!._id,
+        });
       });
 
       return NextResponse.json({ refund: refundDoc }, { status: 201 });
