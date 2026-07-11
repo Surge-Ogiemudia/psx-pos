@@ -10,7 +10,8 @@
     "test": "jest",
     "seed": "node --env-file=.env.local scripts/seed.mjs",
     "onboard": "node --env-file=.env.local scripts/onboard.mjs",
-    "migrate:sale-payments": "node --env-file=.env.local scripts/migrate-sale-payments.mjs"
+    "migrate:sale-payments": "node --env-file=.env.local scripts/migrate-sale-payments.mjs",
+    "restore-backup": "node --env-file=.env.local scripts/restore-backup.mjs"
   },
   "dependencies": {
     "@vercel/blob": "^2.6.1",
