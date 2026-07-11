@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { describeBreakdown, pluralize, type UnitLevel } from "@/lib/unitHierarchy";
 import { formatProductLabel, type ProductCategory } from "@/lib/types";
@@ -55,6 +55,18 @@ export default function IntakeClient({ initialStoreId }: { initialStoreId: strin
   function updateLevel(index: number, changes: Partial<LevelForm>) {
     setLevels((prev) => prev.map((l, i) => (i === index ? { ...l, ...changes } : l)));
   }
+
+  // receivedForm and levels are independent state — renaming or removing a level can leave
+  // receivedForm pointing at a unit name that no longer exists, even though the dropdown (which
+  // can only display options that still exist) looks correct. Re-sync it whenever that happens.
+  useEffect(() => {
+    if (levels.length > 0 && !levels.some((l) => l.unitName === receivedForm)) {
+      const timeout = setTimeout(() => {
+        setReceivedForm(levels[levels.length - 1].unitName);
+      }, 0);
+      return () => clearTimeout(timeout);
+    }
+  }, [levels, receivedForm]);
 
   async function goToConfirm() {
     setError(null);
