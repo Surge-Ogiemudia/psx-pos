@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import StoreProduct from "@/models/StoreProduct";
 import StoreBatch from "@/models/StoreBatch";
 import StoreTransfer from "@/models/StoreTransfer";
+import Store from "@/models/Store";
 import Product from "@/models/Product";
 import ProductBatch from "@/models/ProductBatch";
 import { logActivity } from "@/lib/activityLog";
@@ -31,9 +32,11 @@ export interface TransferResult {
 }
 
 /**
- * The full push transaction body for one store product to one destination — shared by the
- * single-item push route and the bulk-push route so both draw/transfer/dispense logic stays in
- * exactly one place. Must be called inside an already-open transaction (dbSession).
+ * The dispatch half of a push — shared by the single-item push route and the bulk-push route so
+ * both stay in exactly one place. Draws down the source batch(es) and creates "in_transit"
+ * StoreTransfer records, but does NOT touch the destination: stock only lands there once the
+ * destination actively confirms receipt (see receiveTransfers below). Must be called inside an
+ * already-open transaction (dbSession).
  */
 export async function executeTransfer(params: ExecuteTransferParams): Promise<TransferResult> {
   const {
@@ -51,7 +54,6 @@ export async function executeTransfer(params: ExecuteTransferParams): Promise<Tr
     actorName,
     dbSession,
   } = params;
-  const scope = { pharmacyId, storeId };
   const channel = destinationType === "store" ? "sister_store" : "branch";
 
   const plan = await buildDrawPlan({
@@ -63,61 +65,6 @@ export async function executeTransfer(params: ExecuteTransferParams): Promise<Tr
     channel,
     dbSession,
   });
-
-  // Destination products (whether a sister store or a branch) are matched/created by the
-  // source item's itemName/brand/size, not by re-parsing the batch's composed productName
-  // snapshot string.
-  const sourceProduct = await StoreProduct.findOne({ _id: storeProductId, ...scope }, null, { session: dbSession });
-  if (!sourceProduct) throw new Error("Source product not found");
-
-  // For a branch destination, find-or-create the branch's Product row up front (using the
-  // first batch's price/unitHierarchy as the representative snapshot) so each store batch
-  // pushed can get its own ProductBatch record against it inside the loop below.
-  let branchDestProduct: Awaited<ReturnType<typeof Product.findOne>> | null = null;
-  if (destinationType === "branch") {
-    const weightedPricePerBaseUnit = plan.totalValue / plan.totalBaseUnitQuantity;
-    const firstBatch = plan.items[0].batch;
-    branchDestProduct = await Product.findOne(
-      {
-        pharmacyId,
-        branchId: toBranchId,
-        itemName: sourceProduct.itemName,
-        brand: sourceProduct.brand,
-        size: sourceProduct.size,
-      },
-      null,
-      { session: dbSession }
-    );
-    if (!branchDestProduct) {
-      const created = await Product.create(
-        [
-          {
-            pharmacyId,
-            branchId: toBranchId,
-            itemName: sourceProduct.itemName,
-            brand: sourceProduct.brand,
-            size: sourceProduct.size,
-            category: sourceProduct.category,
-            quantityInStock: 0,
-            unitHierarchy: firstBatch.unitHierarchy,
-            retailPrice: weightedPricePerBaseUnit,
-            wholesalePrice: weightedPricePerBaseUnit,
-            distributorPrice: weightedPricePerBaseUnit,
-            batchNumber: firstBatch.batchNumber,
-            expiryDate: firstBatch.expiryDate,
-          },
-        ],
-        { session: dbSession }
-      );
-      branchDestProduct = created[0];
-    } else {
-      await Product.findOneAndUpdate(
-        { _id: branchDestProduct._id },
-        { $set: { retailPrice: weightedPricePerBaseUnit, unitHierarchy: firstBatch.unitHierarchy } },
-        { session: dbSession }
-      );
-    }
-  }
 
   const transferIds: mongoose.Types.ObjectId[] = [];
 
@@ -148,6 +95,7 @@ export async function executeTransfer(params: ExecuteTransferParams): Promise<Tr
           baseUnitQuantity: item.baseUnitsDrawn,
           unitPriceAtPushForm: item.unitPriceAtBaseUnit,
           totalValue: item.lineTotal,
+          status: "in_transit",
           initiatedByUserId: actorUserId,
           timestamp: new Date(),
         },
@@ -155,94 +103,6 @@ export async function executeTransfer(params: ExecuteTransferParams): Promise<Tr
       { session: dbSession }
     );
     transferIds.push(transferCreated[0]._id);
-
-    if (destinationType === "store") {
-      let destProduct = await StoreProduct.findOne(
-        {
-          pharmacyId,
-          storeId: toStoreId,
-          itemName: sourceProduct.itemName,
-          brand: sourceProduct.brand,
-          size: sourceProduct.size,
-        },
-        null,
-        { session: dbSession }
-      );
-      if (!destProduct) {
-        const created = await StoreProduct.create(
-          [
-            {
-              pharmacyId,
-              storeId: toStoreId,
-              itemName: sourceProduct.itemName,
-              brand: sourceProduct.brand,
-              size: sourceProduct.size,
-              category: sourceProduct.category,
-              baseUnitName,
-              quantityInStock: 0,
-            },
-          ],
-          { session: dbSession }
-        );
-        destProduct = created[0];
-      }
-
-      await StoreBatch.create(
-        [
-          {
-            pharmacyId,
-            storeId: toStoreId,
-            storeProductId: destProduct._id,
-            productName: item.batch.productName,
-            unitHierarchy: item.batch.unitHierarchy,
-            receivedForm: baseUnitName,
-            receivedQuantity: item.baseUnitsDrawn,
-            baseUnitQuantity: item.baseUnitsDrawn,
-            remainingBaseUnitQuantity: item.baseUnitsDrawn,
-            purchaseAmount: item.lineTotal,
-            purchaseUnitCost: item.unitPriceAtBaseUnit,
-            batchNumber: item.batch.batchNumber,
-            expiryDate: item.batch.expiryDate,
-            sourceTransferId: transferCreated[0]._id,
-            receivedByUserId: actorUserId,
-            receivedAt: new Date(),
-          },
-        ],
-        { session: dbSession }
-      );
-
-      await StoreProduct.findOneAndUpdate(
-        { _id: destProduct._id },
-        { $inc: { quantityInStock: item.baseUnitsDrawn } },
-        { session: dbSession }
-      );
-    }
-
-    if (destinationType === "branch" && branchDestProduct) {
-      await ProductBatch.create(
-        [
-          {
-            pharmacyId,
-            branchId: toBranchId,
-            productId: branchDestProduct._id,
-            quantity: item.baseUnitsDrawn,
-            remainingQuantity: item.baseUnitsDrawn,
-            batchNumber: item.batch.batchNumber,
-            expiryDate: item.batch.expiryDate,
-            sourceTransferId: transferCreated[0]._id,
-            receivedByUserId: actorUserId,
-            receivedAt: new Date(),
-          },
-        ],
-        { session: dbSession }
-      );
-
-      await Product.findOneAndUpdate(
-        { _id: branchDestProduct._id },
-        { $inc: { quantityInStock: item.baseUnitsDrawn } },
-        { session: dbSession }
-      );
-    }
   }
 
   await StoreProduct.findOneAndUpdate(
@@ -258,7 +118,7 @@ export async function executeTransfer(params: ExecuteTransferParams): Promise<Tr
     actorUserId,
     actorName,
     action: "push",
-    summary: `${sourceStoreName} pushed ${quantity} ${pluralize(form, quantity)} of ${plan.items[0].batch.productName} to ${destinationName}${plan.items.length > 1 ? ` (spanning ${plan.items.length} batches)` : ""}`,
+    summary: `${sourceStoreName} pushed ${quantity} ${pluralize(form, quantity)} of ${plan.items[0].batch.productName} to ${destinationName}${plan.items.length > 1 ? ` (spanning ${plan.items.length} batches)` : ""} — awaiting receipt`,
     metadata: {
       destinationType,
       toStoreId,
@@ -278,4 +138,228 @@ export async function executeTransfer(params: ExecuteTransferParams): Promise<Tr
     totalValue: plan.totalValue,
     batchesInvolved: plan.items.length,
   };
+}
+
+export interface ReceiveTransfersParams {
+  pharmacyId: string;
+  destinationType: "store" | "branch";
+  toStoreId?: string;
+  toBranchId?: string;
+  transferIds: string[];
+  actorUserId: string;
+  actorName: string;
+  dbSession: mongoose.ClientSession;
+}
+
+export interface ReceiveResult {
+  received: number;
+  totalBaseUnitQuantity: number;
+  totalValue: number;
+}
+
+/**
+ * The receive half of a push. Only ever operates on transfers matching the caller's own
+ * authorized destination (filtered into the query below, not just trusted from the request) —
+ * so a session can never receive a transfer addressed to a different store/branch by passing
+ * an arbitrary transferId. Must be called inside an already-open transaction (dbSession).
+ */
+export async function receiveTransfers(params: ReceiveTransfersParams): Promise<ReceiveResult> {
+  const { pharmacyId, destinationType, toStoreId, toBranchId, transferIds, actorUserId, actorName, dbSession } =
+    params;
+
+  const destQuery: Record<string, unknown> = {
+    _id: { $in: transferIds },
+    pharmacyId,
+    status: "in_transit",
+    destinationType,
+  };
+  if (destinationType === "store") destQuery.toStoreId = toStoreId;
+  else destQuery.toBranchId = toBranchId;
+
+  const transfers = await StoreTransfer.find(destQuery, null, { session: dbSession });
+  if (transfers.length === 0) throw new Error("No pending transfers to receive");
+
+  // Cache find-or-create'd destination products by source storeProductId within this call, so
+  // receiving several batches of the same product doesn't create duplicate destination rows.
+  const destProductCache = new Map<string, { _id: mongoose.Types.ObjectId }>();
+  let totalBaseUnitQuantity = 0;
+  let totalValue = 0;
+  let sourceStoreName = "";
+
+  for (const transfer of transfers) {
+    const sourceProduct = await StoreProduct.findOne(
+      { _id: transfer.storeProductId, pharmacyId },
+      null,
+      { session: dbSession }
+    );
+    if (!sourceProduct) throw new Error("Source product no longer exists");
+
+    if (!sourceStoreName) {
+      const sourceStore = await Store.findById(transfer.fromStoreId).lean();
+      sourceStoreName = sourceStore?.storeName ?? "the source store";
+    }
+
+    // storeBatchId still points at the source batch document (only its remaining quantity was
+    // decremented at push time, the document itself persists), so batchNumber/expiryDate can be
+    // read from it now instead of needing to have been snapshotted onto the transfer earlier.
+    const sourceBatch = await StoreBatch.findById(transfer.storeBatchId, null, { session: dbSession });
+
+    const cacheKey = transfer.storeProductId.toString();
+    let destProduct = destProductCache.get(cacheKey);
+
+    if (destinationType === "store") {
+      if (!destProduct) {
+        let found = await StoreProduct.findOne(
+          {
+            pharmacyId,
+            storeId: toStoreId,
+            itemName: sourceProduct.itemName,
+            brand: sourceProduct.brand,
+            size: sourceProduct.size,
+          },
+          null,
+          { session: dbSession }
+        );
+        if (!found) {
+          const created = await StoreProduct.create(
+            [
+              {
+                pharmacyId,
+                storeId: toStoreId,
+                itemName: sourceProduct.itemName,
+                brand: sourceProduct.brand,
+                size: sourceProduct.size,
+                category: sourceProduct.category,
+                baseUnitName:
+                  transfer.unitHierarchySnapshot[transfer.unitHierarchySnapshot.length - 1].unitName,
+                quantityInStock: 0,
+              },
+            ],
+            { session: dbSession }
+          );
+          found = created[0];
+        }
+        destProduct = found;
+        destProductCache.set(cacheKey, destProduct);
+      }
+
+      await StoreBatch.create(
+        [
+          {
+            pharmacyId,
+            storeId: toStoreId,
+            storeProductId: destProduct._id,
+            productName: transfer.productName,
+            unitHierarchy: transfer.unitHierarchySnapshot,
+            receivedForm: transfer.pushedForm,
+            receivedQuantity: transfer.pushedQuantity,
+            baseUnitQuantity: transfer.baseUnitQuantity,
+            remainingBaseUnitQuantity: transfer.baseUnitQuantity,
+            purchaseAmount: transfer.totalValue,
+            purchaseUnitCost: transfer.unitPriceAtPushForm,
+            batchNumber: sourceBatch?.batchNumber ?? "",
+            expiryDate: sourceBatch?.expiryDate ?? null,
+            sourceTransferId: transfer._id,
+            receivedByUserId: actorUserId,
+            receivedAt: new Date(),
+          },
+        ],
+        { session: dbSession }
+      );
+
+      await StoreProduct.findOneAndUpdate(
+        { _id: destProduct._id },
+        { $inc: { quantityInStock: transfer.baseUnitQuantity } },
+        { session: dbSession }
+      );
+    } else {
+      if (!destProduct) {
+        let found = await Product.findOne(
+          {
+            pharmacyId,
+            branchId: toBranchId,
+            itemName: sourceProduct.itemName,
+            brand: sourceProduct.brand,
+            size: sourceProduct.size,
+          },
+          null,
+          { session: dbSession }
+        );
+        if (!found) {
+          const created = await Product.create(
+            [
+              {
+                pharmacyId,
+                branchId: toBranchId,
+                itemName: sourceProduct.itemName,
+                brand: sourceProduct.brand,
+                size: sourceProduct.size,
+                category: sourceProduct.category,
+                quantityInStock: 0,
+                unitHierarchy: transfer.unitHierarchySnapshot,
+                retailPrice: transfer.unitPriceAtPushForm,
+                wholesalePrice: transfer.unitPriceAtPushForm,
+                distributorPrice: transfer.unitPriceAtPushForm,
+                batchNumber: sourceBatch?.batchNumber ?? "",
+                expiryDate: sourceBatch?.expiryDate ?? null,
+              },
+            ],
+            { session: dbSession }
+          );
+          found = created[0];
+        }
+        destProduct = found;
+        destProductCache.set(cacheKey, destProduct);
+      }
+
+      await ProductBatch.create(
+        [
+          {
+            pharmacyId,
+            branchId: toBranchId,
+            productId: destProduct._id,
+            quantity: transfer.baseUnitQuantity,
+            remainingQuantity: transfer.baseUnitQuantity,
+            batchNumber: sourceBatch?.batchNumber ?? "",
+            expiryDate: sourceBatch?.expiryDate ?? null,
+            sourceTransferId: transfer._id,
+            receivedByUserId: actorUserId,
+            receivedAt: new Date(),
+          },
+        ],
+        { session: dbSession }
+      );
+
+      await Product.findOneAndUpdate(
+        { _id: destProduct._id },
+        { $inc: { quantityInStock: transfer.baseUnitQuantity } },
+        { session: dbSession }
+      );
+    }
+
+    await StoreTransfer.findOneAndUpdate(
+      { _id: transfer._id },
+      { status: "received", receivedByUserId: actorUserId, receivedAt: new Date() },
+      { session: dbSession }
+    );
+
+    totalBaseUnitQuantity += transfer.baseUnitQuantity;
+    totalValue += transfer.totalValue;
+  }
+
+  await logActivity(dbSession, {
+    pharmacyId,
+    scope: destinationType === "store" ? "store" : "branch",
+    storeId: destinationType === "store" ? (toStoreId ?? undefined) : undefined,
+    branchId: destinationType === "branch" ? (toBranchId ?? undefined) : undefined,
+    actorUserId,
+    actorName,
+    action: "receive",
+    summary: `Received ${transfers.length} transfer${transfers.length === 1 ? "" : "s"} from ${sourceStoreName} (₦${totalValue.toFixed(2)})`,
+    metadata: { transferIds: transfers.map((t) => t._id), totalBaseUnitQuantity, totalValue },
+    refCollection: "StoreTransfer",
+    refId: transfers[0]._id,
+  });
+
+  return { received: transfers.length, totalBaseUnitQuantity, totalValue };
 }

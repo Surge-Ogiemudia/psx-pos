@@ -6,12 +6,9 @@ import StoreProduct from "@/models/StoreProduct";
 import StoreBatch from "@/models/StoreBatch";
 import StoreTransfer from "@/models/StoreTransfer";
 import DispenseSetting from "@/models/DispenseSetting";
-import Product from "@/models/Product";
-import ProductBatch from "@/models/ProductBatch";
 import ActivityLog from "@/models/ActivityLog";
 import { requireStoreApiSession, getStoreScope } from "@/lib/session";
 import { compareBatchesFifo, computeBaseUnitsPerLevel, convertToBaseUnits, planDraw, pluralize } from "@/lib/unitHierarchy";
-import { normalizeText } from "@/lib/productSimilarity";
 import { parseNumeric } from "@/lib/numberInput";
 import { handleApiError } from "@/lib/apiError";
 
@@ -28,10 +25,6 @@ interface BulkPushItem {
 
 type Channel = "sister_store" | "branch";
 const CHANNEL_LABEL: Record<Channel, string> = { sister_store: "sister-store", branch: "branch" };
-
-function itemKey(itemName: string, brand: string, size: string): string {
-  return `${normalizeText(itemName)}|${normalizeText(brand)}|${normalizeText(size)}`;
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -105,21 +98,6 @@ export async function POST(request: NextRequest) {
       channel,
     }).lean();
     const settingByBatchId = new Map(settings.map((s) => [s.storeBatchId.toString(), s]));
-
-    // Existing destination items, fetched once (not per item) so new-vs-existing can be resolved
-    // in memory instead of a round trip per row.
-    const existingDestByKey = new Map<string, string>();
-    if (destinationType === "branch") {
-      const destProducts = await Product.find({ pharmacyId: scope.pharmacyId, branchId: toBranchId })
-        .select("itemName brand size")
-        .lean();
-      for (const p of destProducts) existingDestByKey.set(itemKey(p.itemName, p.brand, p.size), p._id.toString());
-    } else {
-      const destProducts = await StoreProduct.find({ pharmacyId: scope.pharmacyId, storeId: toStoreId })
-        .select("itemName brand size")
-        .lean();
-      for (const p of destProducts) existingDestByKey.set(itemKey(p.itemName, p.brand, p.size), p._id.toString());
-    }
 
     // --- Compute a draw/price plan per item, purely in memory — no writes yet ---
     type Batch = (typeof allBatches)[number];
@@ -222,6 +200,10 @@ export async function POST(request: NextRequest) {
     }
 
     // --- Issue a handful of bulk writes covering every successful item ---
+    // Only the source side changes here: batches drawn down and the source product's stock
+    // decremented. The destination gets nothing yet — that only happens once it confirms
+    // receipt (see /api/store-transfers/receive), same real-world gap the single-item push
+    // models via executeTransfer/receiveTransfers in src/lib/storeTransfer.ts.
     const now = new Date();
 
     const batchDecrementOps = plans.flatMap((p) =>
@@ -233,74 +215,6 @@ export async function POST(request: NextRequest) {
       }))
     );
     if (batchDecrementOps.length > 0) await StoreBatch.bulkWrite(batchDecrementOps);
-
-    // Resolve destination product ids: existing ones from the pre-fetch, create new ones in bulk.
-    const destKeyToId = new Map(existingDestByKey);
-    const newDestKeys: string[] = [];
-    const newDestDocs: Record<string, unknown>[] = [];
-    for (const p of plans) {
-      const key = itemKey(p.sourceProduct.itemName, p.sourceProduct.brand, p.sourceProduct.size);
-      if (!destKeyToId.has(key) && !newDestKeys.includes(key)) {
-        const weightedPrice = p.totalValue / p.totalBaseUnitQuantity;
-        const firstBatch = p.draws[0].batch;
-        newDestKeys.push(key);
-        if (destinationType === "branch") {
-          newDestDocs.push({
-            pharmacyId: scope.pharmacyId,
-            branchId: toBranchId,
-            itemName: p.sourceProduct.itemName,
-            brand: p.sourceProduct.brand,
-            size: p.sourceProduct.size,
-            category: p.sourceProduct.category,
-            quantityInStock: 0,
-            unitHierarchy: firstBatch.unitHierarchy,
-            retailPrice: weightedPrice,
-            wholesalePrice: weightedPrice,
-            distributorPrice: weightedPrice,
-            batchNumber: firstBatch.batchNumber,
-            expiryDate: firstBatch.expiryDate,
-          });
-        } else {
-          newDestDocs.push({
-            pharmacyId: scope.pharmacyId,
-            storeId: toStoreId,
-            itemName: p.sourceProduct.itemName,
-            brand: p.sourceProduct.brand,
-            size: p.sourceProduct.size,
-            category: p.sourceProduct.category,
-            baseUnitName: firstBatch.unitHierarchy[firstBatch.unitHierarchy.length - 1].unitName,
-            quantityInStock: 0,
-          });
-        }
-      }
-    }
-    if (newDestDocs.length > 0) {
-      if (destinationType === "branch") {
-        const created = await Product.insertMany(newDestDocs);
-        created.forEach((doc, i) => destKeyToId.set(newDestKeys[i], String(doc._id)));
-      } else {
-        const created = await StoreProduct.insertMany(newDestDocs);
-        created.forEach((doc, i) => destKeyToId.set(newDestKeys[i], String(doc._id)));
-      }
-    }
-
-    // Refresh retailPrice/unitHierarchy on branch destinations that already existed — matches
-    // the single-item push's behavior of the store dictating the branch's selling price on push.
-    if (destinationType === "branch") {
-      const priceUpdateOps = plans
-        .filter((p) => existingDestByKey.has(itemKey(p.sourceProduct.itemName, p.sourceProduct.brand, p.sourceProduct.size)))
-        .map((p) => {
-          const key = itemKey(p.sourceProduct.itemName, p.sourceProduct.brand, p.sourceProduct.size);
-          const weightedPrice = p.totalValue / p.totalBaseUnitQuantity;
-          return {
-            updateOne: {
-              filter: { _id: destKeyToId.get(key) },
-              update: { $set: { retailPrice: weightedPrice, unitHierarchy: p.draws[0].batch.unitHierarchy } },
-            },
-          };
-        });
-      if (priceUpdateOps.length > 0) await Product.bulkWrite(priceUpdateOps);
-    }
 
     const transferDocs = plans.flatMap((p) =>
       p.draws.map((d) => {
@@ -320,80 +234,13 @@ export async function POST(request: NextRequest) {
           baseUnitQuantity: d.baseUnitsDrawn,
           unitPriceAtPushForm: d.unitPriceAtBaseUnit,
           totalValue: d.lineTotal,
+          status: "in_transit",
           initiatedByUserId: session.user.id,
           timestamp: now,
         };
       })
     );
-    const insertedTransfers = transferDocs.length > 0 ? await StoreTransfer.insertMany(transferDocs) : [];
-
-    let transferIdx = 0;
-    const destBatchDocs: Record<string, unknown>[] = [];
-    for (const p of plans) {
-      const key = itemKey(p.sourceProduct.itemName, p.sourceProduct.brand, p.sourceProduct.size);
-      const destId = destKeyToId.get(key)!;
-      for (const d of p.draws) {
-        const transfer = insertedTransfers[transferIdx++];
-        if (destinationType === "branch") {
-          destBatchDocs.push({
-            pharmacyId: scope.pharmacyId,
-            branchId: toBranchId,
-            productId: destId,
-            quantity: d.baseUnitsDrawn,
-            remainingQuantity: d.baseUnitsDrawn,
-            batchNumber: d.batch.batchNumber,
-            expiryDate: d.batch.expiryDate,
-            sourceTransferId: transfer._id,
-            receivedByUserId: session.user.id,
-            receivedAt: now,
-          });
-        } else {
-          const baseUnitName = d.batch.unitHierarchy[d.batch.unitHierarchy.length - 1].unitName;
-          destBatchDocs.push({
-            pharmacyId: scope.pharmacyId,
-            storeId: toStoreId,
-            storeProductId: destId,
-            productName: d.batch.productName,
-            unitHierarchy: d.batch.unitHierarchy,
-            receivedForm: baseUnitName,
-            receivedQuantity: d.baseUnitsDrawn,
-            baseUnitQuantity: d.baseUnitsDrawn,
-            remainingBaseUnitQuantity: d.baseUnitsDrawn,
-            purchaseAmount: d.lineTotal,
-            purchaseUnitCost: d.unitPriceAtBaseUnit,
-            batchNumber: d.batch.batchNumber,
-            expiryDate: d.batch.expiryDate,
-            sourceTransferId: transfer._id,
-            receivedByUserId: session.user.id,
-            receivedAt: now,
-          });
-        }
-      }
-    }
-    if (destBatchDocs.length > 0) {
-      if (destinationType === "branch") {
-        await ProductBatch.insertMany(destBatchDocs);
-      } else {
-        await StoreBatch.insertMany(destBatchDocs);
-      }
-    }
-
-    const destIncByProductId = new Map<string, number>();
-    for (const p of plans) {
-      const key = itemKey(p.sourceProduct.itemName, p.sourceProduct.brand, p.sourceProduct.size);
-      const destId = destKeyToId.get(key)!;
-      destIncByProductId.set(destId, (destIncByProductId.get(destId) ?? 0) + p.totalBaseUnitQuantity);
-    }
-    if (destIncByProductId.size > 0) {
-      const incOps = [...destIncByProductId.entries()].map(([id, inc]) => ({
-        updateOne: { filter: { _id: id }, update: { $inc: { quantityInStock: inc } } },
-      }));
-      if (destinationType === "branch") {
-        await Product.bulkWrite(incOps);
-      } else {
-        await StoreProduct.bulkWrite(incOps);
-      }
-    }
+    if (transferDocs.length > 0) await StoreTransfer.insertMany(transferDocs);
 
     await StoreProduct.bulkWrite(
       plans.map((p) => ({
@@ -411,7 +258,7 @@ export async function POST(request: NextRequest) {
       actorUserId: session.user.id,
       actorName: session.user.name ?? "Unknown",
       action: "push",
-      summary: `${sourceStore?.storeName ?? "The store"} bulk-pushed ${plans.length} item${plans.length === 1 ? "" : "s"} to ${destinationName}`,
+      summary: `${sourceStore?.storeName ?? "The store"} bulk-pushed ${plans.length} item${plans.length === 1 ? "" : "s"} to ${destinationName} — awaiting receipt`,
       metadata: { destinationType, toStoreId, toBranchId, itemCount: plans.length },
       timestamp: now,
     });

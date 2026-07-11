@@ -24,6 +24,12 @@ const StoreTransferSchema = new Schema(
     baseUnitQuantity: { type: Number, required: true, min: 1 },
     unitPriceAtPushForm: { type: Number, required: true, min: 0 },
     totalValue: { type: Number, required: true, min: 0 },
+    // A push decrements the source immediately but doesn't add to the destination's stock
+    // until the destination actively confirms receipt — models the real-world gap between
+    // someone picking an item up at the source and physically dropping it off elsewhere.
+    status: { type: String, enum: ["in_transit", "received"], required: true, default: "in_transit" },
+    receivedByUserId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    receivedAt: { type: Date, default: null },
     initiatedByUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     timestamp: { type: Date, required: true, default: Date.now },
   },
@@ -31,8 +37,8 @@ const StoreTransferSchema = new Schema(
 );
 
 StoreTransferSchema.index({ pharmacyId: 1, fromStoreId: 1, timestamp: -1 });
-StoreTransferSchema.index({ pharmacyId: 1, toBranchId: 1, timestamp: -1 });
-StoreTransferSchema.index({ pharmacyId: 1, toStoreId: 1, timestamp: -1 });
+StoreTransferSchema.index({ pharmacyId: 1, toBranchId: 1, status: 1, timestamp: -1 });
+StoreTransferSchema.index({ pharmacyId: 1, toStoreId: 1, status: 1, timestamp: -1 });
 
 export type StoreTransferDoc = InferSchemaType<typeof StoreTransferSchema>;
 

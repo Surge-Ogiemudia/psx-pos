@@ -22,6 +22,7 @@ const ActivityLogSchema = new Schema(
         "stock_adjustment",
         "product_create",
         "refund",
+        "receive",
       ],
       required: true,
     },

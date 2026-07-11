@@ -339,7 +339,8 @@ export default function BulkPushClient({ initialStoreId }: { initialStoreId: str
     <div>
       <h1 className="mb-4 text-lg font-semibold text-zinc-900">Bulk push results</h1>
       <p className="mb-3 text-sm text-teal-700">
-        Pushed {pushedCount} of {results.length} item{results.length === 1 ? "" : "s"} successfully.
+        Pushed {pushedCount} of {results.length} item{results.length === 1 ? "" : "s"} successfully — awaiting
+        receipt at the destination.
       </p>
       {results.some((r) => r.error) && (
         <ul className="mb-4 list-disc pl-5 text-sm text-red-600">

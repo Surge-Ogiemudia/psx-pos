@@ -254,7 +254,7 @@ export default function PushSellClient({
       return;
     }
     resetToCatalog(
-      `Pushed ${quantity} ${pluralize(form, parseNumeric(quantity))} of ${formatProductLabel(selectedProduct)}${spanNote(data.batchesInvolved)}.`
+      `Pushed ${quantity} ${pluralize(form, parseNumeric(quantity))} of ${formatProductLabel(selectedProduct)}${spanNote(data.batchesInvolved)} — awaiting receipt at the destination.`
     );
   }
 
