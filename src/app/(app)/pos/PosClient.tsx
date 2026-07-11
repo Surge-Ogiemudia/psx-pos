@@ -80,6 +80,13 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
   const [customError, setCustomError] = useState<string | null>(null);
 
   const cartSectionRef = useRef<HTMLDivElement>(null);
+  const productListRef = useRef<HTMLDivElement>(null);
+
+  // Typing a new search shouldn't leave the results list scrolled to wherever it happened to be
+  // from browsing before — jump back to the top so the best matches are actually visible.
+  useEffect(() => {
+    productListRef.current?.scrollTo(0, 0);
+  }, [search]);
 
   // So staff get visual confirmation an item landed in the cart, instead of it silently
   // updating somewhere off-screen while the catalog list stays put.
@@ -454,7 +461,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
             {products.length > 4 && <span>Scroll for more ↓</span>}
           </div>
           <div className="relative">
-            <div className="grid max-h-96 grid-cols-1 gap-2 overflow-y-auto pb-1 sm:grid-cols-2">
+            <div ref={productListRef} className="grid max-h-96 grid-cols-1 gap-2 overflow-y-auto pb-1 sm:grid-cols-2">
               {products.map((product) => {
                 const expiryStatus = getExpiryStatus(product.expiryDate);
                 return (
