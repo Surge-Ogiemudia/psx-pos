@@ -63,6 +63,7 @@ export interface SaleJSON {
   changeFee: number;
   timestamp: string;
   userId: string;
+  userName: string;
 }
 
 export interface RefundItemJSON {

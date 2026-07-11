@@ -5,6 +5,7 @@ import Product from "@/models/Product";
 import ProductBatch from "@/models/ProductBatch";
 import Sale, { type SaleDoc } from "@/models/Sale";
 import ProductRequest from "@/models/ProductRequest";
+import User from "@/models/User";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { computeBaseUnitsPerLevel, compareBatchesFifo, planBestEffortDraw } from "@/lib/unitHierarchy";
@@ -90,7 +91,16 @@ export async function GET(request: NextRequest) {
     }
 
     const sales = await Sale.find(query).sort({ timestamp: -1 }).limit(200).lean();
-    return NextResponse.json({ sales: sales.map(normalizeSale) });
+    const staffDocs = await User.find({ _id: { $in: sales.map((s) => s.userId) } })
+      .select("name")
+      .lean();
+    const staffNameById = new Map(staffDocs.map((u) => [u._id.toString(), u.name]));
+    return NextResponse.json({
+      sales: sales.map((s) => ({
+        ...normalizeSale(s),
+        userName: staffNameById.get(String(s.userId)) ?? "Unknown",
+      })),
+    });
   } catch (error) {
     return handleApiError(error);
   }
