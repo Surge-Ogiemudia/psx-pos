@@ -117,6 +117,10 @@ export interface StoreProductJSON {
   baseUnitName: string;
   quantityInStock: number;
   displayUnitHierarchy?: UnitLevelJSON[] | null;
+  /** 20% of the most recently received batch's quantity (floor 1) — an automatic reorder-point alert, not manually set. */
+  lowStockThreshold: number;
+  /** Soonest expiry date among this product's batches that still have stock remaining. */
+  soonestExpiryDate?: string | null;
 }
 
 export interface UnitLevelJSON {

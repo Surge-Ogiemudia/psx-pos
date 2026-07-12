@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { StoreProductJSON } from "@/lib/types";
+import type { ProductCategory, StoreProductJSON } from "@/lib/types";
 import { describeStock } from "@/lib/unitHierarchy";
+import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expiry";
 import IncomingBanner from "@/components/IncomingBanner";
+import AlertFilterButton from "@/components/AlertFilterButton";
 
 export default function StoreDashboardClient({
   fixedStoreId,
@@ -18,6 +20,13 @@ export default function StoreDashboardClient({
   const storeId = fixedStoreId ?? activeStoreId ?? "";
   const [products, setProducts] = useState<StoreProductJSON[]>([]);
 
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<ProductCategory | "all">("all");
+  const [expiryFilter, setExpiryFilter] = useState<"all" | "expired" | "urgent" | "warning" | "not_expired">("all");
+  const [stockFilter, setStockFilter] = useState<"all" | "stockout" | "lastUnit" | "low" | "not_stockout">("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [alertsHidden, setAlertsHidden] = useState(false);
+
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deleteAllCount, setDeleteAllCount] = useState<number | null>(null);
   const [deleteAllConfirmText, setDeleteAllConfirmText] = useState("");
@@ -26,12 +35,20 @@ export default function StoreDashboardClient({
 
   function loadProducts() {
     if (!storeId) return;
-    fetch(`/api/store-products?storeId=${storeId}`)
+    const params = new URLSearchParams({ storeId });
+    if (search) params.set("search", search);
+    fetch(`/api/store-products?${params}`)
       .then((res) => res.json())
       .then((data) => setProducts(data.storeProducts || []));
   }
 
   useEffect(loadProducts, [storeId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(loadProducts, 200);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   async function openDeleteAllConfirm() {
     setDeleteAllError(null);
@@ -66,6 +83,42 @@ export default function StoreDashboardClient({
       setDeleteAllSubmitting(false);
     }
   }
+
+  const visibleProducts = products.filter((p) => {
+    if (categoryFilter !== "all" && p.category !== categoryFilter) return false;
+    if (expiryFilter !== "all") {
+      const level = getExpiryStatus(p.soonestExpiryDate).level;
+      if (expiryFilter === "not_expired" ? level === "expired" : level !== expiryFilter) return false;
+    }
+    if (stockFilter !== "all") {
+      if (stockFilter === "not_stockout" && p.quantityInStock <= 0) return false;
+      if (stockFilter === "stockout" && p.quantityInStock > 0) return false;
+      if (stockFilter === "lastUnit" && p.quantityInStock !== 1) return false;
+      if (stockFilter === "low" && !(p.quantityInStock > 1 && p.lowStockThreshold > 0 && p.quantityInStock <= p.lowStockThreshold)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const activeFilterCount =
+    (categoryFilter !== "all" ? 1 : 0) + (expiryFilter !== "all" ? 1 : 0) + (stockFilter !== "all" ? 1 : 0);
+
+  const expiredProducts = products.filter((p) => getExpiryStatus(p.soonestExpiryDate).level === "expired");
+  const urgentProducts = products.filter((p) => getExpiryStatus(p.soonestExpiryDate).level === "urgent");
+  const warningProducts = products.filter((p) => getExpiryStatus(p.soonestExpiryDate).level === "warning");
+  const stockoutProducts = products.filter((p) => p.quantityInStock <= 0);
+  const lastUnitProducts = products.filter((p) => p.quantityInStock === 1);
+  const lowStockProducts = products.filter(
+    (p) => p.quantityInStock > 1 && p.lowStockThreshold > 0 && p.quantityInStock <= p.lowStockThreshold
+  );
+  const totalAlertCount =
+    expiredProducts.length +
+    urgentProducts.length +
+    warningProducts.length +
+    stockoutProducts.length +
+    lastUnitProducts.length +
+    lowStockProducts.length;
 
   if (!storeId) {
     return (
@@ -130,6 +183,183 @@ export default function StoreDashboardClient({
         </Link>
       </div>
 
+      <div className="mb-4 flex items-center gap-2">
+        <input
+          type="text"
+          placeholder="Search products..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+        />
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setFiltersOpen((v) => !v)}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path
+                fillRule="evenodd"
+                d="M2.628 1.601C5.028 1.206 7.49 1 10 1s4.973.206 7.372.601a.75.75 0 01.628.74v2.288a2.25 2.25 0 01-.659 1.59l-4.682 4.683a2.25 2.25 0 00-.659 1.59v3.037c0 .684-.31 1.33-.844 1.757l-1.937 1.55A.75.75 0 018 18.25v-6.757a2.25 2.25 0 00-.659-1.591L2.659 5.22A2.25 2.25 0 012 3.629V1.34a.75.75 0 01.628-.74z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-teal-700 px-1 text-[10px] font-semibold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          {filtersOpen && (
+            <div className="absolute right-0 top-full z-10 mt-1 w-64 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg">
+              <div className="flex flex-col gap-2">
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value as ProductCategory | "all")}
+                  className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="all">All categories</option>
+                  <option value="medicine">Medicine</option>
+                  <option value="non-medicine">Non-medicine</option>
+                  <option value="supermarket">Supermarket</option>
+                </select>
+                <select
+                  value={expiryFilter}
+                  onChange={(e) => setExpiryFilter(e.target.value as typeof expiryFilter)}
+                  className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="all">Any expiry</option>
+                  <option value="expired">Expired</option>
+                  <option value="urgent">Expiring within 30 days</option>
+                  <option value="warning">Expiring within 90 days</option>
+                  <option value="not_expired">Not expired</option>
+                </select>
+                <select
+                  value={stockFilter}
+                  onChange={(e) => setStockFilter(e.target.value as typeof stockFilter)}
+                  className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="all">Any stock level</option>
+                  <option value="stockout">Stockout</option>
+                  <option value="lastUnit">Only 1 left</option>
+                  <option value="low">Below reorder point</option>
+                  <option value="not_stockout">Not stockout</option>
+                </select>
+                {activeFilterCount > 0 && (
+                  <button
+                    onClick={() => {
+                      setCategoryFilter("all");
+                      setExpiryFilter("all");
+                      setStockFilter("all");
+                    }}
+                    className="text-left text-xs text-zinc-400 hover:text-zinc-600 hover:underline"
+                  >
+                    Clear all filters
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {totalAlertCount > 0 && (
+        <div className="mb-1 flex justify-end">
+          <button
+            onClick={() => setAlertsHidden((v) => !v)}
+            className="text-xs font-medium text-zinc-500 hover:text-zinc-700 hover:underline"
+          >
+            {alertsHidden ? `Show alerts (${totalAlertCount})` : "Hide alerts"}
+          </button>
+        </div>
+      )}
+
+      {!alertsHidden && expiredProducts.length + urgentProducts.length + warningProducts.length > 0 && (
+        <div className="mb-4 flex flex-col gap-2 rounded-lg border border-zinc-200 px-3 py-2 sm:flex-row sm:items-center">
+          <span className="text-xs font-medium text-zinc-500">Expiry:</span>
+          <div className="flex flex-wrap gap-2">
+            {expiredProducts.length > 0 && (
+              <AlertFilterButton
+                count={expiredProducts.length}
+                label="expired"
+                severity="high"
+                active={expiryFilter === "expired"}
+                onClick={() => setExpiryFilter((prev) => (prev === "expired" ? "all" : "expired"))}
+              />
+            )}
+            {urgentProducts.length > 0 && (
+              <AlertFilterButton
+                count={urgentProducts.length}
+                label="expiring within 30 days"
+                severity="medium"
+                active={expiryFilter === "urgent"}
+                onClick={() => setExpiryFilter((prev) => (prev === "urgent" ? "all" : "urgent"))}
+              />
+            )}
+            {warningProducts.length > 0 && (
+              <AlertFilterButton
+                count={warningProducts.length}
+                label="expiring within 90 days"
+                severity="low"
+                active={expiryFilter === "warning"}
+                onClick={() => setExpiryFilter((prev) => (prev === "warning" ? "all" : "warning"))}
+              />
+            )}
+            {expiryFilter !== "all" && (
+              <button
+                onClick={() => setExpiryFilter("all")}
+                className="text-xs text-zinc-400 hover:text-zinc-600 hover:underline"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!alertsHidden && stockoutProducts.length + lastUnitProducts.length + lowStockProducts.length > 0 && (
+        <div className="mb-4 flex flex-col gap-2 rounded-lg border border-zinc-200 px-3 py-2 sm:flex-row sm:items-center">
+          <span className="text-xs font-medium text-zinc-500">Stock:</span>
+          <div className="flex flex-wrap gap-2">
+            {stockoutProducts.length > 0 && (
+              <AlertFilterButton
+                count={stockoutProducts.length}
+                label="stockout"
+                severity="high"
+                active={stockFilter === "stockout"}
+                onClick={() => setStockFilter((prev) => (prev === "stockout" ? "all" : "stockout"))}
+              />
+            )}
+            {lastUnitProducts.length > 0 && (
+              <AlertFilterButton
+                count={lastUnitProducts.length}
+                label={`item${lastUnitProducts.length === 1 ? "" : "s"} with only 1 left`}
+                severity="medium"
+                active={stockFilter === "lastUnit"}
+                onClick={() => setStockFilter((prev) => (prev === "lastUnit" ? "all" : "lastUnit"))}
+              />
+            )}
+            {lowStockProducts.length > 0 && (
+              <AlertFilterButton
+                count={lowStockProducts.length}
+                label="below reorder point"
+                severity="low"
+                active={stockFilter === "low"}
+                onClick={() => setStockFilter((prev) => (prev === "low" ? "all" : "low"))}
+              />
+            )}
+            {stockFilter !== "all" && (
+              <button
+                onClick={() => setStockFilter("all")}
+                className="text-xs text-zinc-400 hover:text-zinc-600 hover:underline"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
@@ -139,31 +369,42 @@ export default function StoreDashboardClient({
               <th className="px-3 py-2">Size</th>
               <th className="px-3 py-2">Category</th>
               <th className="px-3 py-2">Stock</th>
+              <th className="px-3 py-2">Expiry</th>
             </tr>
           </thead>
           <tbody>
-            {products.map((product) => (
-              <tr key={product._id} className="border-b border-zinc-100 last:border-0">
-                <td className="px-3 py-2 font-medium text-zinc-900">
-                  <Link
-                    href={`/store/products/${product._id}/batches?storeId=${storeId}`}
-                    className="text-teal-700 hover:underline"
-                  >
-                    {product.itemName}
-                  </Link>
-                </td>
-                <td className="px-3 py-2 text-zinc-600">{product.brand}</td>
-                <td className="px-3 py-2 text-zinc-600">{product.size}</td>
-                <td className="px-3 py-2 text-zinc-600">{product.category}</td>
-                <td className="px-3 py-2 text-zinc-600">
-                  {describeStock(product.quantityInStock, product.displayUnitHierarchy, product.baseUnitName)}
-                </td>
-              </tr>
-            ))}
-            {products.length === 0 && (
+            {visibleProducts.map((product) => {
+              const expiryStatus = getExpiryStatus(product.soonestExpiryDate);
+              return (
+                <tr
+                  key={product._id}
+                  className={`border-b border-zinc-100 last:border-0 ${EXPIRY_ROW_CLASS[expiryStatus.level]}`}
+                >
+                  <td className="px-3 py-2 font-medium text-zinc-900">
+                    <Link
+                      href={`/store/products/${product._id}/batches?storeId=${storeId}`}
+                      className="text-teal-700 hover:underline"
+                    >
+                      {product.itemName}
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2 text-zinc-600">{product.brand}</td>
+                  <td className="px-3 py-2 text-zinc-600">{product.size}</td>
+                  <td className="px-3 py-2 text-zinc-600">{product.category}</td>
+                  <td className="px-3 py-2 text-zinc-600">
+                    {describeStock(product.quantityInStock, product.displayUnitHierarchy, product.baseUnitName)}
+                  </td>
+                  <td className={`px-3 py-2 ${EXPIRY_TEXT_CLASS[expiryStatus.level]}`}>
+                    {product.soonestExpiryDate ? product.soonestExpiryDate.slice(0, 10) : "—"}
+                    {expiryStatus.label && <div className="text-xs">{expiryStatus.label}</div>}
+                  </td>
+                </tr>
+              );
+            })}
+            {visibleProducts.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-zinc-500">
-                  No stock received yet.
+                <td colSpan={6} className="px-3 py-6 text-center text-zinc-500">
+                  {products.length === 0 ? "No stock received yet." : "No items match the current search/filters."}
                 </td>
               </tr>
             )}

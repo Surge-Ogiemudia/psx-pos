@@ -29,17 +29,34 @@ export async function GET(request: NextRequest) {
     // can display "X cartons" instead of a meaningless count of the base unit.
     const batches = await StoreBatch.find({ ...scope, storeProductId: { $in: storeProducts.map((p) => p._id) } })
       .sort({ receivedAt: -1 })
-      .select("storeProductId unitHierarchy")
+      .select("storeProductId unitHierarchy baseUnitQuantity remainingBaseUnitQuantity expiryDate")
       .lean();
     const hierarchyByProductId = new Map<string, (typeof batches)[number]["unitHierarchy"]>();
+    const lowStockThresholdByProductId = new Map<string, number>();
+    const soonestExpiryByProductId = new Map<string, Date>();
     for (const batch of batches) {
       const key = batch.storeProductId.toString();
-      if (!hierarchyByProductId.has(key)) hierarchyByProductId.set(key, batch.unitHierarchy);
+      // Batches are sorted newest-first, so the first time a product is seen here is its most
+      // recent batch — mirrors the Catalog's "20% of initial stock" reorder-point default, just
+      // re-anchored to the last restock since store items get restocked repeatedly, not once.
+      if (!hierarchyByProductId.has(key)) {
+        hierarchyByProductId.set(key, batch.unitHierarchy);
+        lowStockThresholdByProductId.set(
+          key,
+          batch.baseUnitQuantity > 0 ? Math.max(1, Math.round(batch.baseUnitQuantity * 0.2)) : 0
+        );
+      }
+      if (batch.remainingBaseUnitQuantity > 0 && batch.expiryDate) {
+        const existing = soonestExpiryByProductId.get(key);
+        if (!existing || batch.expiryDate < existing) soonestExpiryByProductId.set(key, batch.expiryDate);
+      }
     }
 
     const withHierarchy = storeProducts.map((p) => ({
       ...p,
       displayUnitHierarchy: hierarchyByProductId.get(p._id.toString()) ?? null,
+      lowStockThreshold: lowStockThresholdByProductId.get(p._id.toString()) ?? 0,
+      soonestExpiryDate: soonestExpiryByProductId.get(p._id.toString()) ?? null,
     }));
 
     return NextResponse.json({ storeProducts: withHierarchy });
