@@ -11,6 +11,7 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [emptyNotice, setEmptyNotice] = useState(false);
 
   const scopeParam = scope === "store" ? "storeId" : "branchId";
 
@@ -35,10 +36,17 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
   }, [scopeId]);
 
   // One click does the contextually right thing: check for pushes, and if there turn out to be
-  // any, open straight to the list — no separate "refresh" vs. "view" action to remember.
+  // any, open straight to the list — no separate "refresh" vs. "view" action to remember. If
+  // there's nothing, say so briefly instead of leaving the click looking like it did nothing.
   async function handleClick() {
     const result = await load();
     setExpanded(result.length > 0);
+    if (result.length === 0) {
+      setEmptyNotice(true);
+      setTimeout(() => setEmptyNotice(false), 2500);
+    } else {
+      setEmptyNotice(false);
+    }
   }
 
   function toggle(id: string) {
@@ -76,7 +84,7 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
       <button
         onClick={handleClick}
         disabled={refreshing}
-        title={`Push to this ${scope} — click to check`}
+        title={`Pull for this ${scope} — click to check for incoming pushes`}
         className="flex w-14 flex-col items-center gap-1 disabled:opacity-50"
       >
         <span
@@ -87,7 +95,7 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
             <path
               fillRule="evenodd"
-              d="M10 3a1 1 0 011 1v9.586l3.293-3.293a1 1 0 111.414 1.414l-5 5a1 1 0 01-1.414 0l-5-5a1 1 0 111.414-1.414L9 13.586V4a1 1 0 011-1z"
+              d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm1.23-3.723a.75.75 0 00.219-.53V2.929a.75.75 0 00-1.5 0V5.36l-.31-.31A7 7 0 003.239 8.188a.75.75 0 101.448.389A5.5 5.5 0 0113.89 6.11l.311.31h-2.432a.75.75 0 000 1.5h4.243a.75.75 0 00.53-.219z"
               clipRule="evenodd"
             />
           </svg>
@@ -97,8 +105,14 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
             </span>
           )}
         </span>
-        <span className="text-center text-[10px] font-medium text-zinc-600">Push</span>
+        <span className="text-center text-[10px] font-medium text-zinc-600">Pull</span>
       </button>
+
+      {emptyNotice && !hasPending && (
+        <div className="absolute right-0 top-full z-10 mt-2 w-48 rounded-lg border border-zinc-200 bg-white p-2 text-center text-xs text-zinc-600 shadow-lg">
+          No push to this {scope} for now.
+        </div>
+      )}
 
       {expanded && hasPending && (
         <div className="absolute right-0 top-full z-10 mt-2 w-80 rounded-lg border border-amber-300 bg-amber-50 p-3 text-left text-sm shadow-lg">
