@@ -441,6 +441,15 @@ export default function IntakeClient({
         <div className="mb-2 flex flex-col gap-2">
           {levels.map((level, i) => (
             <div key={i} className="flex items-center gap-2">
+              {i > 0 && (
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={level.unitsPerParent}
+                  onChange={(e) => updateLevel(i, { unitsPerParent: e.target.value })}
+                  className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                />
+              )}
               <input
                 value={level.unitName}
                 onChange={(e) => updateLevel(i, { unitName: e.target.value })}
@@ -450,13 +459,6 @@ export default function IntakeClient({
               {i > 0 && (
                 <>
                   <span className="text-xs text-zinc-500">per</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={level.unitsPerParent}
-                    onChange={(e) => updateLevel(i, { unitsPerParent: e.target.value })}
-                    className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm"
-                  />
                   <span className="text-xs text-zinc-500">{levels[i - 1].unitName || "unit"}</span>
                 </>
               )}
