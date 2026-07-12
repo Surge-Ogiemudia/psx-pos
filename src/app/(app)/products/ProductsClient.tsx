@@ -14,6 +14,7 @@ import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expi
 import { parseNumeric } from "@/lib/numberInput";
 import { parseCsv } from "@/lib/csv";
 import IncomingBanner from "@/components/IncomingBanner";
+import AlertFilterButton from "@/components/AlertFilterButton";
 
 const emptyForm = {
   itemName: "",
@@ -118,49 +119,6 @@ const BULK_TEMPLATE =
   "itemName,brand,size,category,quantityInStock,retailPrice,batchNumber,expiryDate,unitHierarchy\n" +
   "Ibuprofen,GSK,200mg,medicine,50,5.00,IBU-01,2027-01-31,carton:1>box:4>pack:10\n" +
   "Groundnut oil,Mamador,1L,non-medicine,20,3200,,";
-
-type AlertSeverity = "high" | "medium" | "low";
-
-const ALERT_SEVERITY_CLASS: Record<AlertSeverity, { rest: string; active: string }> = {
-  high: {
-    rest: "bg-red-100 text-red-800 hover:bg-red-200",
-    active: "bg-red-600 text-white hover:bg-red-700",
-  },
-  medium: {
-    rest: "bg-orange-100 text-orange-800 hover:bg-orange-200",
-    active: "bg-orange-600 text-white hover:bg-orange-700",
-  },
-  low: {
-    rest: "bg-amber-100 text-amber-800 hover:bg-amber-200",
-    active: "bg-amber-600 text-white hover:bg-amber-700",
-  },
-};
-
-// A solid-background button at rest (not just a border/hover state), so it reads as a real,
-// pressable control on sight — including on touch devices with no hover to reveal it.
-function AlertFilterButton({
-  count,
-  label,
-  severity,
-  active,
-  onClick,
-}: {
-  count: number;
-  label: string;
-  severity: AlertSeverity;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const palette = ALERT_SEVERITY_CLASS[severity];
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${active ? palette.active : palette.rest}`}
-    >
-      <span className="font-semibold">{count}</span> {label}
-    </button>
-  );
-}
 
 export default function ProductsClient({
   isAdmin,
