@@ -480,7 +480,9 @@ export default function IntakeClient({
           + Add smaller unit
         </button>
 
-        <label className="mb-1 block text-sm font-medium text-zinc-700">Received form</label>
+        <label className="mb-1 block text-sm font-medium text-zinc-700">
+          Received form <span className="font-normal text-zinc-500">(which form is this item coming in as?)</span>
+        </label>
         <select
           value={receivedForm}
           onChange={(e) => setReceivedForm(e.target.value)}
