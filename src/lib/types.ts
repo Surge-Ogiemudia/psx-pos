@@ -13,6 +13,7 @@ export interface ProductJSON {
   size: string;
   category: ProductCategory;
   quantityInStock: number;
+  alertQuantity: number;
   unitHierarchy?: UnitLevelJSON[] | null;
   retailPrice: number;
   wholesalePrice: number;

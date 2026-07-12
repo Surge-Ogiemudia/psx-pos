@@ -209,6 +209,8 @@ async function analyzeRows(rows: BulkRow[], scope: Record<string, unknown>) {
       size,
       category,
       quantityInStock,
+      // Same ~20%-of-initial-stock default as the single-item add flow (see products/route.ts).
+      alertQuantity: quantityInStock > 0 ? Math.max(1, Math.round(quantityInStock * 0.2)) : 0,
       retailPrice: storedRetail,
       wholesalePrice: storedWholesale,
       distributorPrice: storedDistributor,
