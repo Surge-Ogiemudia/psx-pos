@@ -14,22 +14,32 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
 
   const scopeParam = scope === "store" ? "storeId" : "branchId";
 
-  async function load() {
-    if (!scopeId) return;
+  async function load(): Promise<StoreTransferJSON[]> {
+    if (!scopeId) return [];
     setRefreshing(true);
+    let result: StoreTransferJSON[] = [];
     const res = await fetch(`/api/store-transfers/pending?${scopeParam}=${scopeId}`);
     if (res.ok) {
       const data = await res.json();
-      setTransfers(data.transfers || []);
+      result = data.transfers || [];
+      setTransfers(result);
       setSelected(new Set());
     }
     setRefreshing(false);
+    return result;
   }
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeId]);
+
+  // One click does the contextually right thing: check for pushes, and if there turn out to be
+  // any, open straight to the list — no separate "refresh" vs. "view" action to remember.
+  async function handleClick() {
+    const result = await load();
+    setExpanded(result.length > 0);
+  }
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -62,25 +72,36 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
   const hasPending = transfers.length > 0;
 
   return (
-    <div className="relative flex items-center gap-1.5 text-xs text-zinc-500">
+    <div className="relative">
       <button
-        onClick={() => hasPending && setExpanded((v) => !v)}
-        disabled={!hasPending}
-        className={hasPending ? "hover:text-zinc-700" : "cursor-default"}
-      >
-        {transfers.length} push{transfers.length === 1 ? "" : "es"} pending
-      </button>
-      <button
-        onClick={load}
+        onClick={handleClick}
         disabled={refreshing}
-        title="Check for new pushes"
-        className="text-zinc-400 hover:text-zinc-700 disabled:opacity-50"
+        title={`Push to this ${scope} — click to check`}
+        className="flex w-14 flex-col items-center gap-1 disabled:opacity-50"
       >
-        ↻
+        <span
+          className={`relative flex h-9 w-9 items-center justify-center rounded-md ${
+            hasPending ? "bg-amber-500 text-white" : "bg-zinc-100 text-zinc-500"
+          }`}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+            <path
+              fillRule="evenodd"
+              d="M10 3a1 1 0 011 1v9.586l3.293-3.293a1 1 0 111.414 1.414l-5 5a1 1 0 01-1.414 0l-5-5a1 1 0 111.414-1.414L9 13.586V4a1 1 0 011-1z"
+              clipRule="evenodd"
+            />
+          </svg>
+          {hasPending && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white">
+              {transfers.length}
+            </span>
+          )}
+        </span>
+        <span className="text-center text-[10px] font-medium text-zinc-600">Push</span>
       </button>
 
       {expanded && hasPending && (
-        <div className="absolute right-0 top-full z-10 mt-2 w-80 rounded-lg border border-amber-300 bg-amber-50 p-3 text-left shadow-lg">
+        <div className="absolute right-0 top-full z-10 mt-2 w-80 rounded-lg border border-amber-300 bg-amber-50 p-3 text-left text-sm shadow-lg">
           <div className="flex flex-col gap-2">
             {transfers.map((t) => (
               <label

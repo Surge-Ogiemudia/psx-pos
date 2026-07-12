@@ -9,7 +9,7 @@ import { formatProductLabel } from "@/lib/types";
 import { productsToCsv } from "@/lib/csv";
 import { handleApiError } from "@/lib/apiError";
 
-const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice"]);
+const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice", "alertQuantity"]);
 
 export async function PATCH(
   request: NextRequest,
@@ -30,6 +30,7 @@ export async function PATCH(
       "size",
       "category",
       "unitHierarchy",
+      "alertQuantity",
       "retailPrice",
       "wholesalePrice",
       "distributorPrice",

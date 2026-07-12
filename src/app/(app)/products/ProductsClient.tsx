@@ -21,6 +21,7 @@ const emptyForm = {
   size: "",
   category: "supermarket" as ProductCategory,
   quantityInStock: "",
+  alertQuantity: "",
   retailPrice: "",
   wholesalePrice: "",
   distributorPrice: "",
@@ -118,6 +119,48 @@ const BULK_TEMPLATE =
   "Ibuprofen,GSK,200mg,medicine,50,5.00,IBU-01,2027-01-31,carton:1>box:4>pack:10\n" +
   "Groundnut oil,Mamador,1L,non-medicine,20,3200,,";
 
+type AlertSeverity = "high" | "medium" | "low";
+
+const ALERT_SEVERITY_CLASS: Record<AlertSeverity, { rest: string; active: string }> = {
+  high: {
+    rest: "bg-red-100 text-red-800 hover:bg-red-200",
+    active: "bg-red-600 text-white hover:bg-red-700",
+  },
+  medium: {
+    rest: "bg-orange-100 text-orange-800 hover:bg-orange-200",
+    active: "bg-orange-600 text-white hover:bg-orange-700",
+  },
+  low: {
+    rest: "bg-amber-100 text-amber-800 hover:bg-amber-200",
+    active: "bg-amber-600 text-white hover:bg-amber-700",
+  },
+};
+
+// A solid-background button at rest (not just a border/hover state), so it reads as a real,
+// pressable control on sight — including on touch devices with no hover to reveal it.
+function AlertFilterButton({
+  count,
+  label,
+  severity,
+  active,
+  onClick,
+}: {
+  count: number;
+  label: string;
+  severity: AlertSeverity;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const palette = ALERT_SEVERITY_CLASS[severity];
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${active ? palette.active : palette.rest}`}
+    >
+      <span className="font-semibold">{count}</span> {label}
+    </button>
+  );
+}
 
 export default function ProductsClient({
   isAdmin,
@@ -128,6 +171,18 @@ export default function ProductsClient({
 }) {
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
+  const [expiryFilter, setExpiryFilter] = useState<"all" | "expired" | "urgent" | "warning" | "not_expired">(
+    "all"
+  );
+  const [stockFilter, setStockFilter] = useState<"all" | "stockout" | "lastUnit" | "low" | "not_stockout">(
+    "all"
+  );
+  const [categoryFilter, setCategoryFilter] = useState<ProductCategory | "all">("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Resets on reload/revisit — a dismissed banner shouldn't stay hidden forever and risk
+  // masking a brand-new alert next time something goes wrong.
+  const [alertsHidden, setAlertsHidden] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -137,6 +192,11 @@ export default function ProductsClient({
   const [adjustReason, setAdjustReason] = useState("");
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const [adjustSubmitting, setAdjustSubmitting] = useState(false);
+  const [adjustingAlertProduct, setAdjustingAlertProduct] = useState<ProductJSON | null>(null);
+  const [adjustAlertQuantity, setAdjustAlertQuantity] = useState("");
+  const [adjustAlertError, setAdjustAlertError] = useState<string | null>(null);
+  const [adjustAlertSubmitting, setAdjustAlertSubmitting] = useState(false);
+  const [actionsMenuOpenId, setActionsMenuOpenId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
@@ -638,6 +698,39 @@ export default function ProductsClient({
     }
   }
 
+  function openAdjustAlertQty(product: ProductJSON) {
+    setAdjustingAlertProduct(product);
+    setAdjustAlertQuantity(String(product.alertQuantity));
+    setAdjustAlertError(null);
+  }
+
+  async function submitAdjustAlertQty() {
+    if (!adjustingAlertProduct) return;
+    setAdjustAlertError(null);
+    const newAlertQuantity = parseNumeric(adjustAlertQuantity);
+    if (!Number.isFinite(newAlertQuantity) || newAlertQuantity < 0) {
+      setAdjustAlertError("Enter a non-negative number.");
+      return;
+    }
+    setAdjustAlertSubmitting(true);
+    try {
+      const res = await fetch(`/api/products/${adjustingAlertProduct._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alertQuantity: newAlertQuantity, branchId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAdjustAlertError(data.error || "Failed to update alert quantity");
+        return;
+      }
+      setAdjustingAlertProduct(null);
+      loadProducts();
+    } finally {
+      setAdjustAlertSubmitting(false);
+    }
+  }
+
   async function deleteProduct(id: string) {
     if (!confirm("Delete this product?")) return;
     const params = branchId ? `?branchId=${branchId}` : "";
@@ -840,34 +933,107 @@ export default function ProductsClient({
     }
   }
 
+  const visibleProducts = products.filter((p) => {
+    if (categoryFilter !== "all" && p.category !== categoryFilter) return false;
+    if (expiryFilter !== "all") {
+      const level = getExpiryStatus(p.expiryDate).level;
+      if (expiryFilter === "not_expired" ? level === "expired" : level !== expiryFilter) return false;
+    }
+    if (stockFilter !== "all") {
+      if (stockFilter === "not_stockout" && p.quantityInStock <= 0) return false;
+      if (stockFilter === "stockout" && p.quantityInStock > 0) return false;
+      if (stockFilter === "lastUnit" && p.quantityInStock !== 1) return false;
+      if (stockFilter === "low" && !(p.quantityInStock > 1 && p.quantityInStock <= p.alertQuantity)) return false;
+    }
+    return true;
+  });
+
+  const activeFilterCount =
+    (categoryFilter !== "all" ? 1 : 0) + (expiryFilter !== "all" ? 1 : 0) + (stockFilter !== "all" ? 1 : 0);
+
+  const expiredProducts = products.filter((p) => getExpiryStatus(p.expiryDate).level === "expired");
+  const urgentProducts = products.filter((p) => getExpiryStatus(p.expiryDate).level === "urgent");
+  const warningProducts = products.filter((p) => getExpiryStatus(p.expiryDate).level === "warning");
+  const stockoutProducts = products.filter((p) => p.quantityInStock <= 0);
+  // Last unit is always worth flagging regardless of the product's own alert threshold — e.g.
+  // anything that started at 0 stock defaults to a 0 threshold and would otherwise never get
+  // caught until it's a full stockout.
+  const lastUnitProducts = products.filter((p) => p.quantityInStock === 1);
+  const lowStockProducts = products.filter(
+    (p) => p.quantityInStock > 1 && p.quantityInStock <= p.alertQuantity
+  );
+  const totalAlertCount =
+    expiredProducts.length +
+    urgentProducts.length +
+    warningProducts.length +
+    stockoutProducts.length +
+    lastUnitProducts.length +
+    lowStockProducts.length;
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-zinc-900">Product catalog</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-0">
           <IncomingBanner scope="branch" scopeId={branchId} />
           {isAdmin && (
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setShowForm((v) => !v);
-                  setBulkMode(false);
-                  setApprovingRequestId(null);
-                  setForm(emptyForm);
-                }}
-                className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
-              >
-                {showForm ? "Cancel" : "Add product"}
-              </button>
-              <button
-                onClick={() => {
-                  setBulkMode((v) => !v);
-                  setShowForm(false);
-                }}
-                className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
-              >
-                {bulkMode ? "Cancel" : "Bulk add"}
-              </button>
+            <div className="relative">
+              {showForm || bulkMode ? (
+                <button
+                  onClick={() => {
+                    setShowForm(false);
+                    setBulkMode(false);
+                    setApprovingRequestId(null);
+                  }}
+                  className="flex w-14 flex-col items-center gap-1"
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-zinc-200 text-zinc-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                      <path
+                        fillRule="evenodd"
+                        d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </span>
+                  <span className="text-center text-[10px] font-medium text-zinc-600">Cancel</span>
+                </button>
+              ) : (
+                <button onClick={() => setAddMenuOpen((v) => !v)} className="flex w-14 flex-col items-center gap-1">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-teal-700 text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                      <path d="M10 4a1 1 0 011 1v4h4a1 1 0 110 2h-4v4a1 1 0 11-2 0v-4H5a1 1 0 110-2h4V5a1 1 0 011-1z" />
+                    </svg>
+                  </span>
+                  <span className="text-center text-[10px] font-medium text-zinc-600">Add</span>
+                </button>
+              )}
+              {addMenuOpen && (
+                <div className="absolute right-0 top-full z-10 mt-1 w-40 rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg">
+                  <button
+                    onClick={() => {
+                      setShowForm(true);
+                      setBulkMode(false);
+                      setApprovingRequestId(null);
+                      setForm(emptyForm);
+                      setAddMenuOpen(false);
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Single item
+                  </button>
+                  <button
+                    onClick={() => {
+                      setBulkMode(true);
+                      setShowForm(false);
+                      setAddMenuOpen(false);
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Bulk import
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -954,29 +1120,182 @@ export default function ProductsClient({
         </div>
       )}
 
-      <input
-        type="text"
-        placeholder="Search products..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="mb-4 w-full max-w-md rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
-      />
-
-      {(() => {
-        const expired = products.filter((p) => getExpiryStatus(p.expiryDate).level === "expired");
-        const urgent = products.filter((p) => getExpiryStatus(p.expiryDate).level === "urgent");
-        const warning = products.filter((p) => getExpiryStatus(p.expiryDate).level === "warning");
-        if (expired.length === 0 && urgent.length === 0 && warning.length === 0) return null;
-        return (
-          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            {expired.length > 0 && <span className="mr-3 font-semibold text-red-700">{expired.length} expired</span>}
-            {urgent.length > 0 && (
-              <span className="mr-3 font-semibold text-orange-700">{urgent.length} expiring within 30 days</span>
+      <div className="mb-4 flex items-center gap-2">
+        <input
+          type="text"
+          placeholder="Search products..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+        />
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setFiltersOpen((v) => !v)}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path
+                fillRule="evenodd"
+                d="M2.628 1.601C5.028 1.206 7.49 1 10 1s4.973.206 7.372.601a.75.75 0 01.628.74v2.288a2.25 2.25 0 01-.659 1.59l-4.682 4.683a2.25 2.25 0 00-.659 1.59v3.037c0 .684-.31 1.33-.844 1.757l-1.937 1.55A.75.75 0 018 18.25v-6.757a2.25 2.25 0 00-.659-1.591L2.659 5.22A2.25 2.25 0 012 3.629V1.34a.75.75 0 01.628-.74z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-teal-700 px-1 text-[10px] font-semibold text-white">
+                {activeFilterCount}
+              </span>
             )}
-            {warning.length > 0 && <span>{warning.length} expiring within 90 days</span>}
+          </button>
+          {filtersOpen && (
+            <div className="absolute right-0 top-full z-10 mt-1 w-64 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg">
+              <div className="flex flex-col gap-2">
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value as ProductCategory | "all")}
+                  className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="all">All categories</option>
+                  <option value="medicine">Medicine</option>
+                  <option value="non-medicine">Non-medicine</option>
+                  <option value="supermarket">Supermarket</option>
+                </select>
+                <select
+                  value={expiryFilter}
+                  onChange={(e) => setExpiryFilter(e.target.value as typeof expiryFilter)}
+                  className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="all">Any expiry</option>
+                  <option value="expired">Expired</option>
+                  <option value="urgent">Expiring within 30 days</option>
+                  <option value="warning">Expiring within 90 days</option>
+                  <option value="not_expired">Not expired</option>
+                </select>
+                <select
+                  value={stockFilter}
+                  onChange={(e) => setStockFilter(e.target.value as typeof stockFilter)}
+                  className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="all">Any stock level</option>
+                  <option value="stockout">Stockout</option>
+                  <option value="lastUnit">Only 1 left</option>
+                  <option value="low">Below alert threshold</option>
+                  <option value="not_stockout">Not stockout</option>
+                </select>
+                {activeFilterCount > 0 && (
+                  <button
+                    onClick={() => {
+                      setCategoryFilter("all");
+                      setExpiryFilter("all");
+                      setStockFilter("all");
+                    }}
+                    className="text-left text-xs text-zinc-400 hover:text-zinc-600 hover:underline"
+                  >
+                    Clear all filters
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {totalAlertCount > 0 && (
+        <div className="mb-1 flex justify-end">
+          <button
+            onClick={() => setAlertsHidden((v) => !v)}
+            className="text-xs font-medium text-zinc-500 hover:text-zinc-700 hover:underline"
+          >
+            {alertsHidden ? `Show alerts (${totalAlertCount})` : "Hide alerts"}
+          </button>
+        </div>
+      )}
+
+      {!alertsHidden && expiredProducts.length + urgentProducts.length + warningProducts.length > 0 && (
+        <div className="mb-4 flex flex-col gap-2 rounded-lg border border-zinc-200 px-3 py-2 sm:flex-row sm:items-center">
+          <span className="text-xs font-medium text-zinc-500">Expiry:</span>
+          <div className="flex flex-wrap gap-2">
+            {expiredProducts.length > 0 && (
+              <AlertFilterButton
+                count={expiredProducts.length}
+                label="expired"
+                severity="high"
+                active={expiryFilter === "expired"}
+                onClick={() => setExpiryFilter((prev) => (prev === "expired" ? "all" : "expired"))}
+              />
+            )}
+            {urgentProducts.length > 0 && (
+              <AlertFilterButton
+                count={urgentProducts.length}
+                label="expiring within 30 days"
+                severity="medium"
+                active={expiryFilter === "urgent"}
+                onClick={() => setExpiryFilter((prev) => (prev === "urgent" ? "all" : "urgent"))}
+              />
+            )}
+            {warningProducts.length > 0 && (
+              <AlertFilterButton
+                count={warningProducts.length}
+                label="expiring within 90 days"
+                severity="low"
+                active={expiryFilter === "warning"}
+                onClick={() => setExpiryFilter((prev) => (prev === "warning" ? "all" : "warning"))}
+              />
+            )}
+            {expiryFilter !== "all" && (
+              <button
+                onClick={() => setExpiryFilter("all")}
+                className="text-xs text-zinc-400 hover:text-zinc-600 hover:underline"
+              >
+                Clear
+              </button>
+            )}
           </div>
-        );
-      })()}
+        </div>
+      )}
+
+      {!alertsHidden && stockoutProducts.length + lastUnitProducts.length + lowStockProducts.length > 0 && (
+        <div className="mb-4 flex flex-col gap-2 rounded-lg border border-zinc-200 px-3 py-2 sm:flex-row sm:items-center">
+          <span className="text-xs font-medium text-zinc-500">Stock:</span>
+          <div className="flex flex-wrap gap-2">
+            {stockoutProducts.length > 0 && (
+              <AlertFilterButton
+                count={stockoutProducts.length}
+                label="stockout"
+                severity="high"
+                active={stockFilter === "stockout"}
+                onClick={() => setStockFilter((prev) => (prev === "stockout" ? "all" : "stockout"))}
+              />
+            )}
+            {lastUnitProducts.length > 0 && (
+              <AlertFilterButton
+                count={lastUnitProducts.length}
+                label={`item${lastUnitProducts.length === 1 ? "" : "s"} with only 1 left`}
+                severity="medium"
+                active={stockFilter === "lastUnit"}
+                onClick={() => setStockFilter((prev) => (prev === "lastUnit" ? "all" : "lastUnit"))}
+              />
+            )}
+            {lowStockProducts.length > 0 && (
+              <AlertFilterButton
+                count={lowStockProducts.length}
+                label="below alert threshold"
+                severity="low"
+                active={stockFilter === "low"}
+                onClick={() => setStockFilter((prev) => (prev === "low" ? "all" : "low"))}
+              />
+            )}
+            {stockFilter !== "all" && (
+              <button
+                onClick={() => setStockFilter("all")}
+                className="text-xs text-zinc-400 hover:text-zinc-600 hover:underline"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
@@ -1072,6 +1391,14 @@ export default function ProductsClient({
             placeholder="Stock qty"
             value={form.quantityInStock}
             onChange={(e) => setForm({ ...form, quantityInStock: e.target.value })}
+            className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Alert quantity (optional — defaults to 20% of stock)"
+            value={form.alertQuantity}
+            onChange={(e) => setForm({ ...form, alertQuantity: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
           <input
@@ -1494,7 +1821,7 @@ export default function ProductsClient({
             </tr>
           </thead>
           <tbody>
-            {products.map((product) => {
+            {visibleProducts.map((product) => {
               const editing = editingId === product._id;
               const expiryStatus = getExpiryStatus(product.expiryDate);
               return (
@@ -1673,25 +2000,63 @@ export default function ProductsClient({
                         {expiryStatus.label && <div className="text-xs">{expiryStatus.label}</div>}
                       </td>
                       {isAdmin && (
-                        <td className="flex flex-wrap gap-2 px-3 py-2">
-                          <Link
-                            href={`/products/${product._id}/batches${branchId ? `?branchId=${branchId}` : ""}`}
-                            className="text-zinc-600 hover:underline"
-                          >
-                            Batches
-                          </Link>
-                          <button onClick={() => startEdit(product)} className="text-teal-700 hover:underline">
-                            Edit
-                          </button>
-                          <button onClick={() => openAdjustStock(product)} className="text-teal-700 hover:underline">
-                            Adjust stock
-                          </button>
+                        <td className="relative px-3 py-2">
                           <button
-                            onClick={() => deleteProduct(product._id)}
-                            className="text-red-600 hover:underline"
+                            onClick={() =>
+                              setActionsMenuOpenId(actionsMenuOpenId === product._id ? null : product._id)
+                            }
+                            className="flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
                           >
-                            Delete
+                            Select
+                            <span aria-hidden>▾</span>
                           </button>
+                          {actionsMenuOpenId === product._id && (
+                            <div className="absolute right-0 top-full z-10 mt-1 w-44 rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg">
+                              <Link
+                                href={`/products/${product._id}/batches${branchId ? `?branchId=${branchId}` : ""}`}
+                                onClick={() => setActionsMenuOpenId(null)}
+                                className="block px-3 py-1.5 text-zinc-600 hover:bg-zinc-50"
+                              >
+                                Batches
+                              </Link>
+                              <button
+                                onClick={() => {
+                                  startEdit(product);
+                                  setActionsMenuOpenId(null);
+                                }}
+                                className="block w-full px-3 py-1.5 text-left text-teal-700 hover:bg-zinc-50"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => {
+                                  openAdjustStock(product);
+                                  setActionsMenuOpenId(null);
+                                }}
+                                className="block w-full px-3 py-1.5 text-left text-teal-700 hover:bg-zinc-50"
+                              >
+                                Adjust stock
+                              </button>
+                              <button
+                                onClick={() => {
+                                  openAdjustAlertQty(product);
+                                  setActionsMenuOpenId(null);
+                                }}
+                                className="block w-full px-3 py-1.5 text-left text-teal-700 hover:bg-zinc-50"
+                              >
+                                Adjust alert qty
+                              </button>
+                              <button
+                                onClick={() => {
+                                  deleteProduct(product._id);
+                                  setActionsMenuOpenId(null);
+                                }}
+                                className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-zinc-50"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
                         </td>
                       )}
                     </>
@@ -1699,7 +2064,7 @@ export default function ProductsClient({
                 </tr>
               );
             })}
-            {products.length === 0 && (
+            {visibleProducts.length === 0 && (
               <tr>
                 <td colSpan={isAdmin ? 12 : 9} className="px-3 py-6 text-center text-zinc-500">
                   No products found.
@@ -1953,6 +2318,45 @@ export default function ProductsClient({
               </button>
               <button
                 onClick={() => setAdjustingProduct(null)}
+                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {adjustingAlertProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-lg">
+            <h2 className="mb-1 text-base font-semibold text-zinc-900">Adjust alert quantity</h2>
+            <p className="mb-4 text-sm text-zinc-600">{formatProductLabel(adjustingAlertProduct)}</p>
+
+            <label className="mb-1 block text-sm font-medium text-zinc-700">
+              Current stock: {adjustingAlertProduct.quantityInStock} — alert when at or below
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={adjustAlertQuantity}
+              onChange={(e) => setAdjustAlertQuantity(e.target.value)}
+              className="mb-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              autoFocus
+            />
+
+            {adjustAlertError && <p className="mb-3 text-sm text-red-600">{adjustAlertError}</p>}
+
+            <div className="flex gap-2">
+              <button
+                onClick={submitAdjustAlertQty}
+                disabled={adjustAlertSubmitting}
+                className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+              >
+                {adjustAlertSubmitting ? "Saving..." : "Save"}
+              </button>
+              <button
+                onClick={() => setAdjustingAlertProduct(null)}
                 className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
               >
                 Cancel

@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
       size,
       category,
       quantityInStock,
+      alertQuantity,
       retailPrice,
       wholesalePrice,
       distributorPrice,
@@ -134,6 +135,14 @@ export async function POST(request: NextRequest) {
     const initialQuantity = missing(quantityInStock) ? 0 : parseNumeric(quantityInStock);
     const initialBatchNumber = batchNumber || "";
     const initialExpiryDate = expiryDate ? new Date(expiryDate) : null;
+    // Defaults to ~20% of initial stock (floor of 1 once there's any stock at all) so a
+    // reorder-point alert works without every product needing manual configuration — still
+    // overridable per-product via the request body.
+    const initialAlertQuantity = missing(alertQuantity)
+      ? initialQuantity > 0
+        ? Math.max(1, Math.round(initialQuantity * 0.2))
+        : 0
+      : Math.max(0, parseNumeric(alertQuantity) || 0);
 
     const dbSession = await mongoose.startSession();
     let product;
@@ -148,6 +157,7 @@ export async function POST(request: NextRequest) {
               size: trimmed(size),
               category,
               quantityInStock: initialQuantity,
+              alertQuantity: initialAlertQuantity,
               retailPrice: retail,
               wholesalePrice: missing(wholesalePrice) ? retail : parseNumeric(wholesalePrice),
               distributorPrice: missing(distributorPrice) ? retail : parseNumeric(distributorPrice),

@@ -22,6 +22,10 @@ const ProductSchema = new Schema(
     size: { type: String, required: true, trim: true, minlength: 1 },
     category: { type: String, enum: ["medicine", "non-medicine", "supermarket"], required: true, default: "supermarket" },
     quantityInStock: { type: Number, required: true, default: 0, min: 0 },
+    // Defaults to ~20% of initial stock at creation (see products/route.ts) so a reorder-point
+    // alert works out of the box without every product needing manual configuration — still
+    // editable per-product for anyone who wants to be precise about a specific item.
+    alertQuantity: { type: Number, required: true, default: 0, min: 0 },
     // Always in the smallest (base) unit — e.g. sachets. If set, unitHierarchy[0] is the
     // largest form (e.g. carton) down to the base unit, letting POS sell in any form.
     unitHierarchy: { type: [UnitLevelSchema], default: undefined },
