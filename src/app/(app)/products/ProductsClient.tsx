@@ -15,6 +15,7 @@ import { parseNumeric } from "@/lib/numberInput";
 import { parseCsv } from "@/lib/csv";
 import IncomingBanner from "@/components/IncomingBanner";
 import AlertFilterButton from "@/components/AlertFilterButton";
+import UnitNameInput from "@/components/UnitNameInput";
 
 const emptyForm = {
   itemName: "",
@@ -175,6 +176,13 @@ export default function ProductsClient({
   const [bulkFileName, setBulkFileName] = useState("");
   const [importBatches, setImportBatches] = useState<ImportBatchJSON[]>([]);
   const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
+  const [unitNameSuggestions, setUnitNameSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch("/api/unit-names")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data && setUnitNameSuggestions(data.unitNames || []));
+  }, []);
 
   // Collapsed by default — import batches, the deletion log, and the delete-all danger zone
   // are all housekeeping/destructive tools, kept out of the way of day-to-day catalog use.
@@ -233,7 +241,14 @@ export default function ProductsClient({
   const [requestError, setRequestError] = useState<string | null>(null);
 
   function addLevel() {
-    setLevels((prev) => [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]);
+    // Insert before the last level, since the last level is always the base unit — but with
+    // only one level, "before the last" and "before the first" are the same slot, which would
+    // shove whatever's already typed there down into the base-unit spot. Append instead.
+    setLevels((prev) =>
+      prev.length <= 1
+        ? [...prev, { unitName: "", unitsPerParent: "1" }]
+        : [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]
+    );
   }
 
   function removeLevel(index: number) {
@@ -246,7 +261,11 @@ export default function ProductsClient({
   }
 
   function addEditLevel() {
-    setEditLevels((prev) => [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]);
+    setEditLevels((prev) =>
+      prev.length <= 1
+        ? [...prev, { unitName: "", unitsPerParent: "1" }]
+        : [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]
+    );
   }
 
   function removeEditLevel(index: number) {
@@ -1431,12 +1450,15 @@ export default function ProductsClient({
                           className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm"
                         />
                       )}
-                      <input
-                        value={level.unitName}
-                        onChange={(e) => updateLevel(i, { unitName: e.target.value })}
-                        placeholder={i === 0 ? "e.g. carton" : i === levels.length - 1 ? "e.g. piece" : "e.g. box"}
-                        className="flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm"
-                      />
+                      <div className="flex-1">
+                        <UnitNameInput
+                          value={level.unitName}
+                          onChange={(v) => updateLevel(i, { unitName: v })}
+                          suggestions={unitNameSuggestions}
+                          placeholder={i === 0 ? "e.g. carton" : i === levels.length - 1 ? "e.g. piece" : "e.g. box"}
+                          className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
                       {i > 0 && (
                         <>
                           <span className="text-xs text-zinc-500">per</span>
@@ -1840,12 +1862,15 @@ export default function ProductsClient({
                             <div className="mt-1 flex flex-col gap-1">
                               {editLevels.map((level, i) => (
                                 <div key={i} className="flex items-center gap-1">
-                                  <input
-                                    value={level.unitName}
-                                    onChange={(e) => updateEditLevel(i, { unitName: e.target.value })}
-                                    placeholder={i === 0 ? "e.g. carton" : "e.g. piece"}
-                                    className="w-20 rounded border border-zinc-300 px-1 py-0.5 text-xs"
-                                  />
+                                  <div className="w-20">
+                                    <UnitNameInput
+                                      value={level.unitName}
+                                      onChange={(v) => updateEditLevel(i, { unitName: v })}
+                                      suggestions={unitNameSuggestions}
+                                      placeholder={i === 0 ? "e.g. carton" : "e.g. piece"}
+                                      className="w-full rounded border border-zinc-300 px-1 py-0.5 text-xs"
+                                    />
+                                  </div>
                                   {i > 0 && (
                                     <>
                                       <span className="text-[10px] text-zinc-400">×</span>
