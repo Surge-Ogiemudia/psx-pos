@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { slugify } from "@/lib/slug";
+import { slugify, firstWordSlug } from "@/lib/slug";
 
 const emptyForm = {
   pharmacyName: "",
@@ -37,7 +37,7 @@ export default function OnboardFormClient() {
     setForm((prev) => ({
       ...prev,
       pharmacyName: value,
-      slug: prev.slugTouched ? prev.slug : slugify(value),
+      slug: prev.slugTouched ? prev.slug : firstWordSlug(value),
     }));
   }
 
