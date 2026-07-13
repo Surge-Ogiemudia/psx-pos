@@ -34,8 +34,8 @@ function usageAndExit(message) {
     --admin-name "Jane Doe" \\
     --admin-phone "+2348011112222" \\
     [--admin-password "..."]        (generated and printed if omitted)
-    [--slug "city-pharmacy"]         (subdomain, e.g. city-pharmacy.pos.psx.ng — derived from
-                                      --pharmacy if omitted)
+    [--slug "city"]                  (subdomain, e.g. city.pos.psx.ng — defaults to the first
+                                      word of --pharmacy if omitted)
     [--color "#1d4ed8"]              (brand color, hex)
     [--logo "https://.../logo.png"]  (logo URL)
     [--email "info@pharmacy.com"]
@@ -70,8 +70,15 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "");
 }
 
-const slug = typeof args.slug === "string" ? slugify(args.slug) : slugify(pharmacyName);
-if (!slug) usageAndExit("Could not derive a usable --slug from the pharmacy name — pass --slug explicitly");
+// Default slug source: just the pharmacy name's first word ("monak" out of "Monak Pharmacy"),
+// not the whole name — simpler and more predictable than trying to strip known suffix words.
+function firstWordSlug(name) {
+  return slugify(name.trim().split(/\s+/)[0] || "");
+}
+
+const slugExplicit = typeof args.slug === "string";
+const slugBase = slugExplicit ? slugify(args.slug) : firstWordSlug(pharmacyName);
+if (!slugBase) usageAndExit("Could not derive a usable --slug from the pharmacy name — pass --slug explicitly");
 
 const brandColor = typeof args.color === "string" ? args.color : "#0f766e";
 const logoUrl = typeof args.logo === "string" ? args.logo : "";
@@ -127,9 +134,20 @@ async function main() {
   if (existing) {
     throw new Error(`A user with phone number ${adminPhone} already exists (phone numbers must be globally unique).`);
   }
-  const existingSlug = await Pharmacy.findOne({ slug });
-  if (existingSlug) {
+  let slug = slugBase;
+  let existingSlug = await Pharmacy.findOne({ slug });
+  if (existingSlug && slugExplicit) {
     throw new Error(`Slug "${slug}" is already taken by "${existingSlug.pharmacyName}" — pass --slug with a different value.`);
+  }
+  if (existingSlug) {
+    // Auto-derived slug collided — quietly fall back to slug-2, slug-3, etc. An explicit --slug
+    // never falls back silently; it's a deliberate choice, so it hard-errors above instead.
+    let suffix = 2;
+    while (existingSlug) {
+      slug = `${slugBase}-${suffix++}`;
+      existingSlug = await Pharmacy.findOne({ slug });
+    }
+    console.log(`Note: slug "${slugBase}" was taken — using "${slug}" instead.`);
   }
 
   const pharmacy = await Pharmacy.create({
