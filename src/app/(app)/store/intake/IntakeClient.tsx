@@ -6,6 +6,7 @@ import { describeBreakdown, pluralize, type UnitLevel } from "@/lib/unitHierarch
 import { formatProductLabel, type ProductCategory, type SupplierJSON } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
 import BackButton from "@/components/BackButton";
+import UnitNameInput from "@/components/UnitNameInput";
 
 interface LevelForm {
   unitName: string;
@@ -63,6 +64,13 @@ export default function IntakeClient({
   const [expiryDate, setExpiryDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [unitNameSuggestions, setUnitNameSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch("/api/unit-names")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data && setUnitNameSuggestions(data.unitNames || []));
+  }, []);
 
   // Search-as-you-type against this store's existing items, so receiving stock starts with
   // "do we already have this?" instead of assuming it's new and only finding out afterward.
@@ -99,8 +107,14 @@ export default function IntakeClient({
   }
 
   function addLevel() {
-    // Insert before the last level, since the last level is always the base unit.
-    setLevels((prev) => [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]);
+    // Insert before the last level, since the last level is always the base unit — but with
+    // only one level, "before the last" and "before the first" are the same slot, which would
+    // shove whatever's already typed there down into the base-unit spot. Append instead.
+    setLevels((prev) =>
+      prev.length <= 1
+        ? [...prev, { unitName: "", unitsPerParent: "1" }]
+        : [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]
+    );
   }
 
   function removeLevel(index: number) {
@@ -450,12 +464,15 @@ export default function IntakeClient({
                   className="w-16 rounded border border-zinc-300 px-2 py-1.5 text-sm"
                 />
               )}
-              <input
-                value={level.unitName}
-                onChange={(e) => updateLevel(i, { unitName: e.target.value })}
-                placeholder={i === 0 ? "carton" : i === levels.length - 1 ? "piece" : "box"}
-                className="flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              />
+              <div className="flex-1">
+                <UnitNameInput
+                  value={level.unitName}
+                  onChange={(v) => updateLevel(i, { unitName: v })}
+                  suggestions={unitNameSuggestions}
+                  placeholder={i === 0 ? "carton" : i === levels.length - 1 ? "piece" : "box"}
+                  className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                />
+              </div>
               {i > 0 && (
                 <>
                   <span className="text-xs text-zinc-500">per</span>
