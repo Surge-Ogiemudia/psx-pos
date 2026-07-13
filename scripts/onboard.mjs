@@ -34,6 +34,8 @@ function usageAndExit(message) {
     --admin-name "Jane Doe" \\
     --admin-phone "+2348011112222" \\
     [--admin-password "..."]        (generated and printed if omitted)
+    [--slug "city-pharmacy"]         (subdomain, e.g. city-pharmacy.pos.psx.ng — derived from
+                                      --pharmacy if omitted)
     [--color "#1d4ed8"]              (brand color, hex)
     [--logo "https://.../logo.png"]  (logo URL)
     [--email "info@pharmacy.com"]
@@ -60,6 +62,17 @@ if (!adminPhone) usageAndExit("--admin-phone is required");
 const adminPassword =
   typeof args["admin-password"] === "string" ? args["admin-password"] : crypto.randomBytes(9).toString("base64url");
 
+function slugify(value) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+const slug = typeof args.slug === "string" ? slugify(args.slug) : slugify(pharmacyName);
+if (!slug) usageAndExit("Could not derive a usable --slug from the pharmacy name — pass --slug explicitly");
+
 const brandColor = typeof args.color === "string" ? args.color : "#0f766e";
 const logoUrl = typeof args.logo === "string" ? args.logo : "";
 const email = typeof args.email === "string" ? args.email : "";
@@ -71,6 +84,7 @@ const storeName = typeof args.store === "string" ? args.store.trim() : "";
 const PharmacySchema = new mongoose.Schema(
   {
     pharmacyName: String,
+    slug: { type: String, unique: true },
     logoUrl: String,
     brandColor: String,
     contactInfo: { email: String, phone: String, address: String },
@@ -113,14 +127,19 @@ async function main() {
   if (existing) {
     throw new Error(`A user with phone number ${adminPhone} already exists (phone numbers must be globally unique).`);
   }
+  const existingSlug = await Pharmacy.findOne({ slug });
+  if (existingSlug) {
+    throw new Error(`Slug "${slug}" is already taken by "${existingSlug.pharmacyName}" — pass --slug with a different value.`);
+  }
 
   const pharmacy = await Pharmacy.create({
     pharmacyName,
+    slug,
     logoUrl,
     brandColor,
     contactInfo: { email, phone, address },
   });
-  console.log(`Created pharmacy: ${pharmacy.pharmacyName} (${pharmacy._id})`);
+  console.log(`Created pharmacy: ${pharmacy.pharmacyName} (${pharmacy._id}), slug "${pharmacy.slug}"`);
 
   const branch = await Branch.create({
     pharmacyId: pharmacy._id,
@@ -144,6 +163,7 @@ async function main() {
   });
 
   console.log("\nOnboarding complete. Admin login:");
+  console.log(`  URL:      https://${pharmacy.slug}.pos.psx.ng`);
   console.log(`  Phone:    ${admin.phoneNumber}`);
   console.log(`  Password: ${adminPassword}`);
   console.log("\nShare these credentials with the pharmacy admin and have them sign in and add their own products and staff.");
