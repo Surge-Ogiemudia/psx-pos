@@ -4,7 +4,15 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
-export default function LoginClient({ brandName }: { brandName: string }) {
+export default function LoginClient({
+  brandName,
+  logoUrl,
+  brandColor,
+}: {
+  brandName: string;
+  logoUrl?: string;
+  brandColor?: string;
+}) {
   const router = useRouter();
   const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
@@ -41,6 +49,10 @@ export default function LoginClient({ brandName }: { brandName: string }) {
   return (
     <div className="flex flex-1 items-center justify-center px-4">
       <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 shadow-sm">
+        {logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element -- arbitrary per-pharmacy URL, not a known/configured domain
+          <img src={logoUrl} alt="" className="mb-3 h-10 w-auto object-contain" />
+        )}
         <h1 className="mb-1 text-xl font-semibold text-zinc-900">{brandName}</h1>
         <p className="mb-6 text-sm text-zinc-500">Sign in to your pharmacy account</p>
 
@@ -105,7 +117,10 @@ export default function LoginClient({ brandName }: { brandName: string }) {
           <button
             type="submit"
             disabled={loading}
-            className="mt-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+            style={brandColor ? { backgroundColor: brandColor } : undefined}
+            className={`mt-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${
+              brandColor ? "hover:opacity-90" : "bg-teal-700 hover:bg-teal-800"
+            }`}
           >
             {loading ? "Signing in..." : "Sign in"}
           </button>
