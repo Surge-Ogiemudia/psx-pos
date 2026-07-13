@@ -241,14 +241,9 @@ export default function ProductsClient({
   const [requestError, setRequestError] = useState<string | null>(null);
 
   function addLevel() {
-    // Insert before the last level, since the last level is always the base unit — but with
-    // only one level, "before the last" and "before the first" are the same slot, which would
-    // shove whatever's already typed there down into the base-unit spot. Append instead.
-    setLevels((prev) =>
-      prev.length <= 1
-        ? [...prev, { unitName: "", unitsPerParent: "1" }]
-        : [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]
-    );
+    // Purely sequential: each new field is smaller than the one before it, so it always
+    // appends at the bottom — never reorders anything already typed.
+    setLevels((prev) => [...prev, { unitName: "", unitsPerParent: "1" }]);
   }
 
   function removeLevel(index: number) {
@@ -261,11 +256,7 @@ export default function ProductsClient({
   }
 
   function addEditLevel() {
-    setEditLevels((prev) =>
-      prev.length <= 1
-        ? [...prev, { unitName: "", unitsPerParent: "1" }]
-        : [...prev.slice(0, -1), { unitName: "", unitsPerParent: "1" }, prev[prev.length - 1]]
-    );
+    setEditLevels((prev) => [...prev, { unitName: "", unitsPerParent: "1" }]);
   }
 
   function removeEditLevel(index: number) {
