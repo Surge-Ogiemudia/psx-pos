@@ -551,12 +551,15 @@ export default function IntakeClient({
             placeholder="Batch number (optional)"
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
-          <input
-            type="date"
-            value={expiryDate}
-            onChange={(e) => setExpiryDate(e.target.value)}
-            className="rounded border border-zinc-300 px-2 py-1.5 text-sm sm:col-span-2"
-          />
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Expiry date (optional)</label>
+            <input
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+              className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            />
+          </div>
         </div>
 
         <button
