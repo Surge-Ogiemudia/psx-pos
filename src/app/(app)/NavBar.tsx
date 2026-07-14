@@ -52,6 +52,8 @@ export default function NavBar({
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [emrToken, setEmrToken] = useState<string | null>(null);
+  const [isEmrOpen, setIsEmrOpen] = useState(false);
   const links = [
     ...(userRole === "admin" || userRole === "staff" ? RETAIL_LINKS : []),
     ...(userRole === "admin" ? ADMIN_LINKS : []),
@@ -162,6 +164,23 @@ export default function NavBar({
               )}
             </span>
             <button
+              onClick={async () => {
+                try {
+                  const res = await fetch("/api/auth/emr-sso", { method: "POST" });
+                  const data = await res.json();
+                  if (data.token) {
+                    setEmrToken(data.token);
+                    setIsEmrOpen(true);
+                  }
+                } catch (e) {
+                  console.error("SSO failed", e);
+                }
+              }}
+              className="whitespace-nowrap rounded-lg bg-teal-700 hover:bg-teal-800 px-3 py-1.5 text-sm font-medium text-white"
+            >
+              Connect to EMR
+            </button>
+            <button
               onClick={() => signOut({ callbackUrl: "/login" })}
               className="whitespace-nowrap rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
             >
@@ -257,6 +276,26 @@ export default function NavBar({
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {isEmrOpen && emrToken && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="relative w-full max-w-[480px] rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col border border-zinc-200" style={{ height: "85vh" }}>
+            <div className="flex justify-between items-center bg-zinc-50 px-4 py-3 border-b border-zinc-200">
+              <span className="font-semibold text-zinc-800 text-sm">Pharmacy EMR Module</span>
+              <button 
+                onClick={() => setIsEmrOpen(false)}
+                className="text-zinc-500 hover:text-zinc-800 text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+            <iframe 
+              src={`${window.location.hostname === "localhost" ? "http://localhost:3001" : window.location.origin.replace("pos.", "emr.")}/login-sso?token=${emrToken}`}
+              className="flex-1 w-full border-0"
+            />
           </div>
         </div>
       )}
