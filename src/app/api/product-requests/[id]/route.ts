@@ -9,7 +9,7 @@ const ACTIONS = ["approve", "resolve_duplicate", "reject"] as const;
 
 export async function PATCH(
   request: NextRequest,
-  ctx: RouteContext<"/api/product-requests/[id]">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireAdminApiSession();

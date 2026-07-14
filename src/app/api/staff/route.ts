@@ -45,7 +45,15 @@ export async function POST(request: NextRequest) {
     await dbConnect();
 
     const body = await request.json();
-    const { name, role, phoneNumber, password } = body;
+    const {
+      name,
+      role,
+      phoneNumber,
+      password,
+      employmentType,
+      salaryType,
+      salaryAmount,
+    } = body;
 
     if (!name || !phoneNumber || !password) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -77,6 +85,10 @@ export async function POST(request: NextRequest) {
       role,
       phoneNumber,
       passwordHash,
+      employmentType: employmentType || "full_time",
+      salaryType: salaryType || "monthly",
+      salaryAmount: salaryAmount || 0,
+      status: "active",
     });
 
     return NextResponse.json(

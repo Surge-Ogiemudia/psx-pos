@@ -15,6 +15,22 @@ const PharmacySchema = new Schema(
       phone: { type: String, default: "" },
       address: { type: String, default: "" },
     },
+    shiftSettings: {
+      morningStart: { type: String, default: "08:00" },
+      morningEnd: { type: String, default: "14:00" },
+      afternoonStart: { type: String, default: "14:00" },
+      afternoonEnd: { type: String, default: "20:00" },
+      eveningStart: { type: String, default: "20:00" },
+      eveningEnd: { type: String, default: "08:00" },
+      fullDayStart: { type: String, default: "08:00" },
+      fullDayEnd: { type: String, default: "20:00" },
+    },
+    payrollSettings: {
+      gracePeriodMinutes: { type: Number, default: 15 },
+      lateDeductionType: { type: String, enum: ["fixed", "percentage", "none"], default: "none" },
+      lateDeductionAmount: { type: Number, default: 0 },
+      absenceDeductionType: { type: String, enum: ["full_day", "half_day", "none"], default: "full_day" },
+    },
   },
   { timestamps: true }
 );

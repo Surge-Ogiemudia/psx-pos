@@ -6,7 +6,7 @@ import { handleApiError } from "@/lib/apiError";
 
 export async function GET(
   request: NextRequest,
-  ctx: RouteContext<"/api/deletion-logs/[id]/download">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireAdminApiSession();

@@ -12,7 +12,7 @@ import { handleApiError } from "@/lib/apiError";
 
 export async function POST(
   request: NextRequest,
-  ctx: RouteContext<"/api/products/[id]/adjust-stock">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireAdminApiSession();

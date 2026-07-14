@@ -94,6 +94,45 @@ export interface StaffJSON {
   storeId?: string | null;
   branchName?: string | null;
   storeName?: string | null;
+  employmentType: "full_time" | "part_time" | "contract";
+  salaryType: "monthly" | "hourly";
+  salaryAmount: number;
+  bankAccountDetails?: {
+    bankName: string;
+    accountNumber: string;
+    accountName: string;
+  };
+  startDate: string;
+  status: "active" | "inactive";
+}
+
+export type ShiftType = "morning" | "afternoon" | "evening" | "full_day" | "custom";
+
+export interface ShiftJSON {
+  _id: string;
+  branchId: string;
+  userId: string;
+  date: string;
+  scheduledStartTime: string;
+  scheduledEndTime: string;
+  type: ShiftType;
+  notes?: string;
+  staffName?: string;
+}
+
+export interface ShiftSettingsJSON {
+  morningStart: string;
+  morningEnd: string;
+  afternoonStart: string;
+  afternoonEnd: string;
+  eveningStart: string;
+  eveningEnd: string;
+  fullDayStart: string;
+  fullDayEnd: string;
+}
+
+export interface PharmacySettingsJSON {
+  shiftSettings: ShiftSettingsJSON;
 }
 
 export interface StoreJSON {

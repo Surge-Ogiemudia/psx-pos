@@ -9,7 +9,7 @@ const CHANNELS: Channel[] = ["sister_store", "branch", "distributor", "wholesale
 
 export async function GET(
   request: NextRequest,
-  ctx: RouteContext<"/api/store-products/[id]/draw-preview">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireStoreApiSession();
