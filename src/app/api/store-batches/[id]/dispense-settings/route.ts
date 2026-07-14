@@ -32,7 +32,7 @@ const CATALOG_PRICE_FIELD: Partial<Record<(typeof CHANNELS)[number], "retailPric
 
 export async function GET(
   request: NextRequest,
-  ctx: RouteContext<"/api/store-batches/[id]/dispense-settings">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireStoreApiSession();
@@ -56,7 +56,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  ctx: RouteContext<"/api/store-batches/[id]/dispense-settings">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireStoreApiSession();

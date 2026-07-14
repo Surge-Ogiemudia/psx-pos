@@ -6,7 +6,7 @@ import { handleApiError } from "@/lib/apiError";
 
 export async function PATCH(
   request: NextRequest,
-  ctx: RouteContext<"/api/branches/[id]">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireAdminApiSession();
@@ -36,7 +36,7 @@ export async function PATCH(
 
 export async function DELETE(
   _request: NextRequest,
-  ctx: RouteContext<"/api/branches/[id]">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireAdminApiSession();

@@ -24,7 +24,7 @@ function earlierDate(a: Date | null, b: Date | null): Date | null {
  */
 export async function POST(
   request: NextRequest,
-  ctx: RouteContext<"/api/products/[id]/merge">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireAdminApiSession();

@@ -7,7 +7,7 @@ import { handleApiError } from "@/lib/apiError";
 
 export async function GET(
   _request: Request,
-  ctx: RouteContext<"/api/buyers/[id]">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireStoreApiSession();

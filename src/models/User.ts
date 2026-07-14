@@ -11,6 +11,18 @@ const UserSchema = new Schema(
     passwordHash: { type: String, required: true },
     failedLoginAttempts: { type: Number, required: true, default: 0 },
     lockedUntil: { type: Date, default: null },
+
+    // Staff Management fields
+    employmentType: { type: String, enum: ["full_time", "part_time", "contract"], default: "full_time" },
+    salaryType: { type: String, enum: ["monthly", "hourly"], default: "monthly" },
+    salaryAmount: { type: Number, default: 0 },
+    bankAccountDetails: {
+      bankName: { type: String, default: "" },
+      accountNumber: { type: String, default: "" },
+      accountName: { type: String, default: "" },
+    },
+    startDate: { type: Date, default: Date.now },
+    status: { type: String, enum: ["active", "inactive"], default: "active" },
   },
   { timestamps: true }
 );

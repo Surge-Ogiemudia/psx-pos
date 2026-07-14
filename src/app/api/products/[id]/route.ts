@@ -13,7 +13,7 @@ const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPri
 
 export async function PATCH(
   request: NextRequest,
-  ctx: RouteContext<"/api/products/[id]">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireAdminApiSession();
@@ -73,7 +73,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  ctx: RouteContext<"/api/products/[id]">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireAdminApiSession();

@@ -11,7 +11,7 @@ import { handleApiError } from "@/lib/apiError";
 
 export async function DELETE(
   request: NextRequest,
-  ctx: RouteContext<"/api/import-batches/[id]">
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireAdminApiSession();
