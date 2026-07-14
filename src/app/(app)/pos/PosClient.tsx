@@ -86,6 +86,101 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  const [selectedPatient, setSelectedPatient] = useState<{ id: string; name: string; phoneNumber: string } | null>(null);
+  const [patientSearch, setPatientSearch] = useState("");
+  const [patientMatches, setPatientMatches] = useState<{ id: string; name: string; phoneNumber: string }[]>([]);
+  const [showPatientResults, setShowPatientResults] = useState(false);
+
+  // Search EMR patients
+  useEffect(() => {
+    if (!patientSearch.trim()) {
+      setPatientMatches([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(async () => {
+      const res = await fetch(`/api/emr-patients?search=${encodeURIComponent(patientSearch)}`, { signal: controller.signal });
+      if (res.ok) {
+        const data = await res.json();
+        setPatientMatches(data.patients);
+      }
+    }, 200);
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [patientSearch]);
+
+  async function selectPatient(patient: { id: string; name: string; phoneNumber: string } | null) {
+    if (!patient) {
+      setSelectedPatient(null);
+      return;
+    }
+    setSelectedPatient(patient);
+    setPatientSearch("");
+    setShowPatientResults(false);
+
+    try {
+      const res = await fetch(`/api/emr-patients/prescription?patientId=${patient.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.medicines && data.medicines.length > 0) {
+          // Clear current cart before loading prescription
+          setCart([]);
+          
+          for (const med of data.medicines) {
+            const searchParams = new URLSearchParams({ search: med.name });
+            if (branchId) searchParams.set("branchId", branchId);
+            
+            const prodRes = await fetch(`/api/products?${searchParams}`);
+            if (prodRes.ok) {
+              const prodData = await prodRes.json();
+              const foundProduct = prodData.products[0];
+              
+              if (foundProduct) {
+                setCart((prev) => {
+                  const existing = prev.find((line) => line.kind === "catalog" && line.product._id === foundProduct._id);
+                  if (existing && existing.kind === "catalog") {
+                    return prev.map((line) =>
+                      line.kind === "catalog" && line.product._id === foundProduct._id
+                        ? { ...line, quantity: line.quantity + (med.qty || 1) }
+                        : line
+                    );
+                  }
+                  return [...prev, { kind: "catalog", key: foundProduct._id, product: foundProduct, form: baseUnitName(foundProduct), quantity: med.qty || 1 }];
+                });
+              } else {
+                const parseMatch = med.name.match(/^(.*?)\s*\((.*?)\)\s*(.*?)$/);
+                const itemName = parseMatch ? parseMatch[1] : med.name;
+                const brand = parseMatch ? parseMatch[2] : "Prescribed";
+                const size = parseMatch ? parseMatch[3] : "Standard";
+                
+                setCart((prev) => [
+                  ...prev,
+                  {
+                    kind: "custom",
+                    key: `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    itemName,
+                    brand,
+                    size,
+                    category: "medicine",
+                    unitPrice: 0,
+                    quantity: med.qty || 1,
+                  },
+                ]);
+              }
+            }
+          }
+          setMessage({ type: "success", text: `Loaded EMR prescription for ${patient.name} (${data.medicines.length} items)` });
+        } else {
+          setMessage({ type: "success", text: `Selected customer ${patient.name}. No active EMR prescription found.` });
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   const [customMode, setCustomMode] = useState(false);
   const [customForm, setCustomForm] = useState({
     itemName: "",
@@ -642,6 +737,53 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
           )}
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+          {/* EMR Customer Selector */}
+          <div className="mb-4 pb-4 border-b border-zinc-100">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-500">Customer (EMR Patient)</label>
+            {selectedPatient ? (
+              <div className="flex items-center justify-between rounded-lg bg-teal-50 border border-teal-200 p-2.5">
+                <div>
+                  <div className="text-sm font-semibold text-teal-900">{selectedPatient.name}</div>
+                  <div className="text-xs text-teal-700">{selectedPatient.phoneNumber}</div>
+                </div>
+                <button 
+                  onClick={() => selectPatient(null)} 
+                  className="text-xs text-red-600 font-semibold hover:underline"
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search customer name or phone..."
+                  value={patientSearch}
+                  onChange={(e) => {
+                    setPatientSearch(e.target.value);
+                    setShowPatientResults(true);
+                  }}
+                  onFocus={() => setShowPatientResults(true)}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                />
+                {showPatientResults && patientMatches.length > 0 && (
+                  <div className="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-lg border border-zinc-200 bg-white shadow-lg">
+                    {patientMatches.map((patient) => (
+                      <button
+                        key={patient.id}
+                        onClick={() => selectPatient(patient)}
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50 border-b border-zinc-100 last:border-0"
+                      >
+                        <div className="font-semibold text-zinc-800">{patient.name}</div>
+                        <div className="text-xs text-zinc-500">{patient.phoneNumber}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {cart.length === 0 && <p className="text-sm text-zinc-500">Cart is empty.</p>}
           <div className="flex flex-col gap-3">
             {cart.map((line) => {
