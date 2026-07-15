@@ -313,7 +313,7 @@ export default function NavBar({
               </button>
             </div>
             <iframe 
-              src={`${window.location.hostname === "localhost" ? "http://localhost:3001" : window.location.origin.replace("pos", "emr")}/login-sso?token=${emrToken}&_t=${Date.now()}`}
+              src={`${window.location.hostname === "localhost" ? "http://localhost:3001" : window.location.origin.replace("pos", "emr")}/login-sso?token=${emrToken}`}
               className="flex-1 w-full border-0"
             />
           </div>
