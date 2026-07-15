@@ -227,7 +227,7 @@ export default function NavBar({
             })}
             {branchSwitcher && <div className="px-1 pt-2">{branchSwitcher}</div>}
             {storeSwitcher && <div className="px-1 pt-2">{storeSwitcher}</div>}
-            <div className="mt-2 flex items-center justify-between border-t border-zinc-200 px-1 pt-3">
+            <div className="mt-2 flex flex-col gap-3 border-t border-zinc-200 px-1 pt-3 pb-2">
               <span className="text-sm text-zinc-500">
                 {userName} <span className="text-zinc-400">({userRole})</span>
               {scopeLabel && (
@@ -239,7 +239,7 @@ export default function NavBar({
                 </>
               )}
               </span>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 w-full">
                 <button
                   onClick={async () => {
                     setMenuOpen(false);
@@ -254,13 +254,13 @@ export default function NavBar({
                       console.error("SSO failed", e);
                     }
                   }}
-                  className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 text-center"
+                  className="w-full rounded-lg bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 text-center"
                 >
                   Connect to EMR
                 </button>
                 <button
                   onClick={() => signOut({ callbackUrl: "/login" })}
-                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 text-center"
                 >
                   Sign out
                 </button>
