@@ -239,12 +239,32 @@ export default function NavBar({
                 </>
               )}
               </span>
-              <button
-                onClick={() => signOut({ callbackUrl: "/login" })}
-                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
-              >
-                Sign out
-              </button>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={async () => {
+                    setMenuOpen(false);
+                    try {
+                      const res = await fetch("/api/auth/emr-sso", { method: "POST" });
+                      const data = await res.json();
+                      if (data.token) {
+                        setEmrToken(data.token);
+                        setIsEmrOpen(true);
+                      }
+                    } catch (e) {
+                      console.error("SSO failed", e);
+                    }
+                  }}
+                  className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 text-center"
+                >
+                  Connect to EMR
+                </button>
+                <button
+                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
           </div>
         )}
