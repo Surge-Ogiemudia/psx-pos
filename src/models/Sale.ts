@@ -49,6 +49,8 @@ const SaleSchema = new Schema(
     pharmacyId: { type: Schema.Types.ObjectId, ref: "Pharmacy", required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true, index: true },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    customerId: { type: Schema.Types.ObjectId, ref: "Patient", default: null },
+    customerName: { type: String, default: null },
     items: { type: [SaleItemSchema], required: true, validate: (v: unknown[]) => v.length > 0 },
     totalAmount: { type: Number, required: true, min: 0 },
     payments: { type: [PaymentLineSchema], required: true, validate: (v: unknown[]) => v.length > 0 },

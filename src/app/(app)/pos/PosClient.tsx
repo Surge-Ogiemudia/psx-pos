@@ -7,7 +7,7 @@ import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
 import { parseNumeric } from "@/lib/numberInput";
 
 type CartLine =
-  | { kind: "catalog"; key: string; product: ProductJSON; form: string; quantity: number }
+  | { kind: "catalog"; key: string; product: ProductJSON; form: string; quantity: number; instruction?: string }
   | {
       kind: "custom";
       key: string;
@@ -17,6 +17,7 @@ type CartLine =
       category: ProductCategory;
       unitPrice: number;
       quantity: number;
+      instruction?: string;
     };
 
 function baseUnitName(product: ProductJSON): string {
@@ -76,7 +77,7 @@ function lineAmount(line: CartLine): number {
     : line.unitPrice * line.quantity;
 }
 
-export default function PosClient({ branchId }: { branchId: string | null }) {
+export default function PosClient({ branchId, pharmacyId }: { branchId: string | null, pharmacyId: string }) {
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -85,101 +86,109 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
   const [changeFee, setChangeFee] = useState("0");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [iframeHeight, setIframeHeight] = useState(42);
+  const [loadingPrescription, setLoadingPrescription] = useState(false);
+  const [currentCustomer, setCurrentCustomer] = useState<{ id: string | null; name: string | null; encounterId: string | null }>({ id: null, name: null, encounterId: null });
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const [selectedPatient, setSelectedPatient] = useState<{ id: string; name: string; phoneNumber: string } | null>(null);
-  const [patientSearch, setPatientSearch] = useState("");
-  const [patientMatches, setPatientMatches] = useState<{ id: string; name: string; phoneNumber: string }[]>([]);
-  const [showPatientResults, setShowPatientResults] = useState(false);
+  // No native patient search state needed, EMR iframe handles it.
 
-  // Search EMR patients
+  // Listen for POPULATE_CART from the EMR Dispensary iframe
   useEffect(() => {
-    if (!patientSearch.trim()) {
-      setPatientMatches([]);
-      return;
-    }
-    const controller = new AbortController();
-    const timeout = setTimeout(async () => {
-      const res = await fetch(`/api/emr-patients?search=${encodeURIComponent(patientSearch)}`, { signal: controller.signal });
-      if (res.ok) {
-        const data = await res.json();
-        setPatientMatches(data.patients);
-      }
-    }, 200);
-    return () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [patientSearch]);
-
-  async function selectPatient(patient: { id: string; name: string; phoneNumber: string } | null) {
-    if (!patient) {
-      setSelectedPatient(null);
-      return;
-    }
-    setSelectedPatient(patient);
-    setPatientSearch("");
-    setShowPatientResults(false);
-
-    try {
-      const res = await fetch(`/api/emr-patients/prescription?patientId=${patient.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.medicines && data.medicines.length > 0) {
-          // Clear current cart before loading prescription
-          setCart([]);
+    async function handleMessage(event: MessageEvent) {
+      if (event.data?.type === "POPULATE_CART" && event.data.medicines) {
+        const medicines = event.data.medicines;
+        const patientName = event.data.patientName || "Patient";
+        const patientId = event.data.patientId || null;
+        const encounterId = event.data.encounterId || null;
+        
+        setCurrentCustomer({ id: patientId, name: patientName, encounterId });
+        setLoadingPrescription(true);
+        const nextCart: CartLine[] = [];
+        
+        for (const med of medicines) {
+          if (!med || !med.name) continue;
           
-          for (const med of data.medicines) {
-            const searchParams = new URLSearchParams({ search: med.name });
-            if (branchId) searchParams.set("branchId", branchId);
+          const searchParams = new URLSearchParams({ search: med.name });
+          if (branchId) searchParams.set("branchId", branchId);
+          
+          try {
+            let foundProduct = null;
             
-            const prodRes = await fetch(`/api/products?${searchParams}`);
-            if (prodRes.ok) {
-              const prodData = await prodRes.json();
-              const foundProduct = prodData.products[0];
-              
-              if (foundProduct) {
-                setCart((prev) => {
-                  const existing = prev.find((line) => line.kind === "catalog" && line.product._id === foundProduct._id);
-                  if (existing && existing.kind === "catalog") {
-                    return prev.map((line) =>
-                      line.kind === "catalog" && line.product._id === foundProduct._id
-                        ? { ...line, quantity: line.quantity + (med.qty || 1) }
-                        : line
-                    );
-                  }
-                  return [...prev, { kind: "catalog", key: foundProduct._id, product: foundProduct, form: baseUnitName(foundProduct), quantity: med.qty || 1 }];
-                });
-              } else {
-                const parseMatch = med.name.match(/^(.*?)\s*\((.*?)\)\s*(.*?)$/);
-                const itemName = parseMatch ? parseMatch[1] : med.name;
-                const brand = parseMatch ? parseMatch[2] : "Prescribed";
-                const size = parseMatch ? parseMatch[3] : "Standard";
-                
-                setCart((prev) => [
-                  ...prev,
-                  {
-                    kind: "custom",
-                    key: `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                    itemName,
-                    brand,
-                    size,
-                    category: "medicine",
-                    unitPrice: 0,
-                    quantity: med.qty || 1,
-                  },
-                ]);
+            if (med.productId) {
+              const prodRes = await fetch(`/api/products/${med.productId}`);
+              if (prodRes.ok) {
+                const prodData = await prodRes.json();
+                foundProduct = prodData.product || null;
               }
             }
+            
+            if (!foundProduct) {
+              const searchParams = new URLSearchParams({ search: med.name });
+              if (branchId) searchParams.set("branchId", branchId);
+              const prodRes = await fetch(`/api/products?${searchParams}`);
+              if (prodRes.ok) {
+                const prodData = await prodRes.json();
+                foundProduct = prodData.products?.[0];
+              }
+            }
+            
+            if (foundProduct) {
+              const existingIndex = nextCart.findIndex((line) => line.kind === "catalog" && line.product._id === foundProduct._id);
+              if (existingIndex >= 0) {
+                const existing = nextCart[existingIndex];
+                if (existing.kind === "catalog") {
+                  existing.quantity += (Number(med.qty) || 1);
+                  if (med.dose) existing.instruction = med.dose;
+                }
+              } else {
+                nextCart.push({ kind: "catalog", key: foundProduct._id, product: foundProduct, form: baseUnitName(foundProduct), quantity: Number(med.qty) || 1, instruction: med.dose });
+              }
+            } else {
+              const parseMatch = med.name.match(/^(.*?)\s*\((.*?)\)\s*(.*?)$/);
+              const itemName = parseMatch ? parseMatch[1] : med.name;
+              const brand = parseMatch ? parseMatch[2] : "Prescribed";
+              const size = parseMatch ? parseMatch[3] : "Standard";
+              
+              nextCart.push({
+                kind: "custom",
+                key: `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                itemName,
+                brand,
+                size,
+                category: "medicine",
+                unitPrice: Number(med.price) || 0,
+                quantity: Number(med.qty) || 1,
+                instruction: med.dose,
+              });
+            }
+          } catch (e) {
+            console.error("Failed to fetch product for", med.name, e);
+            // On network error, fallback to custom item
+            nextCart.push({
+              kind: "custom",
+              key: `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              itemName: med.name,
+              brand: "Prescribed",
+              size: "Standard",
+              category: "medicine",
+              unitPrice: 0,
+              quantity: Number(med.qty) || 1,
+            });
           }
-          setMessage({ type: "success", text: `Loaded EMR prescription for ${patient.name} (${data.medicines.length} items)` });
-        } else {
-          setMessage({ type: "success", text: `Selected customer ${patient.name}. No active EMR prescription found.` });
         }
+        
+        setCart(nextCart);
+        setMessage({ type: "success", text: `Loaded EMR prescription for ${patientName} (${nextCart.length} items)` });
+        setLoadingPrescription(false);
+      } else if (event.data?.type === "RESIZE_IFRAME" && event.data.height) {
+        setIframeHeight(event.data.height);
       }
-    } catch (e) {
-      console.error(e);
     }
-  }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [branchId]);
 
   const [customMode, setCustomMode] = useState(false);
   const [customForm, setCustomForm] = useState({
@@ -353,6 +362,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
     if (cart.length === 0) return;
     if (!confirm("Clear all items from the current sale?")) return;
     setCart([]);
+    setCurrentCustomer({ id: null, name: null, encounterId: null });
     setPayments([{ method: "cash", amount: "" }]);
     setPaymentsTouched(false);
     setChangeFee("0");
@@ -469,6 +479,8 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         branchId,
+        customerId: currentCustomer.id,
+        customerName: currentCustomer.name,
         payments: payments.map((p) => ({ method: p.method, amount: parseNumeric(p.amount) })),
         changeFee: changeFeeValue,
         items: cart.map((line) =>
@@ -508,7 +520,16 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
           ? ` — flagged ${customLabels.join(", ")} for admin to add to the catalog.`
           : ""),
     });
+    
+    if (currentCustomer.encounterId && iframeRef.current) {
+      iframeRef.current.contentWindow?.postMessage({
+        type: "MARK_DISPENSED",
+        encounterId: currentCustomer.encounterId,
+      }, "*");
+    }
+
     setCart([]);
+    setCurrentCustomer({ id: null, name: null, encounterId: null });
     setPayments([{ method: "cash", amount: "" }]);
     setPaymentsTouched(false);
     setChangeFee("0");
@@ -737,66 +758,44 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
           )}
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-          {/* EMR Customer Selector */}
           <div className="mb-4 pb-4 border-b border-zinc-100">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-500">Customer (EMR Patient)</label>
-            {selectedPatient ? (
-              <div className="flex items-center justify-between rounded-lg bg-teal-50 border border-teal-200 p-2.5">
-                <div>
-                  <div className="text-sm font-semibold text-teal-900">{selectedPatient.name}</div>
-                  <div className="text-xs text-teal-700">{selectedPatient.phoneNumber}</div>
-                </div>
-                <button 
-                  onClick={() => selectPatient(null)} 
-                  className="text-xs text-red-600 font-semibold hover:underline"
-                >
-                  Change
-                </button>
-              </div>
-            ) : (
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search customer name or phone..."
-                  value={patientSearch}
-                  onChange={(e) => {
-                    setPatientSearch(e.target.value);
-                    setShowPatientResults(true);
-                  }}
-                  onFocus={() => setShowPatientResults(true)}
-                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
-                />
-                {showPatientResults && patientMatches.length > 0 && (
-                  <div className="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-lg border border-zinc-200 bg-white shadow-lg">
-                    {patientMatches.map((patient) => (
-                      <button
-                        key={patient.id}
-                        onClick={() => selectPatient(patient)}
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50 border-b border-zinc-100 last:border-0"
-                      >
-                        <div className="font-semibold text-zinc-800">{patient.name}</div>
-                        <div className="text-xs text-zinc-500">{patient.phoneNumber}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            <div 
+              className="overflow-hidden transition-all duration-200" 
+              style={{ height: `${Math.max(42, iframeHeight)}px` }}
+            >
+              <iframe 
+                ref={iframeRef}
+                src={`http://localhost:3000/embed/dispensary?pharmacyId=${pharmacyId}`}
+                className="w-full h-full border-0"
+                title="EMR Dispensary"
+              />
+            </div>
           </div>
 
-          {cart.length === 0 && <p className="text-sm text-zinc-500">Cart is empty.</p>}
-          <div className="flex flex-col gap-3">
+          {loadingPrescription ? (
+            <div className="flex flex-col items-center justify-center p-6 border border-zinc-100 rounded-lg bg-zinc-50/50">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-300 border-t-teal-600 mb-2"></div>
+              <p className="text-xs text-zinc-500 font-medium">Loading EMR prescription...</p>
+            </div>
+          ) : cart.length === 0 ? (
+            <p className="text-sm text-zinc-500">Cart is empty.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
             {cart.map((line) => {
               if (line.kind === "custom") {
                 return (
                   <div key={line.key} className="border-b border-zinc-100 pb-3 last:border-0">
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-medium text-zinc-900">
-                        {formatProductLabel(line)}{" "}
-                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-                          Not in catalog
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-zinc-900">
+                          {formatProductLabel(line)}{" "}
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                            Not in catalog
+                          </span>
                         </span>
-                      </span>
+                        {line.instruction && <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-max mt-0.5">{line.instruction}</span>}
+                      </div>
                       <button onClick={() => removeLine(line.key)} className="text-xs text-red-600 hover:underline">
                         Remove
                       </button>
@@ -827,7 +826,10 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
               return (
                 <div key={line.key} className="border-b border-zinc-100 pb-3 last:border-0">
                   <div className="flex items-start justify-between gap-2">
-                    <span className="text-sm font-medium text-zinc-900">{formatProductLabel(line.product)}</span>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-zinc-900">{formatProductLabel(line.product)}</span>
+                      {line.instruction && <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-max mt-0.5">{line.instruction}</span>}
+                    </div>
                     <button
                       onClick={() => removeLine(line.key)}
                       className="text-xs text-red-600 hover:underline"
@@ -877,6 +879,7 @@ export default function PosClient({ branchId }: { branchId: string | null }) {
               );
             })}
           </div>
+          )}
 
           {cart.length > 0 && (
             <>

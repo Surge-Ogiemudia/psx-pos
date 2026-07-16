@@ -179,6 +179,24 @@ export async function POST(request: NextRequest) {
     try {
       let saleDoc;
       await dbSession.withTransaction(async () => {
+        let customerName = body.customerName;
+        const customerId = body.customerId || null;
+
+        if (!customerName) {
+          const today = new Date();
+          const start = new Date(today);
+          start.setHours(0, 0, 0, 0);
+          const dailyCount = await Sale.countDocuments({
+            ...scope,
+            timestamp: { $gte: start },
+          }).session(dbSession);
+          
+          const yyyy = today.getFullYear();
+          const mm = String(today.getMonth() + 1).padStart(2, '0');
+          const dd = String(today.getDate()).padStart(2, '0');
+          customerName = `Client${dailyCount + 1}-${yyyy}${mm}${dd}`;
+        }
+
         const saleItems = [];
         let totalAmount = 0;
 
@@ -312,6 +330,8 @@ export async function POST(request: NextRequest) {
             {
               ...scope,
               userId: session.user.id,
+              customerId,
+              customerName,
               items: saleItems,
               totalAmount,
               payments: payments.map((p) => ({ method: p.method, amount: round2(p.amount) })),

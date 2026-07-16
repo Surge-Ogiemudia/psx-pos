@@ -11,6 +11,23 @@ import { handleApiError } from "@/lib/apiError";
 
 const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice", "alertQuantity"]);
 
+export async function GET(
+  request: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  try {
+    await dbConnect();
+    const { id } = await ctx.params;
+    const product = await Product.findById(id);
+    if (!product) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ product });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
 export async function PATCH(
   request: NextRequest,
   ctx: { params: Promise<{ id: string }> }
