@@ -766,7 +766,7 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
             >
               <iframe 
                 ref={iframeRef}
-                src={`http://localhost:3000/embed/dispensary?pharmacyId=${pharmacyId}`}
+                src={`https://emr.psx.ng/embed/dispensary?pharmacyId=${pharmacyId}`}
                 className="w-full h-full border-0"
                 title="EMR Dispensary"
               />
