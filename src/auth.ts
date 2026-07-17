@@ -15,6 +15,10 @@ class AccountLockedError extends CredentialsSignin {
   code = "account-locked";
 }
 
+import Pharmacy from "@/models/Pharmacy";
+import Branch from "@/models/Branch";
+import Store from "@/models/Store";
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
@@ -29,42 +33,64 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const password = String(credentials?.password ?? "");
         if (!phoneNumber || !password) throw new InvalidCredentialsError();
 
+        // 1. Authenticate against Main PSX
+        const mainPsxUrl = process.env.NODE_ENV === 'production' ? 'https://www.psx.ng' : 'http://localhost:3000';
+        const loginRes = await fetch(`${mainPsxUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phoneNumber, password })
+        });
+
+        if (!loginRes.ok) {
+          throw new InvalidCredentialsError();
+        }
+
+        const data = await loginRes.json();
+        const user = data.user;
+
+        if (!user || !user.id) throw new InvalidCredentialsError();
+
         await dbConnect();
-        const user = await User.findOne({ phoneNumber });
-        if (!user) throw new InvalidCredentialsError();
 
-        if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
-          throw new AccountLockedError();
+        // 2. Lazy Provisioning for Pharmacy Role
+        if (user.role === 'pharmacy') {
+          let pharmacy = await Pharmacy.findById(user.id);
+          if (!pharmacy) {
+            pharmacy = await Pharmacy.create({
+              _id: user.id,
+              pharmacyName: user.businessName || user.name || "My Pharmacy",
+              slug: user.slug || user.id.slice(-6),
+            });
+          }
+          
+          let branch = await Branch.findOne({ pharmacyId: user.id });
+          if (!branch) {
+            branch = await Branch.create({
+              pharmacyId: user.id,
+              branchName: 'Main Branch',
+              location: 'Headquarters',
+            });
+          }
+
+          let store = await Store.findOne({ pharmacyId: user.id });
+          if (!store) {
+            store = await Store.create({
+              pharmacyId: user.id,
+              storeName: 'Main Bulk Store',
+              location: 'Headquarters',
+            });
+          }
         }
 
-        const valid = await bcrypt.compare(password, user.passwordHash);
-        if (!valid) {
-          const attempts = user.failedLoginAttempts + 1;
-          const locked = attempts >= MAX_FAILED_ATTEMPTS;
-          await User.updateOne(
-            { _id: user._id },
-            {
-              failedLoginAttempts: locked ? 0 : attempts,
-              lockedUntil: locked ? new Date(Date.now() + LOCKOUT_MS) : null,
-            }
-          );
-          throw locked ? new AccountLockedError() : new InvalidCredentialsError();
-        }
-
-        if (user.failedLoginAttempts > 0 || user.lockedUntil) {
-          await User.updateOne(
-            { _id: user._id },
-            { failedLoginAttempts: 0, lockedUntil: null }
-          );
-        }
+        const mappedRole = user.role === 'pharmacy' ? 'admin' : user.role;
 
         return {
-          id: user._id.toString(),
+          id: user.id,
           name: user.name,
-          pharmacyId: user.pharmacyId.toString(),
-          branchId: user.branchId ? user.branchId.toString() : null,
-          storeId: user.storeId ? user.storeId.toString() : null,
-          role: user.role,
+          pharmacyId: user.pharmacyId,
+          branchId: null, // Depending on staff config this might need fetching, but for admin it's null
+          storeId: null,
+          role: mappedRole,
         };
       },
     }),
