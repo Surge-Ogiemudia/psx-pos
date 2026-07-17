@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { dbConnect } from "@/lib/mongodb";
 import User from "@/models/User";
+import { getMainPsxUrl } from "@/lib/mainPsx";
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
@@ -34,7 +35,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!phoneNumber || !password) throw new InvalidCredentialsError();
 
         // 1. Authenticate against Main PSX
-        const mainPsxUrl = process.env.NODE_ENV === 'production' ? 'https://www.psx.ng' : 'http://localhost:3000';
+        const mainPsxUrl = getMainPsxUrl();
         const loginRes = await fetch(`${mainPsxUrl}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
