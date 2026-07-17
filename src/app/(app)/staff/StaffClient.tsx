@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { StaffJSON, StoreJSON } from "@/lib/types";
+import type { StaffJSON, StoreJSON, StaffCredentialStatusJSON } from "@/lib/types";
 import StaffDirectory from "./components/StaffDirectory";
 import ShiftManagement from "./components/ShiftManagement";
 import StaffSettings from "./components/StaffSettings";
+import AttendanceReport from "./components/AttendanceReport";
 
 type Role = "admin" | "staff" | "store_manager" | "store_keeper" | "pharmacist";
 
@@ -19,12 +20,13 @@ const emptyForm = {
   salaryAmount: 0,
 };
 
-type Tab = "directory" | "shifts" | "settings";
+type Tab = "directory" | "shifts" | "attendance" | "settings";
 
 export default function StaffClient({ branchId, userRole }: { branchId: string | null; userRole: string }) {
   const [activeTab, setActiveTab] = useState<Tab>("directory");
   const [staff, setStaff] = useState<StaffJSON[]>([]);
   const [stores, setStores] = useState<StoreJSON[]>([]);
+  const [credentials, setCredentials] = useState<StaffCredentialStatusJSON[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
@@ -34,14 +36,22 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
     if (res.ok) setStaff((await res.json()).staff);
   }
 
+  async function loadCredentials() {
+    if (userRole !== "admin") return;
+    const res = await fetch("/api/staff/credentials");
+    if (res.ok) setCredentials((await res.json()).credentials);
+  }
+
   useEffect(() => {
     const timeout = setTimeout(() => {
       loadStaff();
+      loadCredentials();
       fetch("/api/stores")
         .then((res) => (res.ok ? res.json() : { stores: [] }))
         .then((data) => setStores(data.stores || []));
     }, 0);
     return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function createStaff() {
@@ -118,6 +128,18 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
           </button>
           {userRole === "admin" && (
             <button
+              onClick={() => setActiveTab("attendance")}
+              className={`whitespace-nowrap border-b-2 py-3 px-1 text-sm font-medium ${
+                activeTab === "attendance"
+                  ? "border-teal-600 text-teal-600"
+                  : "border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700"
+              }`}
+            >
+              Attendance
+            </button>
+          )}
+          {userRole === "admin" && (
+            <button
               onClick={() => setActiveTab("settings")}
               className={`whitespace-nowrap border-b-2 py-3 px-1 text-sm font-medium ${
                 activeTab === "settings"
@@ -144,10 +166,14 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
           updateRole={updateRole}
           resetPassword={resetPassword}
           deleteStaff={deleteStaff}
+          credentials={userRole === "admin" ? credentials : undefined}
+          onCredentialsSaved={loadCredentials}
         />
       )}
 
       {activeTab === "shifts" && <ShiftManagement branchId={branchId} staff={staff} />}
+
+      {activeTab === "attendance" && <AttendanceReport branchId={branchId} staff={staff} />}
 
       {activeTab === "settings" && <StaffSettings />}
     </div>
