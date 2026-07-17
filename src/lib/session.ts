@@ -7,7 +7,7 @@ import jwt from "jsonwebtoken";
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
 
 export async function getSsoSession(): Promise<Session | null> {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const token = cookieStore.get('session_token')?.value;
   if (!token) return null;
 
