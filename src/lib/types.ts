@@ -135,6 +135,41 @@ export interface PharmacySettingsJSON {
   shiftSettings: ShiftSettingsJSON;
 }
 
+export type AttendanceStatus = "present" | "absent" | "late" | "half_day" | "early_exit";
+
+export interface AttendanceJSON {
+  _id: string;
+  branchId: string;
+  userId: string;
+  shiftId?: string | null;
+  date: string;
+  clockInTime?: string | null;
+  clockOutTime?: string | null;
+  status: AttendanceStatus;
+  clockInMethod?: "pin" | "face" | null;
+  clockOutMethod?: "pin" | "face" | null;
+  actualHoursWorked: number;
+}
+
+export interface RosterEntryJSON {
+  userId: string;
+  name: string;
+  scheduledStartTime: string | null;
+  scheduledEndTime: string | null;
+  clockInTime: string | null;
+  clockOutTime: string | null;
+  status: AttendanceStatus | null;
+  onDuty: boolean;
+  wasScheduled: boolean;
+}
+
+export interface StaffCredentialStatusJSON {
+  userId: string;
+  hasPin: boolean;
+  hasFace: boolean;
+  faceEnrolledAt?: string | null;
+}
+
 export interface StoreJSON {
   _id: string;
   storeName: string;

@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment } from "react";
-import type { StaffJSON, StoreJSON } from "@/lib/types";
+import { Fragment, useState } from "react";
+import type { StaffJSON, StoreJSON, StaffCredentialStatusJSON } from "@/lib/types";
+import StaffCredentialsModal from "./StaffCredentialsModal";
 
 type Role = "admin" | "staff" | "store_manager" | "store_keeper" | "pharmacist";
 
@@ -25,6 +26,8 @@ interface StaffDirectoryProps {
   updateRole: (id: string, role: "admin" | "staff") => void;
   resetPassword: (id: string) => void;
   deleteStaff: (id: string) => void;
+  credentials?: StaffCredentialStatusJSON[];
+  onCredentialsSaved?: () => void;
 }
 
 export default function StaffDirectory({
@@ -39,7 +42,12 @@ export default function StaffDirectory({
   updateRole,
   resetPassword,
   deleteStaff,
+  credentials,
+  onCredentialsSaved,
 }: StaffDirectoryProps) {
+  const [credentialTarget, setCredentialTarget] = useState<StaffJSON | null>(null);
+  const credentialByUserId = new Map((credentials ?? []).map((c) => [c.userId, c]));
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
@@ -189,6 +197,15 @@ export default function StaffDirectory({
                       <button onClick={() => resetPassword(member._id)} className="text-teal-700 hover:underline">
                         Reset password
                       </button>
+                      {credentials !== undefined && (
+                        <button onClick={() => setCredentialTarget(member)} className="text-teal-700 hover:underline">
+                          Clock-in PIN/Face
+                          {(() => {
+                            const c = credentialByUserId.get(member._id);
+                            return c?.hasPin || c?.hasFace ? " ✓" : "";
+                          })()}
+                        </button>
+                      )}
                       <button onClick={() => deleteStaff(member._id)} className="text-red-600 hover:underline">
                         Remove
                       </button>
@@ -207,6 +224,17 @@ export default function StaffDirectory({
           </tbody>
         </table>
       </div>
+
+      {credentialTarget && (
+        <StaffCredentialsModal
+          userId={credentialTarget._id}
+          name={credentialTarget.name}
+          branchId={credentialTarget.branchId}
+          status={credentialByUserId.get(credentialTarget._id)}
+          onClose={() => setCredentialTarget(null)}
+          onSaved={() => onCredentialsSaved?.()}
+        />
+      )}
     </div>
   );
 }
