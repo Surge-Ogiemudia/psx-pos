@@ -6,14 +6,15 @@ import Branch from "@/models/Branch";
 import Store from "@/models/Store";
 import { requireAdminApiSession, getBranchScope, getStoreScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+import { getMainPsxUrl } from "@/lib/mainPsx";
 
 export async function GET() {
   try {
     const session = await requireAdminApiSession();
     await dbConnect();
 
-    const mainPsxUrl = process.env.NEXT_PUBLIC_BASE_URL ? `https://${process.env.NEXT_PUBLIC_BASE_URL}` : 'http://localhost:3000';
-    
+    const mainPsxUrl = getMainPsxUrl();
+
     // Fetch staff from Main PSX
     const psxResponse = await fetch(`${mainPsxUrl}/api/staff?pharmacyId=${session.user.pharmacyId}`, {
       headers: {
@@ -75,8 +76,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Forward the request to Main PSX API
-    const mainPsxUrl = process.env.NEXT_PUBLIC_BASE_URL ? `https://${process.env.NEXT_PUBLIC_BASE_URL}` : 'http://localhost:3000';
-    
+    const mainPsxUrl = getMainPsxUrl();
+
     const psxResponse = await fetch(`${mainPsxUrl}/api/staff`, {
       method: "POST",
       headers: {
