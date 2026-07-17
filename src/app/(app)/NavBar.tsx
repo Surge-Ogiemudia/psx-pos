@@ -13,6 +13,7 @@ const RETAIL_LINKS = [
   { href: "/dispensary", label: "Dispensary" },
   { href: "/products", label: "Catalog" },
   { href: "/reports", label: "Reports" },
+  { href: "/clockin", label: "Clock In" },
 ];
 
 const ADMIN_LINKS = [
