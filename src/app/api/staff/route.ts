@@ -12,14 +12,20 @@ export async function GET() {
     const session = await requireAdminApiSession();
     await dbConnect();
 
+    const mainPsxUrl = process.env.NEXT_PUBLIC_BASE_URL ? `https://${process.env.NEXT_PUBLIC_BASE_URL}` : 'http://localhost:3000';
+    
+    // Fetch staff from Main PSX
+    const psxResponse = await fetch(`${mainPsxUrl}/api/staff?pharmacyId=${session.user.pharmacyId}`, {
+      headers: {
+        "Authorization": `Bearer ${process.env.INTERNAL_API_KEY || 'psx-internal-key-123'}`
+      }
+    });
+
+    const data = await psxResponse.json();
+    const staffFromPsx = psxResponse.ok ? data.staff : [];
+
     // Admin is pharmacy-wide: see the whole staff roster, not just one branch.
-    const [staff, branches, stores] = await Promise.all([
-      User.find(
-        { pharmacyId: session.user.pharmacyId },
-        { passwordHash: 0, failedLoginAttempts: 0, lockedUntil: 0 }
-      )
-        .sort({ name: 1 })
-        .lean(),
+    const [branches, stores] = await Promise.all([
       Branch.find({ pharmacyId: session.user.pharmacyId }).select("branchName").lean(),
       Store.find({ pharmacyId: session.user.pharmacyId }).select("storeName").lean(),
     ]);
@@ -27,8 +33,11 @@ export async function GET() {
     const branchNames = new Map(branches.map((b) => [String(b._id), b.branchName]));
     const storeNames = new Map(stores.map((s) => [String(s._id), s.storeName]));
 
-    const enriched = staff.map((member) => ({
-      ...member,
+    const enriched = staffFromPsx.map((member: any) => ({
+      _id: member.id, // Map Main PSX id back to _id for POS UI
+      name: member.name,
+      phoneNumber: member.phoneNumber,
+      role: member.role,
       branchName: member.branchId ? branchNames.get(String(member.branchId)) ?? null : null,
       storeName: member.storeId ? storeNames.get(String(member.storeId)) ?? null : null,
     }));
@@ -65,34 +74,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
     }
 
-    const existing = await User.findOne({ phoneNumber });
-    if (existing) {
-      return NextResponse.json({ error: "Phone number already in use" }, { status: 409 });
-    }
-
-    let scope: Record<string, unknown>;
-    if (role === "admin" || role === "store_manager") {
-      scope = { pharmacyId: session.user.pharmacyId };
-    } else if (role === "staff") {
-      scope = getBranchScope(session, body.branchId);
-    } else {
-      scope = getStoreScope(session, body.storeId);
-    }
-    const passwordHash = await bcrypt.hash(password, 12);
-    const user = await User.create({
-      ...scope,
-      name,
-      role,
-      phoneNumber,
-      passwordHash,
-      employmentType: employmentType || "full_time",
-      salaryType: salaryType || "monthly",
-      salaryAmount: salaryAmount || 0,
-      status: "active",
+    // Forward the request to Main PSX API
+    const mainPsxUrl = process.env.NEXT_PUBLIC_BASE_URL ? `https://${process.env.NEXT_PUBLIC_BASE_URL}` : 'http://localhost:3000';
+    
+    const psxResponse = await fetch(`${mainPsxUrl}/api/staff`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.INTERNAL_API_KEY || 'psx-internal-key-123'}`
+      },
+      body: JSON.stringify({
+        name,
+        role,
+        phoneNumber,
+        password,
+        pharmacyId: session.user.pharmacyId,
+        branchId: body.branchId,
+        storeId: body.storeId,
+        employmentType: employmentType || "full_time",
+        salaryType: salaryType || "monthly",
+        salaryAmount: salaryAmount || 0,
+      })
     });
 
+    const data = await psxResponse.json();
+
+    if (!psxResponse.ok) {
+      return NextResponse.json({ error: data.error || "Failed to create staff in Main PSX" }, { status: psxResponse.status });
+    }
+
     return NextResponse.json(
-      { staff: { id: user._id, name: user.name, role: user.role, phoneNumber: user.phoneNumber } },
+      { staff: data.user },
       { status: 201 }
     );
   } catch (error) {

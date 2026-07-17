@@ -3,13 +3,14 @@
 import { Fragment } from "react";
 import type { StaffJSON, StoreJSON } from "@/lib/types";
 
-type Role = "admin" | "staff" | "store_manager" | "store_keeper";
+type Role = "admin" | "staff" | "store_manager" | "store_keeper" | "pharmacist";
 
 const ROLE_LABEL: Record<Role, string> = {
   staff: "Staff",
   admin: "Admin",
   store_manager: "Store Manager",
   store_keeper: "Store Keeper",
+  pharmacist: "Pharmacist",
 };
 
 interface StaffDirectoryProps {
@@ -76,6 +77,7 @@ export default function StaffDirectory({
             <option value="admin">Admin</option>
             <option value="store_manager">Store Manager (all bulk stores)</option>
             <option value="store_keeper">Store Keeper (one bulk store)</option>
+            <option value="pharmacist">Pharmacist</option>
           </select>
           <input
             type="password"

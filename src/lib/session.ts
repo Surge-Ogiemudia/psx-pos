@@ -1,9 +1,43 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import type { Session } from "next-auth";
+import { cookies } from "next/headers";
+import jwt from "jsonwebtoken";
+
+const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
+
+export async function getSsoSession(): Promise<Session | null> {
+  const cookieStore = cookies();
+  const token = cookieStore.get('session_token')?.value;
+  if (!token) return null;
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    
+    // Map Main PSX 'pharmacy' role to POS 'admin' role
+    const mappedRole = decoded.role === 'pharmacy' ? 'admin' : decoded.role;
+
+    return {
+      user: {
+        id: decoded.userId,
+        name: decoded.name || 'User',
+        pharmacyId: decoded.pharmacyId || decoded.userId, // fallback if pharmacyId isn't explicitly set
+        branchId: decoded.branchId || null,
+        storeId: decoded.storeId || null,
+        role: mappedRole,
+      },
+      expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    };
+  } catch (error) {
+    return null;
+  }
+}
 
 export async function requirePageSession(): Promise<Session> {
-  const session = await auth();
+  let session = await auth();
+  if (!session?.user) {
+    session = await getSsoSession();
+  }
   if (!session?.user) redirect("/login");
   return session;
 }
@@ -40,7 +74,10 @@ export class ApiAuthError extends Error {
 }
 
 export async function requireApiSession(): Promise<Session> {
-  const session = await auth();
+  let session = await auth();
+  if (!session?.user) {
+    session = await getSsoSession();
+  }
   if (!session?.user) throw new ApiAuthError(401, "Not authenticated");
   return session;
 }

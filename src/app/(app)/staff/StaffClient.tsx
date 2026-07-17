@@ -6,7 +6,7 @@ import StaffDirectory from "./components/StaffDirectory";
 import ShiftManagement from "./components/ShiftManagement";
 import StaffSettings from "./components/StaffSettings";
 
-type Role = "admin" | "staff" | "store_manager" | "store_keeper";
+type Role = "admin" | "staff" | "store_manager" | "store_keeper" | "pharmacist";
 
 const emptyForm = {
   name: "",
