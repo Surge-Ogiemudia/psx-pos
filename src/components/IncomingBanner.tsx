@@ -62,36 +62,63 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
     if (selected.size === 0) return;
     setSubmitting(true);
     setMessage(null);
-    const res = await fetch("/api/store-transfers/receive", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [scopeParam]: scopeId, transferIds: [...selected] }),
-    });
-    const data = await res.json();
-    setSubmitting(false);
-    if (!res.ok) {
-      setMessage({ type: "error", text: data.error || "Failed to receive transfers" });
-      return;
+    const ids = Array.from(selected);
+    let totalReceived = 0;
+    try {
+      for (let i = 0; i < ids.length; i += 50) {
+        const chunk = ids.slice(i, i + 50);
+        const res = await fetch("/api/store-transfers/receive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [scopeParam]: scopeId, transferIds: chunk }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setMessage({ type: "error", text: data.error || `Failed after receiving ${totalReceived}` });
+          setSubmitting(false);
+          await load();
+          return;
+        }
+        totalReceived += (data.received || 0);
+      }
+      setMessage({ type: "success", text: `Received ${totalReceived} transfer${totalReceived === 1 ? "" : "s"}.` });
+    } catch (err) {
+      setMessage({ type: "error", text: "Network error during receive" });
     }
-    setMessage({ type: "success", text: `Received ${data.received} transfer${data.received === 1 ? "" : "s"}.` });
+    setSubmitting(false);
     await load();
   }
 
   async function receiveAllItems() {
     setSubmitting(true);
     setMessage(null);
-    const res = await fetch("/api/store-transfers/receive", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [scopeParam]: scopeId, receiveAll: true }),
-    });
-    const data = await res.json();
-    setSubmitting(false);
-    if (!res.ok) {
-      setMessage({ type: "error", text: data.error || "Failed to receive transfers" });
-      return;
+    let totalReceived = 0;
+    try {
+      while (true) {
+        const res = await fetch("/api/store-transfers/receive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [scopeParam]: scopeId, receiveAll: true, limit: 50 }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setMessage({ type: "error", text: data.error || `Failed after receiving ${totalReceived}` });
+          break;
+        }
+        if (!data.received || data.received === 0) {
+          if (totalReceived === 0) {
+            setMessage({ type: "error", text: "No pending transfers found" });
+          } else {
+            setMessage({ type: "success", text: `Received all ${totalReceived} transfer${totalReceived === 1 ? "" : "s"}.` });
+          }
+          break;
+        }
+        totalReceived += data.received;
+      }
+    } catch (err) {
+      setMessage({ type: "error", text: "Network error during bulk pull" });
     }
-    setMessage({ type: "success", text: `Received all ${data.received} transfer${data.received === 1 ? "" : "s"}.` });
+    setSubmitting(false);
     setExpanded(false);
     await load();
   }

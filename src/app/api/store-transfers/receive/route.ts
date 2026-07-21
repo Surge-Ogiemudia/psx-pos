@@ -41,10 +41,11 @@ export async function POST(request: NextRequest) {
       const pendingQuery = destinationType === "store" 
         ? { pharmacyId, toStoreId, status: "in_transit" as const }
         : { pharmacyId, toBranchId, status: "in_transit" as const };
-      const allPending = await StoreTransfer.find(pendingQuery, { _id: 1 }).lean();
+      const limit = typeof body.limit === "number" ? body.limit : 10000;
+      const allPending = await StoreTransfer.find(pendingQuery, { _id: 1 }).limit(limit).lean();
       transferIds = allPending.map((t: any) => t._id.toString());
       if (transferIds.length === 0) {
-        return NextResponse.json({ error: "No pending transfers found" }, { status: 400 });
+        return NextResponse.json({ received: 0 }, { status: 200 });
       }
     }
 
