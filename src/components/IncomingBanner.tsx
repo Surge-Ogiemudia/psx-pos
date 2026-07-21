@@ -115,7 +115,22 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
       )}
 
       {expanded && hasPending && (
-        <div className="absolute right-0 top-full z-10 mt-2 w-80 rounded-lg border border-amber-300 bg-amber-50 p-3 text-left text-sm shadow-lg">
+        <div className="absolute right-0 top-full z-10 mt-2 w-80 max-h-[80vh] overflow-y-auto rounded-lg border border-amber-300 bg-amber-50 p-3 text-left text-sm shadow-lg">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="font-semibold text-amber-900">{transfers.length} item{transfers.length === 1 ? "" : "s"} incoming</span>
+            <button
+              onClick={() => {
+                if (selected.size === transfers.length) {
+                  setSelected(new Set());
+                } else {
+                  setSelected(new Set(transfers.map((t) => t._id)));
+                }
+              }}
+              className="text-xs font-medium text-teal-700 hover:text-teal-900"
+            >
+              {selected.size === transfers.length ? "Deselect all" : "Select all"}
+            </button>
+          </div>
           <div className="flex flex-col gap-2">
             {transfers.map((t) => (
               <label
