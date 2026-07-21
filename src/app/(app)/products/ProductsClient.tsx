@@ -123,9 +123,11 @@ const BULK_TEMPLATE =
 
 export default function ProductsClient({
   isAdmin,
+  canEditStock = false,
   branchId,
 }: {
   isAdmin: boolean;
+  canEditStock?: boolean;
   branchId: string | null;
 }) {
   const [products, setProducts] = useState<ProductJSON[]>([]);
@@ -1790,7 +1792,7 @@ export default function ProductsClient({
               )}
               <th className="px-3 py-2">Batch</th>
               <th className="px-3 py-2">Expiry</th>
-              {isAdmin && <th className="px-3 py-2">Actions</th>}
+              {(isAdmin || canEditStock) && <th className="px-3 py-2">Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -1975,7 +1977,7 @@ export default function ProductsClient({
                         {product.expiryDate ? product.expiryDate.slice(0, 10) : "—"}
                         {expiryStatus.label && <div className="text-xs">{expiryStatus.label}</div>}
                       </td>
-                      {isAdmin && (
+                      {(isAdmin || canEditStock) && (
                         <td className="relative px-3 py-2">
                           <button
                             onClick={() =>
@@ -1995,42 +1997,50 @@ export default function ProductsClient({
                               >
                                 Batches
                               </Link>
-                              <button
-                                onClick={() => {
-                                  startEdit(product);
-                                  setActionsMenuOpenId(null);
-                                }}
-                                className="block w-full px-3 py-1.5 text-left text-teal-700 hover:bg-zinc-50"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => {
-                                  openAdjustStock(product);
-                                  setActionsMenuOpenId(null);
-                                }}
-                                className="block w-full px-3 py-1.5 text-left text-teal-700 hover:bg-zinc-50"
-                              >
-                                Adjust stock
-                              </button>
-                              <button
-                                onClick={() => {
-                                  openAdjustAlertQty(product);
-                                  setActionsMenuOpenId(null);
-                                }}
-                                className="block w-full px-3 py-1.5 text-left text-teal-700 hover:bg-zinc-50"
-                              >
-                                Adjust alert qty
-                              </button>
-                              <button
-                                onClick={() => {
-                                  deleteProduct(product._id);
-                                  setActionsMenuOpenId(null);
-                                }}
-                                className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-zinc-50"
-                              >
-                                Delete
-                              </button>
+                              {isAdmin && (
+                                <button
+                                  onClick={() => {
+                                    startEdit(product);
+                                    setActionsMenuOpenId(null);
+                                  }}
+                                  className="block w-full px-3 py-1.5 text-left text-teal-700 hover:bg-zinc-50"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              {(isAdmin || canEditStock) && (
+                                <button
+                                  onClick={() => {
+                                    openAdjustStock(product);
+                                    setActionsMenuOpenId(null);
+                                  }}
+                                  className="block w-full px-3 py-1.5 text-left text-teal-700 hover:bg-zinc-50"
+                                >
+                                  Adjust stock
+                                </button>
+                              )}
+                              {isAdmin && (
+                                <button
+                                  onClick={() => {
+                                    openAdjustAlertQty(product);
+                                    setActionsMenuOpenId(null);
+                                  }}
+                                  className="block w-full px-3 py-1.5 text-left text-teal-700 hover:bg-zinc-50"
+                                >
+                                  Adjust alert qty
+                                </button>
+                              )}
+                              {isAdmin && (
+                                <button
+                                  onClick={() => {
+                                    deleteProduct(product._id);
+                                    setActionsMenuOpenId(null);
+                                  }}
+                                  className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-zinc-50"
+                                >
+                                  Delete
+                                </button>
+                              )}
                             </div>
                           )}
                         </td>
@@ -2042,7 +2052,7 @@ export default function ProductsClient({
             })}
             {visibleProducts.length === 0 && (
               <tr>
-                <td colSpan={isAdmin ? 12 : 9} className="px-3 py-6 text-center text-zinc-500">
+                <td colSpan={isAdmin ? 12 : canEditStock ? 10 : 9} className="px-3 py-6 text-center text-zinc-500">
                   No products found.
                 </td>
               </tr>
