@@ -89,18 +89,25 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
     await load();
   }
 
+  const [progressMsg, setProgressMsg] = useState<string | null>(null);
+
   async function receiveAllItems() {
     setSubmitting(true);
     setMessage(null);
     let totalReceived = 0;
+    const totalToReceive = transfers.length; // Approximate if 200+
+    
     try {
       while (true) {
+        setProgressMsg(`Receiving... ${totalReceived} items done.`);
+        
         const res = await fetch("/api/store-transfers/receive", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ [scopeParam]: scopeId, receiveAll: true, limit: 50 }),
+          body: JSON.stringify({ [scopeParam]: scopeId, receiveAll: true, limit: 20 }),
         });
         const data = await res.json();
+        
         if (!res.ok) {
           setMessage({ type: "error", text: data.error || `Failed after receiving ${totalReceived}` });
           break;
@@ -109,15 +116,17 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
           if (totalReceived === 0) {
             setMessage({ type: "error", text: "No pending transfers found" });
           } else {
-            setMessage({ type: "success", text: `Received all ${totalReceived} transfer${totalReceived === 1 ? "" : "s"}.` });
+            setMessage({ type: "success", text: `Success! Received all ${totalReceived} items perfectly.` });
           }
           break;
         }
         totalReceived += data.received;
+        setProgressMsg(`Receiving... ${totalReceived} items done.`);
       }
     } catch (err) {
       setMessage({ type: "error", text: "Network error during bulk pull" });
     }
+    setProgressMsg(null);
     setSubmitting(false);
     setExpanded(false);
     await load();
@@ -169,7 +178,7 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
               disabled={submitting}
               className="w-full rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-60"
             >
-              {submitting ? "Receiving All..." : "Bulk Pull (Receive All)"}
+              {progressMsg ? progressMsg : "Bulk Pull (Receive All)"}
             </button>
           </div>
 
