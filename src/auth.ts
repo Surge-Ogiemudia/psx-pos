@@ -85,12 +85,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const mappedRole = user.role === 'pharmacy' ? 'admin' : user.role;
 
+        let finalPharmacyId = user.role === 'pharmacy' ? user.id : user.pharmacyId;
+        let finalBranchId = user.branchId || null;
+        let finalStoreId = user.storeId || null;
+
+        if (user.role !== 'pharmacy') {
+          const User = (await import('@/models/User')).default;
+          const localUser = await User.findById(user.id).lean();
+          if (localUser) {
+            finalPharmacyId = localUser.pharmacyId?.toString() || finalPharmacyId;
+            finalBranchId = localUser.branchId?.toString() || finalBranchId;
+            finalStoreId = localUser.storeId?.toString() || finalStoreId;
+          }
+        }
+
         return {
           id: user.id,
           name: user.name,
-          pharmacyId: user.pharmacyId,
-          branchId: null, // Depending on staff config this might need fetching, but for admin it's null
-          storeId: null,
+          pharmacyId: finalPharmacyId,
+          branchId: finalBranchId,
+          storeId: finalStoreId,
           role: mappedRole,
         };
       },
