@@ -11,8 +11,9 @@ export async function POST(request: NextRequest) {
     await dbConnect();
 
     const body = await request.json();
-    const transferIds: string[] = Array.isArray(body.transferIds) ? body.transferIds : [];
-    if (transferIds.length === 0) {
+    const receiveAll = body.receiveAll === true;
+    let transferIds: string[] = Array.isArray(body.transferIds) ? body.transferIds : [];
+    if (!receiveAll && transferIds.length === 0) {
       return NextResponse.json({ error: "Select at least one transfer to receive" }, { status: 400 });
     }
 
@@ -33,6 +34,18 @@ export async function POST(request: NextRequest) {
       pharmacyId = scope.pharmacyId;
     } else {
       return NextResponse.json({ error: "storeId or branchId is required" }, { status: 400 });
+    }
+
+    if (receiveAll) {
+      const StoreTransfer = (await import("@/models/StoreTransfer")).default;
+      const pendingQuery = destinationType === "store" 
+        ? { pharmacyId, toStoreId, status: "in_transit" as const }
+        : { pharmacyId, toBranchId, status: "in_transit" as const };
+      const allPending = await StoreTransfer.find(pendingQuery, { _id: 1 }).lean();
+      transferIds = allPending.map((t: any) => t._id.toString());
+      if (transferIds.length === 0) {
+        return NextResponse.json({ error: "No pending transfers found" }, { status: 400 });
+      }
     }
 
     const dbSession = await mongoose.startSession();

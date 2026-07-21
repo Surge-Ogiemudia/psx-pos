@@ -77,6 +77,25 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
     await load();
   }
 
+  async function receiveAllItems() {
+    setSubmitting(true);
+    setMessage(null);
+    const res = await fetch("/api/store-transfers/receive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [scopeParam]: scopeId, receiveAll: true }),
+    });
+    const data = await res.json();
+    setSubmitting(false);
+    if (!res.ok) {
+      setMessage({ type: "error", text: data.error || "Failed to receive transfers" });
+      return;
+    }
+    setMessage({ type: "success", text: `Received all ${data.received} transfer${data.received === 1 ? "" : "s"}.` });
+    setExpanded(false);
+    await load();
+  }
+
   const hasPending = transfers.length > 0;
 
   return (
@@ -101,7 +120,7 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
           </svg>
           {hasPending && (
             <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white">
-              {transfers.length}
+              {transfers.length === 200 ? "200+" : transfers.length}
             </span>
           )}
         </span>
@@ -116,8 +135,21 @@ export default function IncomingBanner({ scope, scopeId }: { scope: "store" | "b
 
       {expanded && hasPending && (
         <div className="absolute right-0 top-full z-10 mt-2 w-80 max-h-[80vh] overflow-y-auto rounded-lg border border-amber-300 bg-amber-50 p-3 text-left text-sm shadow-lg">
+          <div className="mb-3 border-b border-amber-200 pb-3">
+            <p className="mb-2 text-sm text-zinc-600">You can instantly receive all pending items without reviewing them.</p>
+            <button
+              onClick={receiveAllItems}
+              disabled={submitting}
+              className="w-full rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-60"
+            >
+              {submitting ? "Receiving All..." : "Bulk Pull (Receive All)"}
+            </button>
+          </div>
+
           <div className="mb-2 flex items-center justify-between">
-            <span className="font-semibold text-amber-900">{transfers.length} item{transfers.length === 1 ? "" : "s"} incoming</span>
+            <span className="font-semibold text-amber-900">
+              Or review {transfers.length === 200 ? "latest 200" : transfers.length} items:
+            </span>
             <button
               onClick={() => {
                 if (selected.size === transfers.length) {
