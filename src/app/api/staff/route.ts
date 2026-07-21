@@ -75,6 +75,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
     }
 
+    const existing = await User.findOne({ phoneNumber });
+    if (existing) {
+      return NextResponse.json({ error: "Phone number already in use" }, { status: 409 });
+    }
+
     // Forward the request to Main PSX API
     const mainPsxUrl = getMainPsxUrl();
 
@@ -103,6 +108,24 @@ export async function POST(request: NextRequest) {
     if (!psxResponse.ok) {
       return NextResponse.json({ error: data.error || "Failed to create staff in Main PSX" }, { status: psxResponse.status });
     }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    
+    // Save to local POS database so branchId is accessible for POS login
+    const user = await User.create({
+      _id: data.user.id, // Keep IDs perfectly in sync
+      name,
+      role,
+      phoneNumber,
+      passwordHash,
+      pharmacyId: session.user.pharmacyId,
+      branchId: body.branchId || null,
+      storeId: body.storeId || null,
+      employmentType: employmentType || "full_time",
+      salaryType: salaryType || "monthly",
+      salaryAmount: salaryAmount || 0,
+      status: "active",
+    });
 
     return NextResponse.json(
       { staff: data.user },
