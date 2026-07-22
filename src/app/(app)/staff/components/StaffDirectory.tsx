@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import type { StaffJSON, StoreJSON, StaffCredentialStatusJSON } from "@/lib/types";
+import type { StaffJSON, StoreJSON, StaffCredentialStatusJSON, BranchJSON } from "@/lib/types";
 import StaffCredentialsModal from "./StaffCredentialsModal";
 
 type Role = "admin" | "staff" | "store_manager" | "store_keeper" | "pharmacist";
@@ -17,6 +17,7 @@ const ROLE_LABEL: Record<Role, string> = {
 interface StaffDirectoryProps {
   staff: StaffJSON[];
   stores: StoreJSON[];
+  branches: BranchJSON[];
   showForm: boolean;
   setShowForm: (v: boolean) => void;
   form: any;
@@ -33,6 +34,7 @@ interface StaffDirectoryProps {
 export default function StaffDirectory({
   staff,
   stores,
+  branches,
   showForm,
   setShowForm,
   form,
@@ -131,6 +133,20 @@ export default function StaffDirectory({
               {stores.map((store) => (
                 <option key={store._id} value={store._id}>
                   {store.storeName}
+                </option>
+              ))}
+            </select>
+          )}
+          {form.role === "staff" && (
+            <select
+              value={form.branchId || ""}
+              onChange={(e) => setForm({ ...form, branchId: e.target.value })}
+              className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            >
+              <option value="">Default to active branch...</option>
+              {branches.map((branch) => (
+                <option key={branch._id} value={branch._id}>
+                  {branch.branchName}
                 </option>
               ))}
             </select>
