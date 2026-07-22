@@ -1,12 +1,14 @@
 import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import { dbConnect } from "@/lib/mongodb";
 import User from "@/models/User";
 import { getMainPsxUrl } from "@/lib/mainPsx";
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
+const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
 
 class InvalidCredentialsError extends CredentialsSignin {
   code = "invalid-credentials";
@@ -26,10 +28,78 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
       credentials: {
+        ssoToken: { label: "SSO Token", type: "text" },
         phoneNumber: { label: "Phone number", type: "text" },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        // SSO Token authentication path (used by Terminal iframe bridge)
+        if (credentials?.ssoToken) {
+          try {
+            const decoded = jwt.verify(String(credentials.ssoToken), JWT_SECRET) as {
+              userId: string;
+              role: string;
+              email?: string;
+              pharmacyId?: string;
+            };
+
+            await dbConnect();
+
+            const mappedRole = decoded.role === 'pharmacy' ? 'admin' : decoded.role;
+            let finalPharmacyId = decoded.role === 'pharmacy' ? decoded.userId : (decoded.pharmacyId || decoded.userId);
+            let finalBranchId: string | null = null;
+            let finalStoreId: string | null = null;
+
+            if (decoded.role !== 'pharmacy') {
+              const localUser = await User.findById(decoded.userId).lean();
+              if (localUser) {
+                finalPharmacyId = localUser.pharmacyId?.toString() || finalPharmacyId;
+                finalBranchId = localUser.branchId?.toString() || null;
+                finalStoreId = localUser.storeId?.toString() || null;
+              }
+            }
+
+            // Lazy provision pharmacy, branch, store for pharmacy role (same as password flow)
+            if (decoded.role === 'pharmacy') {
+              let pharmacy = await Pharmacy.findById(decoded.userId);
+              if (!pharmacy) {
+                pharmacy = await Pharmacy.create({
+                  _id: decoded.userId,
+                  pharmacyName: "My Pharmacy",
+                  slug: decoded.userId.slice(-6),
+                });
+              }
+              let branch = await Branch.findOne({ pharmacyId: decoded.userId });
+              if (!branch) {
+                branch = await Branch.create({
+                  pharmacyId: decoded.userId,
+                  branchName: 'Main Branch',
+                  location: 'Headquarters',
+                });
+              }
+              let store = await Store.findOne({ pharmacyId: decoded.userId });
+              if (!store) {
+                store = await Store.create({
+                  pharmacyId: decoded.userId,
+                  storeName: 'Main Bulk Store',
+                  location: 'Headquarters',
+                });
+              }
+            }
+
+            return {
+              id: decoded.userId,
+              name: decoded.email || 'User',
+              pharmacyId: finalPharmacyId,
+              branchId: finalBranchId,
+              storeId: finalStoreId,
+              role: mappedRole,
+            };
+          } catch {
+            throw new InvalidCredentialsError();
+          }
+        }
+
         const phoneNumber = String(credentials?.phoneNumber ?? "").trim();
         const password = String(credentials?.password ?? "");
         if (!phoneNumber || !password) throw new InvalidCredentialsError();
