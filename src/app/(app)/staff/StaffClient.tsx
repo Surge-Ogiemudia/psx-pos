@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { StaffJSON, StoreJSON, StaffCredentialStatusJSON } from "@/lib/types";
+import type { StaffJSON, StoreJSON, StaffCredentialStatusJSON, BranchJSON } from "@/lib/types";
 import StaffDirectory from "./components/StaffDirectory";
 import ShiftManagement from "./components/ShiftManagement";
 import StaffSettings from "./components/StaffSettings";
@@ -14,6 +14,7 @@ const emptyForm = {
   role: "staff" as Role,
   phoneNumber: "",
   password: "",
+  branchId: "",
   storeId: "",
   employmentType: "full_time",
   salaryType: "monthly",
@@ -26,6 +27,7 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
   const [activeTab, setActiveTab] = useState<Tab>("directory");
   const [staff, setStaff] = useState<StaffJSON[]>([]);
   const [stores, setStores] = useState<StoreJSON[]>([]);
+  const [branches, setBranches] = useState<BranchJSON[]>([]);
   const [credentials, setCredentials] = useState<StaffCredentialStatusJSON[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -49,6 +51,9 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
       fetch("/api/stores")
         .then((res) => (res.ok ? res.json() : { stores: [] }))
         .then((data) => setStores(data.stores || []));
+      fetch("/api/branches")
+        .then((res) => (res.ok ? res.json() : { branches: [] }))
+        .then((data) => setBranches(data.branches || []));
     }, 0);
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,10 +61,15 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
 
   async function createStaff() {
     setError(null);
+    const payload = {
+      ...form,
+      branchId: form.branchId || branchId, // fallback to active branch if not specified
+    };
+
     const res = await fetch("/api/staff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, branchId }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -157,6 +167,7 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
         <StaffDirectory
           staff={staff}
           stores={stores}
+          branches={branches}
           showForm={showForm}
           setShowForm={setShowForm}
           form={form}
