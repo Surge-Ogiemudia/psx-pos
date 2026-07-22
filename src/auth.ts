@@ -41,6 +41,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               role: string;
               email?: string;
               pharmacyId?: string;
+              name?: string;
             };
 
             await dbConnect();
@@ -49,6 +50,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             let finalPharmacyId = decoded.role === 'pharmacy' ? decoded.userId : (decoded.pharmacyId || decoded.userId);
             let finalBranchId: string | null = null;
             let finalStoreId: string | null = null;
+            let finalName = decoded.name || decoded.email || 'User';
 
             if (decoded.role !== 'pharmacy') {
               const localUser = await User.findById(decoded.userId).lean();
@@ -56,6 +58,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 finalPharmacyId = localUser.pharmacyId?.toString() || finalPharmacyId;
                 finalBranchId = localUser.branchId?.toString() || null;
                 finalStoreId = localUser.storeId?.toString() || null;
+                if (localUser.name) finalName = localUser.name;
               }
             }
 
@@ -89,7 +92,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
             return {
               id: decoded.userId,
-              name: decoded.email || 'User',
+              name: finalName,
               pharmacyId: finalPharmacyId,
               branchId: finalBranchId,
               storeId: finalStoreId,
