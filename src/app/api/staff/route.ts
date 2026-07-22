@@ -56,14 +56,17 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const {
-      name,
+      name: rawName,
       role,
-      phoneNumber,
+      phoneNumber: rawPhoneNumber,
       password,
       employmentType,
       salaryType,
       salaryAmount,
     } = body;
+
+    const name = typeof rawName === "string" ? rawName.trim() : "";
+    const phoneNumber = typeof rawPhoneNumber === "string" ? rawPhoneNumber.trim() : "";
 
     if (!name || !phoneNumber || !password) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
