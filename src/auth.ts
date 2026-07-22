@@ -42,6 +42,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               email?: string;
               pharmacyId?: string;
               name?: string;
+              businessName?: string;
             };
 
             await dbConnect();
@@ -62,31 +63,41 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               }
             }
 
-            // Lazy provision pharmacy, branch, store for pharmacy role (same as password flow)
-            if (decoded.role === 'pharmacy') {
-              let pharmacy = await Pharmacy.findById(decoded.userId);
+            // Lazy provision pharmacy, branch, store
+            if (finalPharmacyId) {
+              let pharmacy = await Pharmacy.findById(finalPharmacyId);
               if (!pharmacy) {
                 pharmacy = await Pharmacy.create({
-                  _id: decoded.userId,
-                  pharmacyName: "My Pharmacy",
-                  slug: decoded.userId.slice(-6),
+                  _id: finalPharmacyId,
+                  pharmacyName: decoded.businessName || "My Pharmacy",
+                  slug: finalPharmacyId.slice(-6),
                 });
+              } else if (pharmacy.pharmacyName === "My Pharmacy" || pharmacy.pharmacyName === "Pharmacy") {
+                // If it was previously borked due to SSO without businessName, fix it
+                if (decoded.businessName) {
+                  pharmacy.pharmacyName = decoded.businessName;
+                  await pharmacy.save();
+                }
               }
-              let branch = await Branch.findOne({ pharmacyId: decoded.userId });
-              if (!branch) {
-                branch = await Branch.create({
-                  pharmacyId: decoded.userId,
-                  branchName: 'Main Branch',
-                  location: 'Headquarters',
-                });
-              }
-              let store = await Store.findOne({ pharmacyId: decoded.userId });
-              if (!store) {
-                store = await Store.create({
-                  pharmacyId: decoded.userId,
-                  storeName: 'Main Bulk Store',
-                  location: 'Headquarters',
-                });
+
+              // Only lazily provision branches/stores if admin is logging in
+              if (decoded.role === 'pharmacy') {
+                let branch = await Branch.findOne({ pharmacyId: finalPharmacyId });
+                if (!branch) {
+                  branch = await Branch.create({
+                    pharmacyId: finalPharmacyId,
+                    branchName: 'Main Branch',
+                    location: 'Headquarters',
+                  });
+                }
+                let store = await Store.findOne({ pharmacyId: finalPharmacyId });
+                if (!store) {
+                  store = await Store.create({
+                    pharmacyId: finalPharmacyId,
+                    storeName: 'Main Bulk Store',
+                    location: 'Headquarters',
+                  });
+                }
               }
             }
 
