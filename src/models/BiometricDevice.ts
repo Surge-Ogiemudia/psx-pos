@@ -7,6 +7,7 @@ const BiometricDeviceSchema = new Schema(
     serialNumber: { type: String, required: true, unique: true },
     name: { type: String, required: true }, // e.g. "Front Door MB460"
     lastSeen: { type: Date, default: null },
+    lastLog: { type: String, default: null },
   },
   { timestamps: true }
 );

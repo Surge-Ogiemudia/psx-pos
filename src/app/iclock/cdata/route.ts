@@ -4,6 +4,24 @@ import BiometricDevice from "@/models/BiometricDevice";
 import User from "@/models/User";
 import Attendance from "@/models/Attendance";
 
+export async function GET(req: NextRequest) {
+  console.log("ZKTeco ADMS GET Init:", req.url);
+  return new NextResponse(
+    "GET OPTION FROM: " + req.nextUrl.searchParams.get("SN") + "\n" +
+    "Stamp=9999\n" +
+    "OpStamp=9999\n" +
+    "ErrorDelay=60\n" +
+    "Delay=30\n" +
+    "TransTimes=00:00;14:00\n" +
+    "TransInterval=1\n" +
+    "TransFlag=1111000000\n" +
+    "TimeZone=1\n" +
+    "Realtime=1\n" +
+    "Encrypt=0",
+    { status: 200 }
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
     await dbConnect();
@@ -12,6 +30,10 @@ export async function POST(req: NextRequest) {
       return new NextResponse("UNKNOWN DEVICE", { status: 400 });
     }
 
+    // 2. Parse raw body
+    const textBody = await req.text();
+    console.log(`ZKTeco push from ${sn}:\n${textBody}`);
+
     // 1. Find device
     const device = await BiometricDevice.findOne({ serialNumber: sn });
     if (!device) {
@@ -19,12 +41,10 @@ export async function POST(req: NextRequest) {
       return new NextResponse("OK", { status: 200 }); // Still return OK to avoid retry loops on unconfigured devices
     }
 
-    // Update lastSeen
+    // Update lastSeen and lastLog
     device.lastSeen = new Date();
+    device.lastLog = textBody.substring(0, 500); // store first 500 chars for debugging
     await device.save();
-
-    // 2. Parse raw body
-    const textBody = await req.text();
     // Format is typically: USER_PIN\tDATE_TIME\tSTATUS\tVERIFY_MODE\t...
     const lines = textBody.split("\n").filter((l) => l.trim().length > 0);
 

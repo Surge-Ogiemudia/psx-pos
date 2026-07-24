@@ -8,7 +8,7 @@ export default function StaffSettings({ branches }: { branches: BranchJSON[] }) 
   const [saving, setSaving] = useState(false);
 
   // Biometric Devices
-  const [devices, setDevices] = useState<{ _id: string; name: string; serialNumber: string; branchId: string; lastSeen: string | null }[]>([]);
+  const [devices, setDevices] = useState<{ _id: string; name: string; serialNumber: string; branchId: string; lastSeen: string | null; lastLog?: string | null }[]>([]);
   const [newDevice, setNewDevice] = useState({ name: "", serialNumber: "", branchId: "" });
   const [savingDevice, setSavingDevice] = useState(false);
 
@@ -166,19 +166,26 @@ export default function StaffSettings({ branches }: { branches: BranchJSON[] }) 
           ) : (
             <div className="space-y-3">
               {devices.map((d) => (
-                <div key={d._id} className="flex items-center justify-between border-b border-zinc-100 pb-3 last:border-0 last:pb-0">
-                  <div>
-                    <p className="font-medium text-zinc-800">{d.name}</p>
-                    <p className="text-xs text-zinc-500">SN: {d.serialNumber}</p>
+                <div key={d._id} className="border-b border-zinc-100 pb-3 last:border-0 last:pb-0">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-zinc-800">{d.name}</p>
+                      <p className="text-xs text-zinc-500">SN: {d.serialNumber}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-zinc-600">
+                        Branch: {branches.find(b => b._id === d.branchId)?.branchName || "Unknown"}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        Last seen: {d.lastSeen ? new Date(d.lastSeen).toLocaleString() : "Never"}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm text-zinc-600">
-                      Branch: {branches.find(b => b._id === d.branchId)?.branchName || "Unknown"}
-                    </p>
-                    <p className="text-xs text-zinc-500">
-                      Last seen: {d.lastSeen ? new Date(d.lastSeen).toLocaleString() : "Never"}
-                    </p>
-                  </div>
+                  {d.lastLog && (
+                    <div className="mt-2 rounded bg-zinc-800 p-2 text-xs text-green-400 font-mono break-all whitespace-pre-wrap">
+                      Last payload received:<br/>{d.lastLog}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
