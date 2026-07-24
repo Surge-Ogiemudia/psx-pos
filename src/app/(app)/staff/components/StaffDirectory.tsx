@@ -96,6 +96,12 @@ export default function StaffDirectory({
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
+          <input
+            placeholder="ZKTeco Device ID (Optional)"
+            value={form.employeeId || ""}
+            onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
+            className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+          />
           <select
             value={form.employmentType}
             onChange={(e) => setForm({ ...form, employmentType: e.target.value })}
@@ -167,6 +173,7 @@ export default function StaffDirectory({
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2">Phone</th>
               <th className="px-3 py-2">Role</th>
+              <th className="px-3 py-2">Device ID</th>
               <th className="px-3 py-2">Details</th>
               <th className="px-3 py-2">Branch / Store</th>
               <th className="px-3 py-2">Actions</th>
@@ -176,7 +183,7 @@ export default function StaffDirectory({
             {groupStaff(staff).map((section) => (
               <Fragment key={section.label}>
                 <tr className="bg-zinc-50">
-                  <td colSpan={6} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  <td colSpan={7} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                     {section.label} ({section.members.length})
                   </td>
                 </tr>
@@ -198,6 +205,7 @@ export default function StaffDirectory({
                         <span className="text-zinc-700">{ROLE_LABEL[member.role]}</span>
                       )}
                     </td>
+                    <td className="px-3 py-2 text-zinc-600">{member.employeeId || "—"}</td>
                     <td className="px-3 py-2 text-zinc-600">
                       <div className="capitalize">
                         {(member.employmentType || "full_time").replace("_", " ")}
@@ -232,7 +240,7 @@ export default function StaffDirectory({
             ))}
             {staff.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-zinc-500">
+                <td colSpan={7} className="px-3 py-6 text-center text-zinc-500">
                   No staff accounts yet.
                 </td>
               </tr>

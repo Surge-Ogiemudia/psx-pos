@@ -39,6 +39,7 @@ export async function GET() {
       name: member.name,
       phoneNumber: member.phoneNumber,
       role: member.role,
+      employeeId: member.employeeId,
       branchName: member.branchId ? branchNames.get(String(member.branchId)) ?? null : null,
       storeName: member.storeId ? storeNames.get(String(member.storeId)) ?? null : null,
     }));
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
       employmentType,
       salaryType,
       salaryAmount,
+      employeeId,
     } = body;
 
     const name = typeof rawName === "string" ? rawName.trim() : "";
@@ -103,6 +105,7 @@ export async function POST(request: NextRequest) {
         employmentType: employmentType || "full_time",
         salaryType: salaryType || "monthly",
         salaryAmount: salaryAmount || 0,
+        employeeId: employeeId || null,
       })
     });
 
@@ -127,6 +130,7 @@ export async function POST(request: NextRequest) {
       employmentType: employmentType || "full_time",
       salaryType: salaryType || "monthly",
       salaryAmount: salaryAmount || 0,
+      employeeId: employeeId || null,
       status: "active",
     });
 
