@@ -28,18 +28,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const device = await BiometricDevice.create({
-      pharmacyId: session.user.pharmacyId,
-      branchId,
-      serialNumber: serialNumber.trim(),
-      name: name.trim(),
-    });
+    const device = await BiometricDevice.findOneAndUpdate(
+      { serialNumber: serialNumber.trim() },
+      {
+        $set: {
+          pharmacyId: session.user.pharmacyId,
+          branchId,
+          name: name.trim(),
+        }
+      },
+      { new: true, upsert: true }
+    );
 
     return NextResponse.json(device);
-  } catch (error: any) {
-    if (error.code === 11000) {
-      return NextResponse.json({ error: "Device with this serial number already exists" }, { status: 400 });
-    }
+  } catch (error) {
     return handleApiError(error);
   }
 }
