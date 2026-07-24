@@ -3,6 +3,7 @@ import { dbConnect } from "@/lib/mongodb";
 import BiometricDevice from "@/models/BiometricDevice";
 import User from "@/models/User";
 import Attendance from "@/models/Attendance";
+import PunchLog from "@/models/PunchLog";
 
 export async function GET(req: NextRequest) {
   console.log("ZKTeco ADMS GET Init:", req.url);
@@ -56,6 +57,9 @@ export async function POST(req: NextRequest) {
         const punchStatusStr = parts.length >= 3 ? parts[2].trim() : "255";
         const punchStatus = isNaN(parseInt(punchStatusStr, 10)) ? 255 : parseInt(punchStatusStr, 10);
         
+        const verifyModeStr = parts.length >= 4 ? parts[3].trim() : "20";
+        const verifyMode = isNaN(parseInt(verifyModeStr, 10)) ? 20 : parseInt(verifyModeStr, 10);
+        
         // Find user
         const user = await User.findOne({ 
           pharmacyId: device.pharmacyId, 
@@ -71,6 +75,17 @@ export async function POST(req: NextRequest) {
             // If we use 'Z', the server thinks it's UTC and the browser adds 1 hour.
             // Using '+01:00' tells the server the exact local time of the punch.
             const recordTime = new Date(`${datePart}T${timePart}+01:00`); 
+            
+            // Immediately log the raw punch
+            await PunchLog.create({
+              pharmacyId: device.pharmacyId,
+              branchId: device.branchId,
+              userId: user._id,
+              deviceSerialNumber: device.serialNumber,
+              punchTime: recordTime,
+              punchStatus: punchStatus,
+              verifyMode: verifyMode
+            });
             
             const existingAttendance = await Attendance.findOne({
               pharmacyId: device.pharmacyId,
