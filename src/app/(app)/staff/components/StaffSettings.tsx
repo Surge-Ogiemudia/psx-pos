@@ -173,7 +173,7 @@ export default function StaffSettings({ branches }: { branches: BranchJSON[] }) 
                   </div>
                   <div className="text-right">
                     <p className="text-sm text-zinc-600">
-                      Branch: {branches.find(b => b._id === d.branchId)?.name || "Unknown"}
+                      Branch: {branches.find(b => b._id === d.branchId)?.branchName || "Unknown"}
                     </p>
                     <p className="text-xs text-zinc-500">
                       Last seen: {d.lastSeen ? new Date(d.lastSeen).toLocaleString() : "Never"}
@@ -209,7 +209,7 @@ export default function StaffSettings({ branches }: { branches: BranchJSON[] }) 
             >
               <option value="">Select Branch</option>
               {branches.map(b => (
-                <option key={b._id} value={b._id}>{b.name}</option>
+                <option key={b._id} value={b._id}>{b.branchName}</option>
               ))}
             </select>
           </div>
