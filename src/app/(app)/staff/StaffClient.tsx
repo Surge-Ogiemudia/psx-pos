@@ -187,7 +187,7 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
 
       {activeTab === "attendance" && <AttendanceReport branchId={branchId} staff={staff} />}
 
-      {activeTab === "settings" && <StaffSettings />}
+      {activeTab === "settings" && <StaffSettings branches={branches} />}
     </div>
   );
 }

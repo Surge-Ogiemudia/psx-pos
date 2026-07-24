@@ -3,9 +3,14 @@
 import { useEffect, useState } from "react";
 import type { PharmacySettingsJSON, ShiftSettingsJSON } from "@/lib/types";
 
-export default function StaffSettings() {
+export default function StaffSettings({ branches }: { branches: BranchJSON[] }) {
   const [settings, setSettings] = useState<PharmacySettingsJSON | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Biometric Devices
+  const [devices, setDevices] = useState<{ _id: string; name: string; serialNumber: string; branchId: string; lastSeen: string | null }[]>([]);
+  const [newDevice, setNewDevice] = useState({ name: "", serialNumber: "", branchId: "" });
+  const [savingDevice, setSavingDevice] = useState(false);
 
   useEffect(() => {
     fetch("/api/pharmacy/settings")
@@ -15,7 +20,33 @@ export default function StaffSettings() {
           setSettings(data);
         }
       });
+
+    fetch("/api/biometric-devices")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setDevices(data));
   }, []);
+
+  async function addDevice() {
+    if (!newDevice.name || !newDevice.serialNumber || !newDevice.branchId) {
+      alert("Please fill all device fields");
+      return;
+    }
+    setSavingDevice(true);
+    const res = await fetch("/api/biometric-devices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newDevice),
+    });
+    setSavingDevice(false);
+    if (res.ok) {
+      const added = await res.json();
+      setDevices([...devices, added]);
+      setNewDevice({ name: "", serialNumber: "", branchId: "" });
+    } else {
+      const data = await res.json();
+      alert(data.error || "Failed to add device");
+    }
+  }
 
   async function saveSettings() {
     if (!settings) return;
@@ -122,6 +153,76 @@ export default function StaffSettings() {
         >
           {saving ? "Saving..." : "Save Settings"}
         </button>
+      </div>
+      <div className="mt-8 border-t border-zinc-200 pt-8">
+        <h2 className="mb-4 text-lg font-semibold text-zinc-900">ZKTeco Biometric Devices</h2>
+        <p className="mb-6 text-sm text-zinc-600">
+          Register ADMS-compatible biometric devices to receive live attendance pushes.
+        </p>
+
+        <div className="mb-6 space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+          {devices.length === 0 ? (
+            <p className="text-sm text-zinc-500">No devices registered yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {devices.map((d) => (
+                <div key={d._id} className="flex items-center justify-between border-b border-zinc-100 pb-3 last:border-0 last:pb-0">
+                  <div>
+                    <p className="font-medium text-zinc-800">{d.name}</p>
+                    <p className="text-xs text-zinc-500">SN: {d.serialNumber}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-zinc-600">
+                      Branch: {branches.find(b => b._id === d.branchId)?.name || "Unknown"}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      Last seen: {d.lastSeen ? new Date(d.lastSeen).toLocaleString() : "Never"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-4 rounded-lg border border-zinc-200 bg-zinc-50 p-5">
+          <h3 className="text-sm font-semibold text-zinc-900">Add New Device</h3>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <input
+              type="text"
+              placeholder="Device Name (e.g., Front Door)"
+              value={newDevice.name}
+              onChange={(e) => setNewDevice({ ...newDevice, name: e.target.value })}
+              className="rounded border border-zinc-300 px-3 py-2 text-sm"
+            />
+            <input
+              type="text"
+              placeholder="Serial Number (e.g., TTQ...)"
+              value={newDevice.serialNumber}
+              onChange={(e) => setNewDevice({ ...newDevice, serialNumber: e.target.value })}
+              className="rounded border border-zinc-300 px-3 py-2 text-sm"
+            />
+            <select
+              value={newDevice.branchId}
+              onChange={(e) => setNewDevice({ ...newDevice, branchId: e.target.value })}
+              className="rounded border border-zinc-300 px-3 py-2 text-sm"
+            >
+              <option value="">Select Branch</option>
+              {branches.map(b => (
+                <option key={b._id} value={b._id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={addDevice}
+              disabled={savingDevice}
+              className="rounded bg-zinc-800 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+            >
+              {savingDevice ? "Adding..." : "Add Device"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
