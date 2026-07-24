@@ -43,6 +43,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         stores={canSwitchStore ? stores : []}
         activeStoreId={activeStoreId}
         scopeLabel={scopeLabel}
+        allowWebClockIn={pharmacy?.attendanceSettings?.allowWebClockIn !== false}
       />
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">{children}</main>
     </div>

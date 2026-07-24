@@ -13,7 +13,6 @@ const RETAIL_LINKS = [
   { href: "/dispensary", label: "Dispensary" },
   { href: "/products", label: "Catalog" },
   { href: "/reports", label: "Reports" },
-  { href: "/clockin", label: "Clock In" },
 ];
 
 const ADMIN_LINKS = [
@@ -49,6 +48,7 @@ export default function NavBar({
   stores: StoreOption[];
   activeStoreId: string | null;
   scopeLabel?: string | null;
+  allowWebClockIn?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -58,6 +58,7 @@ export default function NavBar({
   const [isEmrOpen, setIsEmrOpen] = useState(false);
   const links = [
     ...(userRole === "admin" || userRole === "staff" ? RETAIL_LINKS : []),
+    ...(allowWebClockIn && (userRole === "admin" || userRole === "staff") ? [{ href: "/clockin", label: "Clock In" }] : []),
     ...(userRole === "admin" ? ADMIN_LINKS : []),
     ...(userRole === "admin" || userRole === "store_manager" || userRole === "store_keeper" ? STORE_LINKS : []),
   ];

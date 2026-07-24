@@ -31,6 +31,9 @@ const PharmacySchema = new Schema(
       lateDeductionAmount: { type: Number, default: 0 },
       absenceDeductionType: { type: String, enum: ["full_day", "half_day", "none"], default: "full_day" },
     },
+    attendanceSettings: {
+      allowWebClockIn: { type: Boolean, default: true },
+    },
   },
   { timestamps: true }
 );
