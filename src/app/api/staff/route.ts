@@ -26,23 +26,34 @@ export async function GET() {
     const staffFromPsx = psxResponse.ok ? data.staff : [];
 
     // Admin is pharmacy-wide: see the whole staff roster, not just one branch.
-    const [branches, stores] = await Promise.all([
+    const [branches, stores, localUsers] = await Promise.all([
       Branch.find({ pharmacyId: session.user.pharmacyId }).select("branchName").lean(),
       Store.find({ pharmacyId: session.user.pharmacyId }).select("storeName").lean(),
+      User.find({ pharmacyId: session.user.pharmacyId }).select("phoneNumber employeeId branchId storeId employmentType salaryType salaryAmount").lean()
     ]);
 
     const branchNames = new Map(branches.map((b) => [String(b._id), b.branchName]));
     const storeNames = new Map(stores.map((s) => [String(s._id), s.storeName]));
+    const localUsersByPhone = new Map(localUsers.map((u) => [u.phoneNumber, u]));
 
-    const enriched = staffFromPsx.map((member: any) => ({
-      _id: member.id, // Map Main PSX id back to _id for POS UI
-      name: member.name,
-      phoneNumber: member.phoneNumber,
-      role: member.role,
-      employeeId: member.employeeId,
-      branchName: member.branchId ? branchNames.get(String(member.branchId)) ?? null : null,
-      storeName: member.storeId ? storeNames.get(String(member.storeId)) ?? null : null,
-    }));
+    const enriched = staffFromPsx.map((member: any) => {
+      const localUser = localUsersByPhone.get(member.phoneNumber);
+      const activeBranchId = localUser?.branchId || member.branchId;
+      const activeStoreId = localUser?.storeId || member.storeId;
+      
+      return {
+        _id: member.id, // Map Main PSX id back to _id for POS UI
+        name: member.name,
+        phoneNumber: member.phoneNumber,
+        role: member.role,
+        employeeId: localUser?.employeeId || member.employeeId,
+        employmentType: localUser?.employmentType || member.employmentType,
+        salaryType: localUser?.salaryType || member.salaryType,
+        salaryAmount: localUser?.salaryAmount || member.salaryAmount,
+        branchName: activeBranchId ? branchNames.get(String(activeBranchId)) ?? null : null,
+        storeName: activeStoreId ? storeNames.get(String(activeStoreId)) ?? null : null,
+      };
+    });
 
     return NextResponse.json({ staff: enriched });
   } catch (error) {
