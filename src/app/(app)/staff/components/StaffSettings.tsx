@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { PharmacySettingsJSON, ShiftSettingsJSON } from "@/lib/types";
+import type { PharmacySettingsJSON, ShiftSettingsJSON, BranchJSON } from "@/lib/types";
 
 export default function StaffSettings({ branches }: { branches: BranchJSON[] }) {
   const [settings, setSettings] = useState<PharmacySettingsJSON | null>(null);
