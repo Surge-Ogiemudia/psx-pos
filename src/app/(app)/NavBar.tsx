@@ -38,6 +38,7 @@ export default function NavBar({
   stores,
   activeStoreId,
   scopeLabel,
+  allowWebClockIn = true,
 }: {
   pharmacyName: string;
   logoUrl: string;
