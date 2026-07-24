@@ -13,6 +13,7 @@ const UserSchema = new Schema(
     lockedUntil: { type: Date, default: null },
 
     // Staff Management fields
+    employeeId: { type: String, default: null, trim: true, index: true },
     employmentType: { type: String, enum: ["full_time", "part_time", "contract"], default: "full_time" },
     salaryType: { type: String, enum: ["monthly", "hourly"], default: "monthly" },
     salaryAmount: { type: Number, default: 0 },

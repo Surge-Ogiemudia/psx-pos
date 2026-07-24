@@ -19,6 +19,7 @@ const emptyForm = {
   employmentType: "full_time",
   salaryType: "monthly",
   salaryAmount: 0,
+  employeeId: "",
 };
 
 type Tab = "directory" | "shifts" | "attendance" | "settings";
