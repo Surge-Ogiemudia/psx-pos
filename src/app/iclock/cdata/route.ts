@@ -53,6 +53,8 @@ export async function POST(req: NextRequest) {
       if (parts.length >= 2) {
         const employeeId = parts[0].trim();
         const dateTimeStr = parts[1].trim(); // "YYYY-MM-DD HH:mm:ss"
+        const punchStatusStr = parts.length >= 3 ? parts[2].trim() : "255";
+        const punchStatus = isNaN(parseInt(punchStatusStr, 10)) ? 255 : parseInt(punchStatusStr, 10);
         
         // Find user
         const user = await User.findOne({ 
@@ -77,10 +79,27 @@ export async function POST(req: NextRequest) {
             });
 
             if (existingAttendance) {
-               // Update clockOutTime if this record is later than clockInTime
-               if (!existingAttendance.clockOutTime || recordTime > existingAttendance.clockOutTime) {
-                   existingAttendance.clockOutTime = recordTime;
-                   await existingAttendance.save();
+               if (punchStatus === 0) {
+                 // CHECK-IN (F1 or Check-In button pressed)
+                 // Only update if for some reason the new punch is EARLIER than existing clockIn.
+                 // Prevents "time theft" by double-punching later in the day.
+                 if (!existingAttendance.clockInTime || recordTime < existingAttendance.clockInTime) {
+                     existingAttendance.clockInTime = recordTime;
+                     await existingAttendance.save();
+                 }
+               } else if (punchStatus === 1) {
+                 // CHECK-OUT (F2 or Check-Out button pressed)
+                 // Always push the clockOut time forward
+                 if (!existingAttendance.clockOutTime || recordTime > existingAttendance.clockOutTime) {
+                     existingAttendance.clockOutTime = recordTime;
+                     await existingAttendance.save();
+                 }
+               } else {
+                 // 255 (Auto) or Legacy fallback: Just push clockOut time forward
+                 if (!existingAttendance.clockOutTime || recordTime > existingAttendance.clockOutTime) {
+                     existingAttendance.clockOutTime = recordTime;
+                     await existingAttendance.save();
+                 }
                }
             } else {
                // Create new attendance
@@ -89,9 +108,10 @@ export async function POST(req: NextRequest) {
                  branchId: device.branchId,
                  userId: user._id,
                  date: dateStr,
-                 clockInTime: recordTime,
+                 clockInTime: punchStatus === 1 ? null : recordTime, // If they only checked-out, clockIn is null
+                 clockOutTime: punchStatus === 1 ? recordTime : null, // If they checked-out, store in clockOut
                  status: "present",
-                 clockInMethod: "face",
+                 clockInMethod: "face", // Assuming face or biometric
                  recordedBy: user._id 
                });
             }
