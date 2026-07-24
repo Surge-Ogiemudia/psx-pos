@@ -135,6 +135,7 @@ export interface ShiftSettingsJSON {
 
 export interface PharmacySettingsJSON {
   shiftSettings: ShiftSettingsJSON;
+  attendanceSettings?: { allowWebClockIn: boolean };
 }
 
 export type AttendanceStatus = "present" | "absent" | "late" | "half_day" | "early_exit";

@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       shiftSettings: pharmacy.shiftSettings || {},
       payrollSettings: pharmacy.payrollSettings || {},
+      attendanceSettings: pharmacy.attendanceSettings || { allowWebClockIn: true },
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -30,7 +31,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    const { shiftSettings, payrollSettings } = await request.json();
+    const { shiftSettings, payrollSettings, attendanceSettings } = await request.json();
 
     await dbConnect();
     const pharmacy = await Pharmacy.findById(session.user.pharmacyId);
@@ -42,12 +43,16 @@ export async function PATCH(request: NextRequest) {
     if (payrollSettings) {
       pharmacy.payrollSettings = { ...pharmacy.payrollSettings, ...payrollSettings };
     }
+    if (attendanceSettings) {
+      pharmacy.attendanceSettings = { ...pharmacy.attendanceSettings, ...attendanceSettings };
+    }
 
     await pharmacy.save();
 
     return NextResponse.json({
       shiftSettings: pharmacy.shiftSettings,
       payrollSettings: pharmacy.payrollSettings,
+      attendanceSettings: pharmacy.attendanceSettings,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

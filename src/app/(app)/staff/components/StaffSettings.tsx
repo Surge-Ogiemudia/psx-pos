@@ -71,6 +71,17 @@ export default function StaffSettings({ branches }: { branches: BranchJSON[] }) 
     });
   }
 
+  function updateAttendanceSetting(key: "allowWebClockIn", value: boolean) {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      attendanceSettings: {
+        ...(settings.attendanceSettings || { allowWebClockIn: true }),
+        [key]: value,
+      },
+    });
+  }
+
   if (!settings) return <div className="text-sm text-zinc-500">Loading settings...</div>;
 
   const { shiftSettings } = settings;
@@ -145,15 +156,38 @@ export default function StaffSettings({ branches }: { branches: BranchJSON[] }) 
         </div>
       </div>
 
-      <div className="mt-6 flex justify-end">
+      <h2 className="mb-4 mt-8 text-lg font-semibold text-zinc-900">Attendance Features</h2>
+      <p className="mb-6 text-sm text-zinc-600">
+        Control how your staff can clock in and out for their shifts.
+      </p>
+
+      <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+        <label className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            checked={settings.attendanceSettings?.allowWebClockIn ?? true}
+            onChange={(e) => updateAttendanceSetting("allowWebClockIn", e.target.checked)}
+            className="h-4 w-4 rounded border-zinc-300 text-teal-600 focus:ring-teal-600"
+          />
+          <span className="text-sm font-medium text-zinc-800">
+            Enable Web Clock-In Kiosk
+          </span>
+        </label>
+        <p className="ml-7 text-sm text-zinc-500">
+          If you have a physical biometric machine (like ZKTeco), you may want to disable the web kiosk so staff are forced to use the physical device.
+        </p>
+      </div>
+
+      <div className="mt-8 flex justify-end">
         <button
           onClick={saveSettings}
           disabled={saving}
-          className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50"
+          className="rounded-lg bg-teal-700 px-6 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50"
         >
           {saving ? "Saving..." : "Save Settings"}
         </button>
       </div>
+
       <div className="mt-8 border-t border-zinc-200 pt-8">
         <h2 className="mb-4 text-lg font-semibold text-zinc-900">ZKTeco Biometric Devices</h2>
         <p className="mb-6 text-sm text-zinc-600">
