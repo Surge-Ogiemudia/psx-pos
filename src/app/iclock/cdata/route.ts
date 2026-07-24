@@ -65,7 +65,10 @@ export async function POST(req: NextRequest) {
           
           if (datePart && timePart) {
             const dateStr = datePart; // YYYY-MM-DD
-            const recordTime = new Date(`${datePart}T${timePart}Z`); // Convert to Date
+            // The ZKTeco device is in Nigeria (UTC+1). 
+            // If we use 'Z', the server thinks it's UTC and the browser adds 1 hour.
+            // Using '+01:00' tells the server the exact local time of the punch.
+            const recordTime = new Date(`${datePart}T${timePart}+01:00`); 
             
             const existingAttendance = await Attendance.findOne({
               pharmacyId: device.pharmacyId,
