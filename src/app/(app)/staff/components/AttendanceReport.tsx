@@ -61,12 +61,14 @@ export default function AttendanceReport({ branchId, staff }: { branchId: string
   const workedToday = todaysAttendance.filter((a) => a.clockInTime);
   const scheduledUserIdsToday = new Set(shifts.filter((s) => s.date === todayStr()).map((s) => s.userId));
   const notClockedInToday = branchStaff.filter(
-    (s) => scheduledUserIdsToday.has(s._id) && !todaysAttendance.some((a) => a.userId === s._id && a.clockInTime)
+    (s) =>
+      (scheduledUserIdsToday.has(s._id) || (s.localId && scheduledUserIdsToday.has(s.localId))) &&
+      !todaysAttendance.some((a) => (a.userId === s._id || a.userId === s.localId) && a.clockInTime)
   );
 
   const rows: Row[] = branchStaff.map((member) => {
-    const memberAttendance = attendance.filter((a) => a.userId === member._id);
-    const memberShifts = shifts.filter((s) => s.userId === member._id);
+    const memberAttendance = attendance.filter((a) => a.userId === member._id || a.userId === member.localId);
+    const memberShifts = shifts.filter((s) => s.userId === member._id || s.userId === member.localId);
     const scheduledDates = new Set(memberShifts.map((s) => s.date));
     const presentDates = new Set(memberAttendance.filter((a) => a.clockInTime).map((a) => a.date));
     const absentDays = Array.from(scheduledDates).filter((d) => !presentDates.has(d)).length;
@@ -197,7 +199,7 @@ export default function AttendanceReport({ branchId, staff }: { branchId: string
               </tr>
             ) : (
               todaysAttendance.map((a) => {
-                const member = branchStaff.find((s) => s._id === a.userId);
+                const member = branchStaff.find((s) => s._id === a.userId || s.localId === a.userId);
                 return (
                   <tr key={a._id} className="border-b border-zinc-100 last:border-0">
                     <td className="px-3 py-2 font-medium text-zinc-900">{member?.name || "Unknown"}</td>

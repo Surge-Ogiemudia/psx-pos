@@ -87,6 +87,7 @@ export interface RefundJSON {
 
 export interface StaffJSON {
   _id: string;
+  localId?: string | null;
   name: string;
   role: "admin" | "staff" | "store_manager" | "store_keeper";
   employeeId?: string | null;
