@@ -43,6 +43,7 @@ export async function GET() {
       
       return {
         _id: member.id, // Map Main PSX id back to _id for POS UI
+        localId: localUser?._id,
         name: member.name,
         phoneNumber: member.phoneNumber,
         role: member.role,
@@ -50,6 +51,8 @@ export async function GET() {
         employmentType: localUser?.employmentType || member.employmentType,
         salaryType: localUser?.salaryType || member.salaryType,
         salaryAmount: localUser?.salaryAmount || member.salaryAmount,
+        branchId: activeBranchId,
+        storeId: activeStoreId,
         branchName: activeBranchId ? branchNames.get(String(activeBranchId)) ?? null : null,
         storeName: activeStoreId ? storeNames.get(String(activeStoreId)) ?? null : null,
       };
