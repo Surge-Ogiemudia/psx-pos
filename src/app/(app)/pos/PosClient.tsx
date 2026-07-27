@@ -89,6 +89,7 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
   const [iframeHeight, setIframeHeight] = useState(42);
   const [loadingPrescription, setLoadingPrescription] = useState(false);
   const [currentCustomer, setCurrentCustomer] = useState<{ id: string | null; name: string | null; encounterId: string | null }>({ id: null, name: null, encounterId: null });
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // No native patient search state needed, EMR iframe handles it.
@@ -467,8 +468,14 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
     amountTendered >= total - EPS &&
     changeFeeValue <= changeDue + EPS;
 
-  async function completeSale() {
+  function openConfirmModal() {
     if (!canCompleteSale) return;
+    setShowConfirmModal(true);
+  }
+
+  async function executeCompleteSale() {
+    if (!canCompleteSale) return;
+    setShowConfirmModal(false);
     setSubmitting(true);
     setMessage(null);
 
@@ -960,9 +967,9 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
               )}
 
               <button
-                onClick={completeSale}
+                onClick={openConfirmModal}
                 disabled={submitting || !canCompleteSale}
-                className="mt-4 w-full rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+                className="mt-4 w-full rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60 shadow-sm"
               >
                 {submitting ? "Processing..." : "Complete sale"}
               </button>
@@ -978,6 +985,157 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
           )}
         </div>
       </div>
+
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-2xl overflow-hidden border border-zinc-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="border-b border-zinc-200 bg-zinc-50/80 px-6 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-zinc-900">Confirm Sale</h2>
+                <p className="text-xs text-zinc-500">Please review order items and payment breakdown before completing.</p>
+              </div>
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {currentCustomer.name && (
+                <div className="rounded-lg border border-teal-200 bg-teal-50/60 p-3 flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-white font-bold text-xs">
+                    EMR
+                  </div>
+                  <div>
+                    <span className="text-xs font-semibold text-teal-800 uppercase tracking-wider block">Customer / Patient</span>
+                    <span className="text-sm font-bold text-teal-950">{currentCustomer.name}</span>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-500">Items to Purchase ({cart.length})</h3>
+                <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100 overflow-hidden">
+                  {cart.map((line) => {
+                    if (line.kind === "custom") {
+                      const itemTotal = line.unitPrice * line.quantity;
+                      return (
+                        <div key={line.key} className="p-3 bg-white flex items-center justify-between gap-4">
+                          <div>
+                            <div className="text-sm font-semibold text-zinc-900">
+                              {formatProductLabel(line)}{" "}
+                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">Custom</span>
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              Qty: {line.quantity} × ₦{line.unitPrice.toFixed(2)}
+                            </div>
+                          </div>
+                          <div className="text-right text-sm font-bold text-zinc-900">
+                            ₦{itemTotal.toFixed(2)}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const perForm = piecesPerForm(line.product, line.form);
+                    const priceForForm = line.product.retailPrice * perForm;
+                    const itemTotal = priceForForm * line.quantity;
+                    return (
+                      <div key={line.key} className="p-3 bg-white flex items-center justify-between gap-4">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">
+                            {formatProductLabel(line.product)}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {line.quantity} {line.form}{line.quantity > 1 ? "s" : ""} × ₦{priceForForm.toFixed(2)}
+                          </div>
+                          {line.instruction && (
+                            <div className="text-xs text-amber-700 font-medium mt-0.5">
+                              Instruction: {line.instruction}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right text-sm font-bold text-zinc-900">
+                          ₦{itemTotal.toFixed(2)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-4 space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-500">Payment Breakdown</h4>
+                  {payments.map((p, idx) => (
+                    <div key={idx} className="flex justify-between text-sm">
+                      <span className="text-zinc-600">{PAYMENT_METHOD_LABEL[p.method]}:</span>
+                      <span className="font-semibold text-zinc-900">₦{(parseNumeric(p.amount) || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div className="border-t border-zinc-200 pt-2 flex justify-between text-sm">
+                    <span className="text-zinc-600">Total Tendered:</span>
+                    <span className="font-semibold text-zinc-900">₦{amountTendered.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-teal-100 bg-teal-50/30 p-4 space-y-2 flex flex-col justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-teal-800">Total Due</h4>
+                    <div className="text-2xl font-black text-teal-900">₦{total.toFixed(2)}</div>
+                  </div>
+                  {changeDue > 0.004 && (
+                    <div className="border-t border-teal-200/60 pt-2 text-xs">
+                      <div className="flex justify-between text-zinc-600">
+                        <span>Change due:</span>
+                        <span className="font-medium text-zinc-900">₦{changeDue.toFixed(2)}</span>
+                      </div>
+                      {changeFeeValue > 0 && (
+                        <div className="flex justify-between text-zinc-600">
+                          <span>Change fee:</span>
+                          <span className="font-medium text-zinc-900">₦{changeFeeValue.toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm font-bold text-teal-950 mt-1">
+                        <span>Cash to hand back:</span>
+                        <span>₦{cashToHandBack.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-zinc-200 bg-zinc-50 p-4 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowConfirmModal(false)}
+                disabled={submitting}
+                className="rounded-lg border border-zinc-300 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+              >
+                Back / Edit Sale
+              </button>
+              <button
+                type="button"
+                onClick={executeCompleteSale}
+                disabled={submitting}
+                className="rounded-lg bg-teal-700 px-6 py-2.5 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-50 shadow-md flex items-center gap-2"
+              >
+                {submitting ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                    Processing...
+                  </>
+                ) : (
+                  "Confirm & Complete Sale"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
