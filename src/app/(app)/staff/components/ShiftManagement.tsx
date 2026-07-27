@@ -54,6 +54,18 @@ export default function ShiftManagement({ branchId, staff }: ShiftManagementProp
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [editingShift, setEditingShift] = useState<ShiftJSON | null>(null);
+  const [editForm, setEditForm] = useState({
+    userId: "",
+    date: "",
+    type: "morning" as ShiftType,
+    scheduledStartTime: "08:00",
+    scheduledEndTime: "14:00",
+    notes: "",
+  });
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
   async function loadShifts() {
     if (!branchId) return;
     setLoading(true);
@@ -182,6 +194,41 @@ export default function ShiftManagement({ branchId, staff }: ShiftManagementProp
     if (!confirm("Are you sure you want to delete this shift?")) return;
     const res = await fetch(`/api/staff/shifts/${id}`, { method: "DELETE" });
     if (res.ok) loadShifts();
+  }
+
+  function openEditShift(shift: ShiftJSON) {
+    setEditingShift(shift);
+    setEditError(null);
+    setEditForm({
+      userId: shift.userId,
+      date: shift.date,
+      type: shift.type,
+      scheduledStartTime: shift.scheduledStartTime,
+      scheduledEndTime: shift.scheduledEndTime,
+      notes: shift.notes || "",
+    });
+  }
+
+  async function saveShiftEdit() {
+    if (!editingShift) return;
+    setEditSubmitting(true);
+    setEditError(null);
+
+    const res = await fetch(`/api/staff/shifts/${editingShift._id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(editForm),
+    });
+
+    const data = await res.json();
+    setEditSubmitting(false);
+
+    if (res.ok) {
+      setEditingShift(null);
+      loadShifts();
+    } else {
+      setEditError(data.error || "Failed to update shift.");
+    }
   }
 
   if (!branchId) {
@@ -525,8 +572,14 @@ export default function ShiftManagement({ branchId, staff }: ShiftManagementProp
                       {shift.scheduledStartTime} - {shift.scheduledEndTime}
                     </td>
                     <td className="px-3 py-2 text-zinc-500">{shift.notes || "—"}</td>
-                    <td className="px-3 py-2">
-                      <button onClick={() => deleteShift(shift._id)} className="text-red-600 hover:underline">
+                    <td className="px-3 py-2 flex items-center gap-3">
+                      <button
+                        onClick={() => openEditShift(shift)}
+                        className="text-xs font-semibold text-teal-700 hover:underline"
+                      >
+                        Edit
+                      </button>
+                      <button onClick={() => deleteShift(shift._id)} className="text-xs text-red-600 hover:underline">
                         Remove
                       </button>
                     </td>
@@ -537,6 +590,129 @@ export default function ShiftManagement({ branchId, staff }: ShiftManagementProp
           </tbody>
         </table>
       </div>
+
+      {/* Edit Shift Modal */}
+      {editingShift && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="flex w-full max-w-md flex-col rounded-xl bg-white p-6 shadow-2xl border border-zinc-200 animate-in fade-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-zinc-900">Edit Shift Details</h3>
+                <p className="text-xs text-zinc-500">Date: {editForm.date}</p>
+              </div>
+              <button
+                onClick={() => setEditingShift(null)}
+                className="text-zinc-400 hover:text-zinc-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-600 mb-1">Staff Member</label>
+                <select
+                  value={editForm.userId}
+                  onChange={(e) => setEditForm({ ...editForm, userId: e.target.value })}
+                  className="w-full rounded border border-zinc-300 px-2.5 py-1.5 text-sm"
+                >
+                  {branchStaff.map((s) => (
+                    <option key={s._id} value={s._id}>
+                      {s.name} ({s.role.replace("_", " ")})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-600 mb-1">Shift Date</label>
+                <input
+                  type="date"
+                  value={editForm.date}
+                  onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                  className="w-full rounded border border-zinc-300 px-2.5 py-1.5 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-600 mb-1">Shift Type</label>
+                <select
+                  value={editForm.type}
+                  onChange={(e) => {
+                    const newType = e.target.value as ShiftType;
+                    const preset = SHIFT_PRESETS[newType];
+                    setEditForm({
+                      ...editForm,
+                      type: newType,
+                      scheduledStartTime: preset ? preset.start : editForm.scheduledStartTime,
+                      scheduledEndTime: preset ? preset.end : editForm.scheduledEndTime,
+                    });
+                  }}
+                  className="w-full rounded border border-zinc-300 px-2.5 py-1.5 text-sm"
+                >
+                  <option value="morning">Morning (08:00 - 14:00)</option>
+                  <option value="afternoon">Afternoon (14:00 - 20:00)</option>
+                  <option value="evening">Evening (16:00 - 22:00)</option>
+                  <option value="full_day">Full Day (08:00 - 20:00)</option>
+                  <option value="custom">Custom Hours</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-600 mb-1">Start Time</label>
+                  <input
+                    type="time"
+                    value={editForm.scheduledStartTime}
+                    onChange={(e) => setEditForm({ ...editForm, scheduledStartTime: e.target.value })}
+                    className="w-full rounded border border-zinc-300 px-2.5 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-600 mb-1">End Time</label>
+                  <input
+                    type="time"
+                    value={editForm.scheduledEndTime}
+                    onChange={(e) => setEditForm({ ...editForm, scheduledEndTime: e.target.value })}
+                    className="w-full rounded border border-zinc-300 px-2.5 py-1.5 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-600 mb-1">Notes</label>
+                <input
+                  placeholder="Optional shift notes"
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  className="w-full rounded border border-zinc-300 px-2.5 py-1.5 text-sm"
+                />
+              </div>
+
+              {editError && <p className="text-xs text-red-600 font-medium">{editError}</p>}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-zinc-100 pt-3">
+              <button
+                type="button"
+                onClick={() => setEditingShift(null)}
+                disabled={editSubmitting}
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveShiftEdit}
+                disabled={editSubmitting}
+                className="rounded-lg bg-teal-700 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50 shadow-sm"
+              >
+                {editSubmitting ? "Updating..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
