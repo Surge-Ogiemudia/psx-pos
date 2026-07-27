@@ -91,6 +91,15 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
     loadStaff();
   }
 
+  async function updateBranch(id: string, branchId: string) {
+    await fetch(`/api/staff/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branchId }),
+    });
+    loadStaff();
+  }
+
   async function resetPassword(id: string) {
     const password = prompt("Enter a new password (min 8 characters):");
     if (!password) return;
@@ -176,6 +185,7 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
           error={error}
           createStaff={createStaff}
           updateRole={updateRole}
+          updateBranch={updateBranch}
           resetPassword={resetPassword}
           deleteStaff={deleteStaff}
           credentials={userRole === "admin" ? credentials : undefined}
