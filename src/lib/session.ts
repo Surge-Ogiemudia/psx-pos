@@ -107,13 +107,15 @@ export function getBranchScope(
   requestedBranchId?: string | null
 ): { pharmacyId: string; branchId: string } {
   if (session.user.role === "admin") {
-    if (!requestedBranchId) throw new ApiAuthError(400, "branchId is required");
-    return { pharmacyId: session.user.pharmacyId, branchId: requestedBranchId };
+    const branchId = requestedBranchId || session.user.branchId;
+    if (!branchId) throw new ApiAuthError(400, "branchId is required");
+    return { pharmacyId: session.user.pharmacyId, branchId };
   }
-  if (session.user.role !== "staff" || !session.user.branchId) {
+  const branchId = session.user.branchId || (requestedBranchId && requestedBranchId !== "null" ? requestedBranchId : null);
+  if (!branchId) {
     throw new ApiAuthError(403, "No branch access");
   }
-  return { pharmacyId: session.user.pharmacyId, branchId: session.user.branchId };
+  return { pharmacyId: session.user.pharmacyId, branchId };
 }
 
 export function getStoreScope(

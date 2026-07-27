@@ -16,10 +16,6 @@ export interface BranchOption {
 export async function resolveActiveBranch(
   session: Session
 ): Promise<{ activeBranchId: string | null; branches: BranchOption[] }> {
-  if (session.user.role !== "admin") {
-    return { activeBranchId: session.user.branchId, branches: [] };
-  }
-
   await dbConnect();
   const branchDocs = await Branch.find({ pharmacyId: session.user.pharmacyId })
     .sort({ branchName: 1 })
@@ -28,6 +24,11 @@ export async function resolveActiveBranch(
     _id: b._id.toString(),
     branchName: b.branchName,
   }));
+
+  if (session.user.role !== "admin") {
+    const activeBranchId = session.user.branchId || (branches[0]?._id ?? null);
+    return { activeBranchId, branches: [] };
+  }
 
   const cookieStore = await cookies();
   const cookieBranchId = cookieStore.get("activeBranchId")?.value ?? null;

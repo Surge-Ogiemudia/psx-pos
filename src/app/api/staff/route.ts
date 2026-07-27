@@ -131,6 +131,12 @@ export async function POST(request: NextRequest) {
 
     const passwordHash = await bcrypt.hash(password, 12);
     
+    let targetBranchId = body.branchId || null;
+    if (!targetBranchId) {
+      const defaultBranch = await Branch.findOne({ pharmacyId: session.user.pharmacyId }).lean();
+      if (defaultBranch) targetBranchId = defaultBranch._id.toString();
+    }
+
     // Save to local POS database so branchId is accessible for POS login
     const user = await User.create({
       _id: data.user.id, // Keep IDs perfectly in sync
@@ -139,7 +145,7 @@ export async function POST(request: NextRequest) {
       phoneNumber,
       passwordHash,
       pharmacyId: session.user.pharmacyId,
-      branchId: body.branchId || null,
+      branchId: targetBranchId,
       storeId: body.storeId || null,
       employmentType: employmentType || "full_time",
       salaryType: salaryType || "monthly",

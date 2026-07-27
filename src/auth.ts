@@ -61,6 +61,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 finalStoreId = localUser.storeId?.toString() || null;
                 if (localUser.name) finalName = localUser.name;
               }
+              if (!finalBranchId && finalPharmacyId) {
+                const branch = await Branch.findOne({ pharmacyId: finalPharmacyId }).lean();
+                if (branch) finalBranchId = branch._id.toString();
+              }
             }
 
             // Lazy provision pharmacy, branch, store
@@ -180,6 +184,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             finalPharmacyId = localUser.pharmacyId?.toString() || finalPharmacyId;
             finalBranchId = localUser.branchId?.toString() || finalBranchId;
             finalStoreId = localUser.storeId?.toString() || finalStoreId;
+          }
+          if (!finalBranchId && finalPharmacyId) {
+            const branch = await Branch.findOne({ pharmacyId: finalPharmacyId }).lean();
+            if (branch) finalBranchId = branch._id.toString();
           }
         }
 
