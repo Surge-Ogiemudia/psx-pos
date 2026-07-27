@@ -25,6 +25,7 @@ interface StaffDirectoryProps {
   error: string | null;
   createStaff: () => void;
   updateRole: (id: string, role: "admin" | "staff") => void;
+  updateBranch: (id: string, branchId: string) => void;
   resetPassword: (id: string) => void;
   deleteStaff: (id: string) => void;
   credentials?: StaffCredentialStatusJSON[];
@@ -42,6 +43,7 @@ export default function StaffDirectory({
   error,
   createStaff,
   updateRole,
+  updateBranch,
   resetPassword,
   deleteStaff,
   credentials,
@@ -215,7 +217,22 @@ export default function StaffDirectory({
                       </div>
                     </td>
                     <td className="px-3 py-2 text-zinc-600">
-                      {member.branchName || member.storeName || "—"}
+                      {branches.length > 0 && (member.role === "staff" || member.role === "pharmacist") ? (
+                        <select
+                          value={member.branchId || ""}
+                          onChange={(e) => updateBranch(member._id, e.target.value)}
+                          className="rounded border border-zinc-300 px-2 py-1 text-sm"
+                        >
+                          <option value="">Select branch...</option>
+                          {branches.map((b) => (
+                            <option key={b._id} value={b._id}>
+                              {b.branchName}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        member.branchName || member.storeName || "—"
+                      )}
                     </td>
                     <td className="flex flex-wrap gap-3 px-3 py-2">
                       <button onClick={() => resetPassword(member._id)} className="text-teal-700 hover:underline">

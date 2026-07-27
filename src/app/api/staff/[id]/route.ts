@@ -18,8 +18,10 @@ export async function PATCH(
     const body = await request.json();
     const update: Record<string, unknown> = {};
     if (body.name !== undefined) update.name = body.name;
+    if (body.branchId !== undefined) update.branchId = body.branchId || null;
+    if (body.storeId !== undefined) update.storeId = body.storeId || null;
     if (body.role !== undefined) {
-      if (!["admin", "staff"].includes(body.role)) {
+      if (!["admin", "staff", "store_manager", "store_keeper", "pharmacist"].includes(body.role)) {
         return NextResponse.json({ error: "Invalid role" }, { status: 400 });
       }
       update.role = body.role;
