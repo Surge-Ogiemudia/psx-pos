@@ -154,6 +154,17 @@ export interface AttendanceJSON {
   actualHoursWorked: number;
 }
 
+export interface PunchLogJSON {
+  _id: string;
+  pharmacyId: string;
+  branchId: string;
+  userId: string;
+  deviceSerialNumber: string;
+  punchTime: string;
+  punchStatus: number;
+  verifyMode: number;
+}
+
 export interface RosterEntryJSON {
   userId: string;
   name: string;
