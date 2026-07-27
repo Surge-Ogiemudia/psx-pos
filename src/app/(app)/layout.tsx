@@ -19,8 +19,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // nav so it's obvious at a glance which location they're acting on behalf of. Admin/store
   // manager get the switchers instead, whose own visible value serves the same purpose.
   let scopeLabel: string | null = null;
-  if (session.user.role === "staff" && session.user.branchId) {
-    const branch = await Branch.findById(session.user.branchId).lean();
+  const effectiveBranchId = session.user.branchId || activeBranchId;
+  if (session.user.role !== "admin" && effectiveBranchId) {
+    const branch = await Branch.findById(effectiveBranchId).lean();
     scopeLabel = branch?.branchName ?? null;
   } else if (session.user.role === "store_keeper" && session.user.storeId) {
     const store = await Store.findById(session.user.storeId).lean();
