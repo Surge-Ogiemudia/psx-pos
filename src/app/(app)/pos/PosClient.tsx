@@ -811,11 +811,25 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
                       <input
                         type="text"
                         inputMode="numeric"
-                        value={line.quantity}
-                        onChange={(e) =>
-                          updateLine(line.key, { quantity: Math.max(1, parseNumeric(e.target.value) || 1) })
-                        }
-                        className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
+                        value={line.quantity === 0 ? "" : line.quantity}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const raw = e.target.value.trim();
+                          if (raw === "") {
+                            updateLine(line.key, { quantity: 0 });
+                            return;
+                          }
+                          const val = parseNumeric(raw);
+                          if (!Number.isNaN(val)) {
+                            updateLine(line.key, { quantity: Math.max(0, val) });
+                          }
+                        }}
+                        onBlur={() => {
+                          if (!line.quantity || line.quantity < 1) {
+                            updateLine(line.key, { quantity: 1 });
+                          }
+                        }}
+                        className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm text-center focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600 font-medium"
                       />
                       <span className="text-sm text-zinc-600">₦{line.unitPrice.toFixed(2)} each</span>
                     </div>
@@ -828,7 +842,7 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
 
               const hierarchy = line.product.unitHierarchy;
               const perForm = piecesPerForm(line.product, line.form);
-              const maxQty = Math.floor(line.product.quantityInStock / perForm);
+              const maxQty = Math.max(1, Math.floor(line.product.quantityInStock / perForm));
               const priceForForm = line.product.retailPrice * perForm;
               return (
                 <div key={line.key} className="border-b border-zinc-100 pb-3 last:border-0">
@@ -848,13 +862,27 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
                     <input
                       type="text"
                       inputMode="numeric"
-                      value={line.quantity}
-                      onChange={(e) =>
-                        updateLine(line.key, {
-                          quantity: Math.max(1, Math.min(parseNumeric(e.target.value) || 1, maxQty)),
-                        })
-                      }
-                      className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
+                      value={line.quantity === 0 ? "" : line.quantity}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        if (raw === "") {
+                          updateLine(line.key, { quantity: 0 });
+                          return;
+                        }
+                        const val = parseNumeric(raw);
+                        if (!Number.isNaN(val)) {
+                          updateLine(line.key, {
+                            quantity: Math.max(0, Math.min(val, maxQty)),
+                          });
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!line.quantity || line.quantity < 1) {
+                          updateLine(line.key, { quantity: 1 });
+                        }
+                      }}
+                      className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm text-center focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600 font-medium"
                     />
                     {hierarchy && hierarchy.length > 0 ? (
                       <select
