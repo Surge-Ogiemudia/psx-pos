@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Sale from "@/models/Sale";
 import { requireApiSession, getBranchScope } from "@/lib/session";
@@ -63,7 +64,7 @@ export async function PATCH(
       .map((p) => `${PAYMENT_METHOD_LABEL[p.method as PaymentMethod] || p.method} ₦${p.amount.toFixed(2)}`)
       .join(", ");
 
-    sale.payments = newPayments;
+    (sale.payments as unknown) = newPayments;
     sale.amountTendered = newAmountTendered;
     sale.changeGiven = Math.max(0, newAmountTendered - sale.totalAmount);
     
@@ -78,12 +79,25 @@ export async function PATCH(
       .map((p) => `${PAYMENT_METHOD_LABEL[p.method]} ₦${p.amount.toFixed(2)}`)
       .join(", ");
 
-    await logActivity(
-      session,
-      "sale_payment_updated",
-      `Updated payment method for Sale #${sale._id.toString().slice(-8)} from [${oldSummary}] to [${newSummary}]`,
-      { saleId: sale._id, oldPayments: oldSummary, newPayments: newSummary }
-    );
+    const mongooseSession = await mongoose.startSession();
+    try {
+      await mongooseSession.withTransaction(async () => {
+        await logActivity(mongooseSession, {
+          pharmacyId: scope.pharmacyId,
+          scope: "branch",
+          branchId: scope.branchId || sale.branchId.toString(),
+          actorUserId: session.user.id,
+          actorName: session.user.name ?? "Unknown",
+          action: "sell",
+          summary: `Updated payment method for Sale #${sale._id.toString().slice(-8)} from [${oldSummary}] to [${newSummary}]`,
+          metadata: { saleId: sale._id, oldPayments: oldSummary, newPayments: newSummary },
+          refCollection: "Sale",
+          refId: sale._id,
+        });
+      });
+    } finally {
+      await mongooseSession.endSession();
+    }
 
     return NextResponse.json({ success: true, sale });
   } catch (err) {
