@@ -89,7 +89,7 @@ export interface StaffJSON {
   _id: string;
   localId?: string | null;
   name: string;
-  role: "admin" | "staff" | "store_manager" | "store_keeper";
+  role: "admin" | "staff" | "store_manager" | "store_keeper" | "pharmacist";
   employeeId?: string | null;
   phoneNumber: string;
   branchId?: string | null;
