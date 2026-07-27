@@ -43,6 +43,11 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
   const [refundError, setRefundError] = useState<string | null>(null);
   const [refundSubmitting, setRefundSubmitting] = useState(false);
 
+  const [editingPaymentSale, setEditingPaymentSale] = useState<SaleJSON | null>(null);
+  const [editPaymentLines, setEditPaymentLines] = useState<{ method: PaymentMethod; amount: string }[]>([]);
+  const [editPaymentError, setEditPaymentError] = useState<string | null>(null);
+  const [editPaymentSubmitting, setEditPaymentSubmitting] = useState(false);
+
   const [showActivity, setShowActivity] = useState(false);
   const [activityEntries, setActivityEntries] = useState<ActivityLogJSON[]>([]);
   const [activityLoaded, setActivityLoaded] = useState(false);
@@ -96,6 +101,48 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
       ? sale.payments.reduce((max, p) => (p.amount > max.amount ? p : max), sale.payments[0])
       : null;
     setRefundMethod(dominant?.method ?? "cash");
+  }
+
+  function openEditPayment(sale: SaleJSON) {
+    setEditingPaymentSale(sale);
+    setEditPaymentError(null);
+    setEditPaymentLines(
+      sale.payments.map((p) => ({ method: p.method, amount: p.amount.toString() }))
+    );
+  }
+
+  async function savePaymentMethod() {
+    if (!editingPaymentSale) return;
+    setEditPaymentSubmitting(true);
+    setEditPaymentError(null);
+
+    const parsedPayments = editPaymentLines.map((p) => ({
+      method: p.method,
+      amount: parseNumeric(p.amount) || 0,
+    }));
+
+    if (parsedPayments.some((p) => p.amount <= 0)) {
+      setEditPaymentError("All payment amounts must be greater than 0.");
+      setEditPaymentSubmitting(false);
+      return;
+    }
+
+    const res = await fetch(`/api/sales/${editingPaymentSale._id}/payment-method`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payments: parsedPayments }),
+    });
+
+    const data = await res.json();
+    setEditPaymentSubmitting(false);
+
+    if (!res.ok) {
+      setEditPaymentError(data.error || "Failed to update payment method.");
+      return;
+    }
+
+    setEditingPaymentSale(null);
+    await load();
   }
 
   async function submitRefund(sale: SaleJSON) {
@@ -312,11 +359,17 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
                     ₦{sale.totalAmount.toFixed(2)}
                     {refunded > 0 && <div className="text-xs text-red-600">-₦{refunded.toFixed(2)} refunded</div>}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 flex items-center gap-3">
+                    <button
+                      onClick={() => openEditPayment(sale)}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                    >
+                      Edit Payment
+                    </button>
                     {fullyRefunded ? (
                       <span className="text-xs text-zinc-400">Fully refunded</span>
                     ) : (
-                      <button onClick={() => openRefund(sale)} className="text-teal-700 hover:underline">
+                      <button onClick={() => openRefund(sale)} className="text-xs text-teal-700 hover:underline">
                         Refund
                       </button>
                     )}
@@ -414,6 +467,106 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
             </div>
           );
         })()}
+
+      {editingPaymentSale && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="flex w-full max-w-lg flex-col rounded-xl bg-white p-6 shadow-2xl border border-zinc-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-zinc-900">Edit Payment Method</h3>
+                <p className="text-xs text-zinc-500">Sale #{editingPaymentSale._id.slice(-8)} • Total ₦{editingPaymentSale.totalAmount.toFixed(2)}</p>
+              </div>
+              <button
+                onClick={() => setEditingPaymentSale(null)}
+                className="text-zinc-400 hover:text-zinc-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="my-4 space-y-3">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Payment Breakdown
+              </label>
+              {editPaymentLines.map((line, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <select
+                    value={line.method}
+                    onChange={(e) => {
+                      const newMethod = e.target.value as PaymentMethod;
+                      setEditPaymentLines((prev) =>
+                        prev.map((item, i) => (i === idx ? { ...item, method: newMethod } : item))
+                      );
+                    }}
+                    className="rounded border border-zinc-300 px-2 py-1.5 text-sm flex-1"
+                  >
+                    {(Object.keys(PAYMENT_METHOD_LABEL) as PaymentMethod[]).map((m) => (
+                      <option key={m} value={m}>
+                        {PAYMENT_METHOD_LABEL[m]}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Amount"
+                    value={line.amount}
+                    onChange={(e) => {
+                      const newAmount = e.target.value;
+                      setEditPaymentLines((prev) =>
+                        prev.map((item, i) => (i === idx ? { ...item, amount: newAmount } : item))
+                      );
+                    }}
+                    className="w-28 rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                  />
+                  {editPaymentLines.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setEditPaymentLines((prev) => prev.filter((_, i) => i !== idx))}
+                      className="text-xs text-red-600 hover:underline px-1"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={() =>
+                  setEditPaymentLines((prev) => [...prev, { method: "mobile_money", amount: "" }])
+                }
+                className="text-xs font-medium text-teal-700 hover:underline"
+              >
+                + Add split payment line
+              </button>
+
+              {editPaymentError && (
+                <p className="text-xs text-red-600 font-medium">{editPaymentError}</p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-zinc-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setEditingPaymentSale(null)}
+                disabled={editPaymentSubmitting}
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={savePaymentMethod}
+                disabled={editPaymentSubmitting}
+                className="rounded-lg bg-teal-700 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50 shadow-sm"
+              >
+                {editPaymentSubmitting ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-6 rounded-lg border border-zinc-200 bg-white shadow-sm">
         <button
