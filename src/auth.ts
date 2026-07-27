@@ -211,6 +211,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.storeId = user.storeId;
         token.role = user.role;
         token.name = user.name;
+      } else if (token.userId && token.role !== "admin") {
+        const User = (await import("@/models/User")).default;
+        const dbUser = await User.findById(token.userId).select("branchId storeId role").lean();
+        if (dbUser && dbUser.branchId) {
+          token.branchId = dbUser.branchId.toString();
+        }
       }
       return token;
     },
