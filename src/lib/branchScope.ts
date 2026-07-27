@@ -18,7 +18,7 @@ export async function resolveActiveBranch(
 ): Promise<{ activeBranchId: string | null; branches: BranchOption[] }> {
   await dbConnect();
   const branchDocs = await Branch.find({ pharmacyId: session.user.pharmacyId })
-    .sort({ branchName: 1 })
+    .sort({ createdAt: 1 })
     .lean();
   const branches: BranchOption[] = branchDocs.map((b) => ({
     _id: b._id.toString(),

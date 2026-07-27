@@ -54,15 +54,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             let finalName = decoded.name || decoded.email || 'User';
 
             if (decoded.role !== 'pharmacy') {
-              const localUser = await User.findById(decoded.userId).lean();
+              const localUser = await User.findOne({
+                $or: [{ _id: decoded.userId }, { phoneNumber: decoded.email }]
+              }).lean();
+
               if (localUser) {
                 finalPharmacyId = localUser.pharmacyId?.toString() || finalPharmacyId;
-                finalBranchId = localUser.branchId?.toString() || null;
-                finalStoreId = localUser.storeId?.toString() || null;
+                if (localUser.branchId) {
+                  finalBranchId = localUser.branchId.toString();
+                }
+                if (localUser.storeId) {
+                  finalStoreId = localUser.storeId.toString();
+                }
                 if (localUser.name) finalName = localUser.name;
               }
               if (!finalBranchId && finalPharmacyId) {
-                const branch = await Branch.findOne({ pharmacyId: finalPharmacyId }).lean();
+                const branch = await Branch.findOne({ pharmacyId: finalPharmacyId }).sort({ createdAt: 1 }).lean();
                 if (branch) finalBranchId = branch._id.toString();
               }
             }
@@ -179,14 +186,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         if (user.role !== 'pharmacy') {
           const User = (await import('@/models/User')).default;
-          const localUser = await User.findById(user.id).lean();
+          const localUser = await User.findOne({
+            $or: [{ _id: user.id }, { phoneNumber: user.phoneNumber }]
+          }).lean();
+
           if (localUser) {
             finalPharmacyId = localUser.pharmacyId?.toString() || finalPharmacyId;
-            finalBranchId = localUser.branchId?.toString() || finalBranchId;
-            finalStoreId = localUser.storeId?.toString() || finalStoreId;
+            if (localUser.branchId) {
+              finalBranchId = localUser.branchId.toString();
+            }
+            if (localUser.storeId) {
+              finalStoreId = localUser.storeId.toString();
+            }
           }
+
           if (!finalBranchId && finalPharmacyId) {
-            const branch = await Branch.findOne({ pharmacyId: finalPharmacyId }).lean();
+            const branch = await Branch.findOne({ pharmacyId: finalPharmacyId }).sort({ createdAt: 1 }).lean();
             if (branch) finalBranchId = branch._id.toString();
           }
         }
