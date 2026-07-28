@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import { ScanJob } from "@/models/ScanJob";
-import { requireApiSession, getBranchScope } from "@/lib/session";
+import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 
 export async function GET(req: NextRequest) {
   try {
     const session = await requireApiSession();
     await dbConnect();
-    const branchScope = getBranchScope(session, req.nextUrl.searchParams.get("branchId"));
 
-    const query: any = { status: "in_progress", userId: session.user.id };
-    if (branchScope.branchId) {
-      query.branchId = branchScope.branchId;
-    } else {
-      query.pharmacyId = branchScope.pharmacyId;
-    }
+    const query: any = { status: "in_progress", userId: session.user.id, pharmacyId: session.user.pharmacyId };
 
     // Don't pull down the heavy pdfBase64 for the list view
     const jobs = await ScanJob.find(query).select("-pdfBase64").sort({ updatedAt: -1 });
@@ -30,7 +24,6 @@ export async function POST(req: NextRequest) {
   try {
     const session = await requireApiSession();
     await dbConnect();
-    const branchScope = getBranchScope(session, req.nextUrl.searchParams.get("branchId"));
 
     const body = await req.json();
     const { fileName, pdfBase64, headers, pages } = body;
@@ -40,8 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     const job = new ScanJob({
-      pharmacyId: branchScope.pharmacyId,
-      branchId: branchScope.branchId,
+      pharmacyId: session.user.pharmacyId,
       userId: session.user.id,
       fileName,
       pdfBase64,
