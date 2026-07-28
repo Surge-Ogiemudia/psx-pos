@@ -164,7 +164,7 @@ export default function ScannerClient() {
         </div>
         <div className="flex items-center gap-3">
           <Link
-            href="/inventory/bulk-receive" // Or wherever bulk store is
+            href="/store"
             className="px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg transition-colors border border-zinc-200"
           >
             Exit to Store
