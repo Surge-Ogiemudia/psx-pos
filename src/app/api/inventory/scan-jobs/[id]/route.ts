@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import { ScanJob } from "@/models/ScanJob";
-import { requireApiSession, getBranchScope } from "@/lib/session";
+import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireApiSession();
     await dbConnect();
-    const branchScope = getBranchScope(session, req.nextUrl.searchParams.get("branchId"));
     const resolvedParams = await params;
 
     const job = await ScanJob.findOne({
       _id: resolvedParams.id,
       userId: session.user.id,
-      ...(branchScope.branchId ? { branchId: branchScope.branchId } : { pharmacyId: branchScope.pharmacyId })
+      pharmacyId: session.user.pharmacyId
     });
 
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
@@ -29,7 +28,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const session = await requireApiSession();
     await dbConnect();
-    const branchScope = getBranchScope(session, req.nextUrl.searchParams.get("branchId"));
     const resolvedParams = await params;
     
     const body = await req.json();
@@ -37,7 +35,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const job = await ScanJob.findOne({
       _id: resolvedParams.id,
       userId: session.user.id,
-      ...(branchScope.branchId ? { branchId: branchScope.branchId } : { pharmacyId: branchScope.pharmacyId })
+      pharmacyId: session.user.pharmacyId
     });
 
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
@@ -59,13 +57,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   try {
     const session = await requireApiSession();
     await dbConnect();
-    const branchScope = getBranchScope(session, req.nextUrl.searchParams.get("branchId"));
     const resolvedParams = await params;
 
     const job = await ScanJob.findOneAndDelete({
       _id: resolvedParams.id,
       userId: session.user.id,
-      ...(branchScope.branchId ? { branchId: branchScope.branchId } : { pharmacyId: branchScope.pharmacyId })
+      pharmacyId: session.user.pharmacyId
     });
 
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
