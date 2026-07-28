@@ -6,6 +6,36 @@ import Link from "next/link";
 
 type Phase = "define_headers" | "scanning" | "review_scan" | "working_dataset";
 
+function generateRowSummary(row: Record<string, string>): string {
+  const name = row.itemName || "Unknown Item";
+  const size = row.size ? `${row.size} size.` : "";
+  
+  let hierarchyStr = "";
+  if (row.unitHierarchy) {
+    const parts = row.unitHierarchy.split(">");
+    if (parts.length > 1) {
+      const parent = parts[0].split(":")[0];
+      const child = parts[1].split(":")[0];
+      const qty = parts[1].split(":")[1] || "1";
+      hierarchyStr = `Hierarchy: 1 ${parent} contains ${qty} ${child}s.`;
+    } else {
+      hierarchyStr = `Hierarchy: ${row.unitHierarchy}.`;
+    }
+  }
+
+  let receivedStr = "";
+  if (row.receivedQuantity && row.receivedForm) {
+    receivedStr = `Received: ${row.receivedQuantity} ${row.receivedForm}(s).`;
+  }
+  
+  let priceStr = "";
+  if (row.purchaseAmount) {
+    priceStr = `Paid ₦${row.purchaseAmount}.`;
+  }
+
+  return `${name}. ${size} ${hierarchyStr} ${receivedStr} ${priceStr}`.replace(/\s+/g, " ").trim();
+}
+
 export default function ScannerClient() {
   const [phase, setPhase] = useState<Phase>("define_headers");
 
@@ -384,22 +414,27 @@ export default function ScannerClient() {
               <thead className="bg-white border-b border-zinc-200 sticky top-0 shadow-sm z-10">
                 <tr>
                   <th className="w-12 px-3 py-3 text-center text-zinc-400 bg-white">#</th>
-                  {headers.map((h, i) => (
-                    <th key={i} className="px-4 py-3 font-bold text-zinc-700 whitespace-nowrap bg-white">{h}</th>
-                  ))}
+                  <th className="px-4 py-3 font-bold text-zinc-700 whitespace-nowrap bg-white w-1/4">Item Name</th>
+                  <th className="px-4 py-3 font-bold text-zinc-700 bg-white w-full">Summary</th>
                   <th className="w-16 px-4 py-3 text-center bg-white">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {workingDataset.map((row, rIdx) => (
-                  <tr key={rIdx} className="hover:bg-zinc-50 transition-colors">
-                    <td className="px-3 py-3 text-center text-zinc-400 font-mono text-xs">{rIdx + 1}</td>
-                    {headers.map((colKey, cIdx) => (
-                      <td key={cIdx} className="px-4 py-3 text-zinc-800">
-                        {row[colKey] || <span className="text-amber-500/50 italic">—</span>}
-                      </td>
-                    ))}
-                    <td className="px-4 py-3 text-center">
+                  <tr key={rIdx} className="hover:bg-zinc-50 transition-colors group">
+                    <td className="px-3 py-3 text-center text-zinc-400 font-mono text-xs align-top">{rIdx + 1}</td>
+                    <td className="px-4 py-3 text-zinc-800 font-semibold align-top">{row.itemName || "—"}</td>
+                    <td className="px-4 py-3 text-zinc-600 text-sm align-top leading-relaxed">
+                      {generateRowSummary(row)}
+                      <div className="hidden group-hover:block mt-2 pt-2 border-t border-zinc-100 text-xs text-zinc-400">
+                        {headers.filter(h => h !== 'itemName' && row[h]).map(h => (
+                          <span key={h} className="mr-3">
+                            <strong className="text-zinc-500 font-medium">{h}:</strong> {row[h]}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-center align-top">
                       <button
                         onClick={() => removeDatasetRow(rIdx)}
                         className="text-zinc-300 hover:text-red-600 transition-colors p-1"
