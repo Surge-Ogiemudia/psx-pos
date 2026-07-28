@@ -9,7 +9,15 @@ if (typeof window !== "undefined") {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 }
 
-type Phase = "define_headers" | "scanning" | "review_scan" | "working_dataset";
+type Phase = "define_headers" | "extracting_pdf" | "pdf_preview" | "scanning" | "review_scan" | "working_dataset";
+
+type ExtractedPage = {
+  id: number;
+  thumbnail: string;
+  status: "pending" | "processing" | "done" | "error";
+  data?: any[];
+  error?: string;
+};
 
 function generateRowSummary(row: Record<string, string>): string {
   const name = row.itemName || "Unknown Item";
@@ -48,23 +56,17 @@ export default function ScannerClient() {
   const [headers, setHeaders] = useState<string[]>(["Item Name", "Quantity", "Unit Price"]);
   const [newHeader, setNewHeader] = useState("");
 
-  // Step 2 & 3: Scanning and Review
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [scannedRows, setScannedRows] = useState<Record<string, string>[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Queue States for PDF/Multi-image
-  const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
-  const [totalPages, setTotalPages] = useState<number>(0);
-  const [queuedImages, setQueuedImages] = useState<string[]>([]);
-  const [processedPages, setProcessedPages] = useState<Record<number, { data?: any[], error?: string }>>({});
-  const [processingIndex, setProcessingIndex] = useState(0);
-  const [reviewIndex, setReviewIndex] = useState(0);
-  const [isCurrentlyFetching, setIsCurrentlyFetching] = useState(false);
-
   // Global Working Dataset
   const [workingDataset, setWorkingDataset] = useState<Record<string, string>[]>([]);
   const [pageCount, setPageCount] = useState(1);
+
+  // PDF & Page States
+  const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
+  const [extractedPages, setExtractedPages] = useState<ExtractedPage[]>([]);
+  const [activePageIndex, setActivePageIndex] = useState<number | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scannedRows, setScannedRows] = useState<Record<string, string>[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load dataset from local storage on mount
   useEffect(() => {
@@ -106,30 +108,50 @@ export default function ScannerClient() {
     if (!file) return;
 
     setScanError(null);
-    setProcessedPages({});
-    setProcessingIndex(0);
-    setReviewIndex(0);
-    setTotalPages(0);
+    setExtractedPages([]);
     setPdfDoc(null);
-    setQueuedImages([]);
-    
+    setActivePageIndex(null);
+    setPhase("extracting_pdf");
+
     if (file.type === "application/pdf") {
-      setPhase("scanning");
       try {
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         setPdfDoc(pdf);
-        setTotalPages(pdf.numPages);
+        const total = pdf.numPages;
+        
+        const extracted: ExtractedPage[] = [];
+        for (let i = 1; i <= total; i++) {
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 0.5 }); // Low res for thumbnails to save memory
+          const canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            extracted.push({
+              id: i,
+              thumbnail: canvas.toDataURL("image/jpeg", 0.6),
+              status: "pending"
+            });
+          }
+        }
+        setExtractedPages(extracted);
+        setPhase("pdf_preview");
       } catch (err: any) {
         setScanError("Failed to parse PDF: " + err.message);
         setPhase(workingDataset.length > 0 ? "working_dataset" : "define_headers");
       }
     } else {
-      setPhase("scanning");
       const reader = new FileReader();
       reader.onloadend = () => {
-        setQueuedImages([reader.result as string]);
-        setTotalPages(1);
+        setExtractedPages([{
+          id: 1,
+          thumbnail: reader.result as string,
+          status: "pending"
+        }]);
+        setPhase("pdf_preview");
       };
       reader.readAsDataURL(file);
     }
@@ -137,93 +159,79 @@ export default function ScannerClient() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function extractPageAsBase64(pageIndex: number) {
-    if (queuedImages[pageIndex]) return queuedImages[pageIndex];
-    if (pdfDoc) {
-      const page = await pdfDoc.getPage(pageIndex + 1);
-      const viewport = page.getViewport({ scale: 1.5 });
-      const canvas = document.createElement("canvas");
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Could not create canvas context");
-      await page.render({ canvasContext: ctx, viewport }).promise;
-      return canvas.toDataURL("image/jpeg", 0.8);
+  async function startScanningPage(pageIndex: number) {
+    setActivePageIndex(pageIndex);
+    setPhase("scanning");
+    setScanError(null);
+
+    // Update status to processing
+    const updated = [...extractedPages];
+    updated[pageIndex].status = "processing";
+    setExtractedPages(updated);
+
+    try {
+      let base64String = extractedPages[pageIndex].thumbnail; // fallback
+      
+      // If we have a PDF, extract a high-res version for the AI to read
+      if (pdfDoc) {
+        const page = await pdfDoc.getPage(pageIndex + 1);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          base64String = canvas.toDataURL("image/jpeg", 0.8);
+        }
+      }
+
+      const res = await fetch("/api/inventory/scan-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64String, headers }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to scan image");
+      }
+
+      const normalizedRows = data.rows.map((row: any) => {
+        const newRow: Record<string, string> = {};
+        headers.forEach((h) => {
+          let val = row[h] !== undefined ? String(row[h]) : "";
+          if (!val && h === "brand" && row["itemName"]) {
+            val = String(row["itemName"]).split(" ")[0] || "";
+          }
+          if (!val && h === "purchaseAmount") {
+            val = "0";
+          }
+          newRow[h] = val;
+        });
+        return newRow;
+      });
+
+      setScannedRows(normalizedRows);
+      
+      // Update status to done
+      const finished = [...extractedPages];
+      finished[pageIndex].status = "done";
+      finished[pageIndex].data = normalizedRows;
+      setExtractedPages(finished);
+      setPhase("review_scan");
+
+    } catch (err: any) {
+      const errored = [...extractedPages];
+      errored[pageIndex].status = "error";
+      errored[pageIndex].error = err.message;
+      setExtractedPages(errored);
+      
+      setScanError(err.message);
+      // Wait a moment then show review scan with error state
+      setPhase("review_scan");
     }
-    return null;
   }
-
-  useEffect(() => {
-    if (processingIndex >= totalPages || totalPages === 0) return;
-    if (isCurrentlyFetching) return;
-    if (processedPages[processingIndex]) return;
-
-    let isActive = true;
-
-    async function processNext() {
-      setIsCurrentlyFetching(true);
-      try {
-        const base64String = await extractPageAsBase64(processingIndex);
-        if (!base64String) throw new Error("No image data extracted");
-
-        const res = await fetch("/api/inventory/scan-image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: base64String, headers }),
-        });
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || "Failed to scan image");
-        }
-
-        const normalizedRows = data.rows.map((row: any) => {
-          const newRow: Record<string, string> = {};
-          headers.forEach((h) => {
-            let val = row[h] !== undefined ? String(row[h]) : "";
-            if (!val && h === "brand" && row["itemName"]) {
-              val = String(row["itemName"]).split(" ")[0] || "";
-            }
-            if (!val && h === "purchaseAmount") {
-              val = "0";
-            }
-            newRow[h] = val;
-          });
-          return newRow;
-        });
-
-        if (isActive) {
-           setProcessedPages(prev => ({ ...prev, [processingIndex]: { data: normalizedRows } }));
-        }
-      } catch (error: any) {
-        if (isActive) {
-           setProcessedPages(prev => ({ ...prev, [processingIndex]: { error: error.message } }));
-        }
-      } finally {
-        if (isActive) {
-           setProcessingIndex(prev => prev + 1);
-           setIsCurrentlyFetching(false);
-        }
-      }
-    }
-    
-    processNext();
-
-    return () => { isActive = false; };
-  }, [processingIndex, totalPages, isCurrentlyFetching, processedPages, pdfDoc, queuedImages, headers]);
-
-  useEffect(() => {
-    if (phase === "scanning" && totalPages > 0) {
-      if (processedPages[reviewIndex]) {
-        if (processedPages[reviewIndex].data) {
-          setScannedRows(processedPages[reviewIndex].data || []);
-        } else {
-          setScannedRows([]);
-        }
-        setPhase("review_scan");
-      }
-    }
-  }, [phase, totalPages, processedPages, reviewIndex]);
 
   function updateScannedRow(rowIndex: number, colKey: string, val: string) {
     const newRows = [...scannedRows];
@@ -252,46 +260,21 @@ export default function ScannerClient() {
       setWorkingDataset([...scannedRows]);
     }
     
-    const nextReviewIndex = reviewIndex + 1;
-    if (nextReviewIndex < totalPages) {
-      setReviewIndex(nextReviewIndex);
-      if (processedPages[nextReviewIndex]) {
-        if (processedPages[nextReviewIndex].data) {
-          setScannedRows(processedPages[nextReviewIndex].data || []);
-        } else {
-          setScannedRows([]);
-        }
-        setPhase("review_scan");
-      } else {
-        setScannedRows([]);
-        setPhase("scanning");
-      }
-    } else {
-      setScannedRows([]);
-      setPhase("working_dataset");
-    }
+    setScannedRows([]);
+    setPhase("pdf_preview"); // Go back to the grid to select next page
   }
 
   function discardScannedRows() {
-    if (confirm("Are you sure you want to discard this page?")) {
-      const nextReviewIndex = reviewIndex + 1;
-      if (nextReviewIndex < totalPages) {
-        setReviewIndex(nextReviewIndex);
-        if (processedPages[nextReviewIndex]) {
-          if (processedPages[nextReviewIndex].data) {
-            setScannedRows(processedPages[nextReviewIndex].data || []);
-          } else {
-            setScannedRows([]);
-          }
-          setPhase("review_scan");
-        } else {
-          setScannedRows([]);
-          setPhase("scanning");
-        }
-      } else {
-        setScannedRows([]);
-        setPhase(workingDataset.length > 0 ? "working_dataset" : "define_headers");
+    if (confirm("Are you sure you want to discard this page's extraction?")) {
+      if (activePageIndex !== null) {
+        const reset = [...extractedPages];
+        reset[activePageIndex].status = "pending";
+        reset[activePageIndex].error = undefined;
+        reset[activePageIndex].data = undefined;
+        setExtractedPages(reset);
       }
+      setScannedRows([]);
+      setPhase("pdf_preview");
     }
   }
 
@@ -339,12 +322,23 @@ export default function ScannerClient() {
             onChange={handleImageUpload}
           />
           <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={phase === "scanning" || (phase === "define_headers" && headers.length === 0)}
+            onClick={() => {
+              if (phase === "pdf_preview" && workingDataset.length > 0) {
+                 setPhase("working_dataset");
+              } else {
+                 fileInputRef.current?.click();
+              }
+            }}
+            disabled={phase === "scanning" || phase === "extracting_pdf" || (phase === "define_headers" && headers.length === 0)}
             className="bg-teal-700 text-white px-5 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-teal-800 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {phase === "scanning" ? (
-              <span className="animate-pulse">Processing {totalPages > 1 ? `PDF` : `Image`}...</span>
+            {phase === "pdf_preview" && workingDataset.length > 0 ? (
+               <>
+                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                 View Compiled Excel
+               </>
+            ) : phase === "scanning" || phase === "extracting_pdf" ? (
+              <span className="animate-pulse">Loading Document...</span>
             ) : (
               <>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -354,13 +348,6 @@ export default function ScannerClient() {
           </button>
         </div>
       </div>
-
-      {scanError && (
-        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl text-sm flex items-center gap-2">
-          <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-          <span className="font-medium">Error: {scanError}</span>
-        </div>
-      )}
 
       {/* PHASE 1: Define Headers */}
       {(phase === "define_headers" || (phase === "working_dataset" && workingDataset.length === 0)) && (
@@ -419,82 +406,157 @@ export default function ScannerClient() {
                disabled={headers.length === 0}
                className="bg-teal-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-teal-800 hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
              >
-               Confirm & Scan First Page →
+               Confirm & Upload Document →
              </button>
           </div>
         </div>
       )}
 
-      {/* PHASE 2: Scanning Overlay */}
-      {phase === "scanning" && (
+      {/* Extracting PDF Spinner */}
+      {phase === "extracting_pdf" && (
+        <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-12 flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-500 min-h-[400px]">
+          <div className="w-16 h-16 border-4 border-teal-100 border-t-teal-700 rounded-full animate-spin mb-6"></div>
+          <h2 className="text-xl font-bold text-zinc-900">Extracting Pages...</h2>
+          <p className="text-zinc-500 mt-2 max-w-md text-center">Breaking down your document into individual images.</p>
+        </div>
+      )}
+
+      {/* PHASE: PDF Preview Grid */}
+      {phase === "pdf_preview" && (
+        <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in duration-300">
+          <div className="bg-zinc-50 border-b border-zinc-200 p-6 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-zinc-900">Document Breakdown</h2>
+              <p className="text-sm text-zinc-500 mt-1">Select a page below to run the AI extraction, or review processed pages.</p>
+            </div>
+            {workingDataset.length > 0 && (
+              <button
+                onClick={() => setPhase("working_dataset")}
+                className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-zinc-800 transition-colors"
+              >
+                View Compiled Excel ({workingDataset.length} rows)
+              </button>
+            )}
+          </div>
+          <div className="p-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+              {extractedPages.map((page, idx) => (
+                <div key={idx} className="flex flex-col group">
+                  <div 
+                    onClick={() => page.status !== "done" ? startScanningPage(idx) : null}
+                    className={`relative aspect-[3/4] rounded-xl overflow-hidden border-2 cursor-pointer transition-all ${
+                      page.status === "done" ? "border-green-500 ring-4 ring-green-500/20" : 
+                      page.status === "processing" ? "border-teal-500 ring-4 ring-teal-500/20 opacity-80" : 
+                      page.status === "error" ? "border-red-500 ring-4 ring-red-500/20" :
+                      "border-zinc-200 hover:border-teal-400 hover:shadow-lg"
+                    }`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={page.thumbnail} alt={`Page ${page.id}`} className="w-full h-full object-cover bg-zinc-100" />
+                    
+                    {page.status === "done" && (
+                      <div className="absolute inset-0 bg-green-900/10 flex flex-col items-center justify-center backdrop-blur-[1px]">
+                         <div className="bg-green-500 text-white p-2 rounded-full shadow-lg">
+                           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                         </div>
+                      </div>
+                    )}
+                    {page.status === "error" && (
+                      <div className="absolute inset-0 bg-red-900/10 flex flex-col items-center justify-center backdrop-blur-[1px]">
+                         <div className="bg-red-500 text-white p-2 rounded-full shadow-lg">
+                           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                         </div>
+                      </div>
+                    )}
+                    
+                    {page.status === "pending" && (
+                      <div className="absolute inset-0 bg-teal-900/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                         <span className="bg-white text-teal-900 font-bold px-4 py-2 rounded-lg text-sm shadow-xl transform scale-95 group-hover:scale-100 transition-transform">
+                           Process Page
+                         </span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="font-bold text-zinc-700 text-sm">Page {page.id}</span>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      page.status === "done" ? "bg-green-100 text-green-700" :
+                      page.status === "processing" ? "bg-teal-100 text-teal-700" :
+                      page.status === "error" ? "bg-red-100 text-red-700" :
+                      "bg-zinc-100 text-zinc-500"
+                    }`}>
+                      {page.status === "done" ? "Complete" :
+                       page.status === "processing" ? "Analyzing..." :
+                       page.status === "error" ? "Failed" : "Pending"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PHASE: Scanning Single Page Overlay */}
+      {phase === "scanning" && activePageIndex !== null && (
         <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-12 flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-500 min-h-[400px]">
           <div className="w-16 h-16 border-4 border-teal-100 border-t-teal-700 rounded-full animate-spin mb-6"></div>
           <h2 className="text-xl font-bold text-zinc-900">
-            {totalPages > 1 ? `Analyzing Page ${reviewIndex + 1} of ${totalPages}...` : "Analyzing Image using AI..."}
+            Analyzing Page {extractedPages[activePageIndex].id}...
           </h2>
-          <p className="text-zinc-500 mt-2 max-w-md text-center">Gemini Vision is currently mapping the handwritten or printed text to your defined columns. This usually takes 5-10 seconds per page.</p>
+          <p className="text-zinc-500 mt-2 max-w-md text-center">Gemini Vision is currently mapping the handwritten or printed text to your defined columns. This usually takes 5-10 seconds.</p>
         </div>
       )}
 
       {/* PHASE 3: Review Scan */}
-      {phase === "review_scan" && (
+      {phase === "review_scan" && activePageIndex !== null && (
         <div className="bg-white border border-teal-200 rounded-2xl shadow-lg overflow-hidden animate-in slide-in-from-bottom-4 duration-500 ring-4 ring-teal-500/10">
           <div className="bg-teal-700 p-6 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-20 shadow-md">
             <div>
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <svg className="w-6 h-6 text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                Scan Complete: Review Data {totalPages > 1 && `(Page ${reviewIndex + 1} of ${totalPages})`}
+                Scan Complete: Review Page {extractedPages[activePageIndex].id}
               </h2>
               <p className="text-teal-100 text-sm mt-1 font-medium">Please verify the AI extraction. Fix any errors or fill missing gaps below.</p>
-              
-              {totalPages > 1 && processingIndex < totalPages && (
-                <p className="text-teal-200 text-xs mt-2 italic flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></span>
-                  Processing Page {processingIndex + 1} of {totalPages} in the background...
-                </p>
-              )}
             </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={discardScannedRows}
                 className="bg-white/20 text-white hover:bg-white/30 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
               >
-                Discard Page
+                Discard & Back to Grid
               </button>
               <button
                 onClick={confirmScannedRows}
-                disabled={!!processedPages[reviewIndex]?.error}
+                disabled={!!scanError}
                 className="bg-white text-teal-900 hover:bg-teal-50 px-5 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors disabled:opacity-50"
               >
-                {totalPages > 1 && reviewIndex + 1 < totalPages ? "Confirm & Next Page" : "Confirm & Append Data"}
+                Confirm & Append Data
               </button>
             </div>
           </div>
 
-          {processedPages[reviewIndex]?.error ? (
+          {scanError ? (
             <div className="p-16 flex flex-col items-center justify-center text-center">
               <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-6">
                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
               </div>
-              <h3 className="text-xl font-bold text-zinc-900 mb-2">Error Processing Page {reviewIndex + 1}</h3>
-              <p className="text-zinc-500 max-w-md mb-8">{processedPages[reviewIndex].error}</p>
+              <h3 className="text-xl font-bold text-zinc-900 mb-2">Error Processing Page {extractedPages[activePageIndex].id}</h3>
+              <p className="text-zinc-500 max-w-md mb-8">{scanError}</p>
               
               <div className="flex gap-4">
                 <button
-                  onClick={() => {
-                    setProcessedPages(prev => { const n = { ...prev }; delete n[reviewIndex]; return n; });
-                    setProcessingIndex(reviewIndex);
-                    setPhase("scanning");
-                  }}
+                  onClick={() => startScanningPage(activePageIndex)}
                   className="bg-teal-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-sm hover:bg-teal-700 transition-colors"
                 >
-                  Retry Page {reviewIndex + 1}
+                  Retry Page {extractedPages[activePageIndex].id}
                 </button>
                 <button
                   onClick={discardScannedRows}
                   className="bg-zinc-100 text-zinc-700 px-6 py-2.5 rounded-xl font-bold hover:bg-zinc-200 transition-colors"
                 >
-                  Skip this Page
+                  Back to Grid
                 </button>
               </div>
             </div>
@@ -586,6 +648,14 @@ export default function ScannerClient() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              {extractedPages.length > 0 && (
+                <button
+                  onClick={() => setPhase("pdf_preview")}
+                  className="bg-white border border-zinc-300 text-zinc-700 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-zinc-50 transition-colors flex items-center gap-2 mr-4"
+                >
+                  ← Back to PDF Grid
+                </button>
+              )}
               <button
                 onClick={clearDataset}
                 className="text-sm font-semibold text-red-600 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors"
@@ -597,7 +667,7 @@ export default function ScannerClient() {
                 className="bg-white border border-teal-200 text-teal-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-teal-50 transition-colors flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                Scan Next Document
+                Scan New Document
               </button>
               <button
                 onClick={exportToExcel}
