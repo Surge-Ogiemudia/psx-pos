@@ -51,6 +51,7 @@ export default function ScannerClient() {
 
   // Global Working Dataset
   const [workingDataset, setWorkingDataset] = useState<Record<string, string>[]>([]);
+  const [pageCount, setPageCount] = useState(1);
 
   // Load dataset from local storage on mount
   useEffect(() => {
@@ -161,7 +162,15 @@ export default function ScannerClient() {
   }
 
   function confirmScannedRows() {
-    setWorkingDataset([...workingDataset, ...scannedRows]);
+    if (workingDataset.length > 0) {
+      const separatorRow: Record<string, string> = {};
+      headers.forEach(h => separatorRow[h] = "");
+      separatorRow.itemName = `--- Page ${pageCount + 1} ---`;
+      setWorkingDataset([...workingDataset, separatorRow, ...scannedRows]);
+      setPageCount(prev => prev + 1);
+    } else {
+      setWorkingDataset([...scannedRows]);
+    }
     setScannedRows([]);
     setPhase("working_dataset");
   }
@@ -430,6 +439,13 @@ export default function ScannerClient() {
                 Clear All Data
               </button>
               <button
+                onClick={() => fileInputRef.current?.click()}
+                className="bg-white border border-teal-200 text-teal-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-teal-50 transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                Scan Next Page
+              </button>
+              <button
                 onClick={exportToExcel}
                 className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-green-700 transition-colors flex items-center gap-2"
               >
@@ -450,31 +466,46 @@ export default function ScannerClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {workingDataset.map((row, rIdx) => (
-                  <tr key={rIdx} className="hover:bg-zinc-50 transition-colors group">
-                    <td className="px-3 py-3 text-center text-zinc-400 font-mono text-xs align-top">{rIdx + 1}</td>
-                    <td className="px-4 py-3 text-zinc-800 font-semibold align-top">{row.itemName || "—"}</td>
-                    <td className="px-4 py-3 text-zinc-600 text-sm align-top leading-relaxed">
-                      {generateRowSummary(row)}
-                      <div className="hidden group-hover:block mt-2 pt-2 border-t border-zinc-100 text-xs text-zinc-400">
-                        {headers.filter(h => h !== 'itemName' && row[h]).map(h => (
-                          <span key={h} className="mr-3">
-                            <strong className="text-zinc-500 font-medium">{h}:</strong> {row[h]}
+                {workingDataset.map((row, rIdx) => {
+                  const isSeparator = row.itemName?.startsWith("--- Page ");
+                  if (isSeparator) {
+                    return (
+                      <tr key={rIdx} className="bg-zinc-100 border-y border-zinc-200">
+                        <td colSpan={4} className="px-4 py-4 text-center">
+                          <span className="font-bold text-zinc-600 tracking-wider text-sm uppercase">
+                            {row.itemName}
                           </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-center align-top">
-                      <button
-                        onClick={() => removeDatasetRow(rIdx)}
-                        className="text-zinc-300 hover:text-red-600 transition-colors p-1"
-                        title="Delete Item"
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr key={rIdx} className="hover:bg-zinc-50 transition-colors group">
+                      <td className="px-3 py-3 text-center text-zinc-400 font-mono text-xs align-top">{rIdx + 1}</td>
+                      <td className="px-4 py-3 text-zinc-800 font-semibold align-top">{row.itemName || "—"}</td>
+                      <td className="px-4 py-3 text-zinc-600 text-sm align-top leading-relaxed">
+                        {generateRowSummary(row)}
+                        <div className="hidden group-hover:block mt-2 pt-2 border-t border-zinc-100 text-xs text-zinc-400">
+                          {headers.filter(h => h !== 'itemName' && row[h]).map(h => (
+                            <span key={h} className="mr-3 inline-block mb-1">
+                              <strong className="text-zinc-500 font-medium">{h}:</strong> {row[h]}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center align-top">
+                        <button
+                          onClick={() => removeDatasetRow(rIdx)}
+                          className="text-zinc-300 hover:text-red-600 transition-colors p-1"
+                          title="Delete Item"
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
