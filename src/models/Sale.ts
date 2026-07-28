@@ -58,6 +58,7 @@ const SaleSchema = new Schema(
     changeGiven: { type: Number, required: true, default: 0, min: 0 },
     changeMethod: { type: String, enum: ["cash", "card", "mobile_money"], default: "cash" },
     changeFee: { type: Number, required: true, default: 0, min: 0 },
+    printStatus: { type: String, enum: ["pending", "printed", "not_needed"], default: "not_needed" },
     timestamp: { type: Date, required: true, default: Date.now },
   },
   { timestamps: true }

@@ -339,6 +339,7 @@ export async function POST(request: NextRequest) {
               changeGiven,
               changeMethod: changeGiven > 0 ? changeMethod : "cash",
               changeFee: round2(changeFeeInput),
+              printStatus: body.requestRemotePrint ? "pending" : "not_needed",
               timestamp: new Date(),
             },
           ],

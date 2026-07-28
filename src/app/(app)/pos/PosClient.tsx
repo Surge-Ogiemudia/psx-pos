@@ -5,6 +5,7 @@ import { formatProductLabel, type PaymentMethod, type ProductCategory, type Prod
 import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
 import { parseNumeric } from "@/lib/numberInput";
+import ReceiptTemplate, { type ReceiptSale } from "./ReceiptTemplate";
 
 type CartLine =
   | { kind: "catalog"; key: string; product: ProductJSON; form: string; quantity: number; instruction?: string }
@@ -90,6 +91,10 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
   const [loadingPrescription, setLoadingPrescription] = useState(false);
   const [currentCustomer, setCurrentCustomer] = useState<{ id: string | null; name: string | null; encounterId: string | null }>({ id: null, name: null, encounterId: null });
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [requestRemotePrint, setRequestRemotePrint] = useState(false);
+  const [enablePrintListener, setEnablePrintListener] = useState(false);
+  const [lastSale, setLastSale] = useState<ReceiptSale | null>(null);
+  
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // No native patient search state needed, EMR iframe handles it.
@@ -269,6 +274,60 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
     }
     localStorage.setItem(heldSalesStorageKey(branchId), JSON.stringify(heldSales));
   }, [heldSales, branchId]);
+
+  // Handle auto-printing of the local computer's sale
+  useEffect(() => {
+    if (lastSale) {
+      const timeout = setTimeout(() => {
+        window.print();
+        // clear lastSale so it doesn't print again if the component re-renders
+        setLastSale(null);
+      }, 500); // Wait for the DOM to render the hidden receipt
+      return () => clearTimeout(timeout);
+    }
+  }, [lastSale]);
+
+  // Background print listener for remote mobile sales
+  const isPrintingRemoteRef = useRef(false);
+  useEffect(() => {
+    if (!enablePrintListener) return;
+    const interval = setInterval(async () => {
+      if (isPrintingRemoteRef.current) return;
+      try {
+        const params = new URLSearchParams();
+        if (branchId) params.set("branchId", branchId);
+        
+        const res = await fetch(`/api/sales/print-queue?${params}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const pendingSales: ReceiptSale[] = data.sales;
+
+        if (pendingSales.length > 0) {
+          isPrintingRemoteRef.current = true;
+          // Process just the first pending sale to avoid overlapping prints
+          const job = pendingSales[0];
+          setLastSale(job);
+          
+          // Wait enough time for the print dialog to trigger and close,
+          // then mark as printed so the next interval grabs the next job.
+          setTimeout(async () => {
+            try {
+              await fetch(`/api/sales/${job._id}/mark-printed?${params}`, {
+                method: "POST",
+              });
+            } finally {
+              isPrintingRemoteRef.current = false;
+            }
+          }, 3000);
+        }
+      } catch (err) {
+        console.error("Print listener error:", err);
+        isPrintingRemoteRef.current = false;
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [enablePrintListener, branchId]);
 
   function holdSale() {
     if (cart.length === 0) return;
@@ -508,6 +567,7 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
                 unitPrice: line.unitPrice,
               }
         ),
+        requestRemotePrint,
       }),
     });
 
@@ -540,12 +600,37 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
     setPayments([{ method: "cash", amount: "" }]);
     setPaymentsTouched(false);
     setChangeFee("0");
+    setRequestRemotePrint(false);
     const refreshed = await fetch(`/api/products?${productParams()}`);
     if (refreshed.ok) setProducts((await refreshed.json()).products);
+    
+    // Auto-trigger direct print if they didn't explicitly request a remote print
+    if (!requestRemotePrint && data.sale) {
+      // Re-map the API response to fit the ReceiptSale shape needed by the template
+      const fullSaleData: ReceiptSale = {
+        _id: data.sale._id,
+        customerName: data.sale.customerName,
+        userName: "You", // Immediate print assumes current user
+        items: data.sale.items,
+        totalAmount: data.sale.totalAmount,
+        payments: data.sale.payments,
+        amountTendered: data.sale.amountTendered,
+        changeGiven: data.sale.changeGiven,
+        timestamp: data.sale.timestamp,
+      };
+      setLastSale(fullSaleData);
+    }
   }
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      {lastSale && (
+        <ReceiptTemplate
+          sale={lastSale}
+          pharmacyName="Pharmacy"
+          branchName={branchId ? "Branch" : undefined} // Ideally pulled from a config, using generic for now
+        />
+      )}
       <div className="lg:col-span-2">
         <div className="sticky top-16 z-20 border-b border-zinc-100 bg-white pb-3 pt-1 md:top-[6.5rem]">
           <h1 className="mb-3 text-lg font-semibold text-zinc-900">Product catalog</h1>
@@ -753,16 +838,29 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
 
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-zinc-900">Current sale</h2>
-          {cart.length > 0 && (
-            <div className="flex items-center gap-3">
-              <button onClick={holdSale} className="text-xs font-medium text-amber-700 hover:underline">
-                Hold sale
-              </button>
-              <button onClick={clearCart} className="text-xs font-medium text-red-600 hover:underline">
-                Clear all
-              </button>
-            </div>
-          )}
+          
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-1.5 cursor-pointer rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-800 border border-teal-200">
+              <input 
+                type="checkbox" 
+                checked={enablePrintListener} 
+                onChange={(e) => setEnablePrintListener(e.target.checked)} 
+                className="w-3.5 h-3.5 text-teal-600 rounded border-teal-300 focus:ring-teal-600"
+              />
+              🖨️ Listen for Phone Sales
+            </label>
+            
+            {cart.length > 0 && (
+              <div className="flex items-center gap-3">
+                <button onClick={holdSale} className="text-xs font-medium text-amber-700 hover:underline">
+                  Hold sale
+                </button>
+                <button onClick={clearCart} className="text-xs font-medium text-red-600 hover:underline">
+                  Clear all
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           <div className="mb-4 pb-4 border-b border-zinc-100">
@@ -1136,30 +1234,42 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
               </div>
             </div>
 
-            <div className="border-t border-zinc-200 bg-zinc-50 p-4 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowConfirmModal(false)}
-                disabled={submitting}
-                className="rounded-lg border border-zinc-300 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
-              >
-                Back / Edit Sale
-              </button>
-              <button
-                type="button"
-                onClick={executeCompleteSale}
-                disabled={submitting}
-                className="rounded-lg bg-teal-700 px-6 py-2.5 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-50 shadow-md flex items-center gap-2"
-              >
-                {submitting ? (
-                  <>
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                    Processing...
-                  </>
-                ) : (
-                  "Confirm & Complete Sale"
-                )}
-              </button>
+            <div className="border-t border-zinc-200 bg-zinc-50 p-4 flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-zinc-700">
+                <input 
+                  type="checkbox" 
+                  checked={requestRemotePrint} 
+                  onChange={(e) => setRequestRemotePrint(e.target.checked)}
+                  className="rounded border-zinc-300 text-teal-600 focus:ring-teal-600 w-4 h-4" 
+                />
+                📱 Send to Computer Printer
+              </label>
+              
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmModal(false)}
+                  disabled={submitting}
+                  className="rounded-lg border border-zinc-300 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                >
+                  Back / Edit Sale
+                </button>
+                <button
+                  type="button"
+                  onClick={executeCompleteSale}
+                  disabled={submitting}
+                  className="rounded-lg bg-teal-700 px-6 py-2.5 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-50 shadow-md flex items-center gap-2"
+                >
+                  {submitting ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                      Processing...
+                    </>
+                  ) : (
+                    "Confirm & Complete Sale"
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
