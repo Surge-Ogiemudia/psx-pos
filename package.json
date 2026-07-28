@@ -15,6 +15,7 @@
     "backfill-pharmacy-slugs": "node --env-file=.env.local scripts/backfill-pharmacy-slugs.mjs"
   },
   "dependencies": {
+    "@google/genai": "^2.13.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@vercel/blob": "^2.6.1",
     "@vladmandic/face-api": "^1.7.15",
