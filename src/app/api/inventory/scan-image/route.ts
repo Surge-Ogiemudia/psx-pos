@@ -48,7 +48,7 @@ If a column's data cannot be deduced, use an empty string "" for that key.
 Do not include any markdown formatting (like \`\`\`json), just return the raw JSON array.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-3.5-flash-lite",
       contents: [
         prompt,
         {
