@@ -840,7 +840,7 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
           <h2 className="text-lg font-semibold text-zinc-900">Current sale</h2>
           
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-1.5 cursor-pointer rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-800 border border-teal-200">
+            <label className="hidden md:flex items-center gap-1.5 cursor-pointer rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-800 border border-teal-200">
               <input 
                 type="checkbox" 
                 checked={enablePrintListener} 
@@ -1235,7 +1235,7 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
             </div>
 
             <div className="border-t border-zinc-200 bg-zinc-50 p-4 flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-zinc-700">
+              <label className="flex md:hidden items-center gap-2 cursor-pointer text-sm font-medium text-zinc-700">
                 <input 
                   type="checkbox" 
                   checked={requestRemotePrint} 
