@@ -19,6 +19,12 @@ type ExtractedPage = {
   error?: string;
 };
 
+type InProgressJob = {
+  _id: string;
+  fileName: string;
+  updatedAt: string;
+};
+
 function generateRowSummary(row: Record<string, string>): string {
   const name = row.itemName || "Unknown Item";
   const size = row.size ? `${row.size} size.` : "";
@@ -68,28 +74,73 @@ export default function ScannerClient() {
   const [scannedRows, setScannedRows] = useState<Record<string, string>[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load dataset from local storage on mount
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [inProgressJobs, setInProgressJobs] = useState<InProgressJob[]>([]);
+
+  // Load in-progress jobs on mount
   useEffect(() => {
-    const saved = localStorage.getItem("inventory_creator_dataset");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setWorkingDataset(parsed);
-          const firstRow = parsed[0];
-          setHeaders(Object.keys(firstRow).filter(h => h !== "isSeparator")); // ignore internal if any
-          setPhase("working_dataset");
+    fetch("/api/inventory/scan-jobs")
+      .then(res => res.json())
+      .then(data => {
+        if (data.jobs && data.jobs.length > 0) {
+          setInProgressJobs(data.jobs);
         }
-      } catch (e) {
-        console.error("Failed to parse saved dataset", e);
-      }
-    }
+      })
+      .catch(err => console.error("Failed to load jobs", err));
   }, []);
 
-  // Save to local storage on change
-  useEffect(() => {
-    localStorage.setItem("inventory_creator_dataset", JSON.stringify(workingDataset));
-  }, [workingDataset]);
+  async function saveJobProgress(updatedPages: ExtractedPage[], updatedDataset: any[]) {
+    if (!jobId) return;
+    try {
+      await fetch(`/api/inventory/scan-jobs/${jobId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pages: updatedPages, workingDataset: updatedDataset })
+      });
+    } catch (e) {
+      console.error("Failed to save progress", e);
+    }
+  }
+
+  async function resumeJob(id: string) {
+    setScanError(null);
+    setPhase("extracting_pdf");
+    try {
+      const res = await fetch(`/api/inventory/scan-jobs/${id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load job");
+      
+      const job = data.job;
+      setJobId(job._id);
+      setHeaders(job.headers);
+      setWorkingDataset(job.workingDataset || []);
+      setPageCount(job.pages.filter((p: any) => p.status === "done").length + 1);
+      
+      // Parse base64
+      if (job.pdfBase64.startsWith("data:application/pdf")) {
+        const binaryString = window.atob(job.pdfBase64.split(",")[1]);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const pdf = await pdfjsLib.getDocument({ data: bytes.buffer }).promise;
+        setPdfDoc(pdf);
+      } else {
+        setPdfDoc(null);
+      }
+      
+      setExtractedPages(job.pages || []);
+      
+      if (job.workingDataset && job.workingDataset.length > 0) {
+         setPhase("working_dataset");
+      } else {
+         setPhase("pdf_preview");
+      }
+    } catch (err: any) {
+      setScanError(err.message);
+      setPhase("define_headers");
+    }
+  }
 
   function addHeader() {
     const trimmed = newHeader.trim();
@@ -107,10 +158,17 @@ export default function ScannerClient() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 15 * 1024 * 1024) {
+      alert("File is too large! Maximum file size is 15MB.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setScanError(null);
     setExtractedPages([]);
     setPdfDoc(null);
     setActivePageIndex(null);
+    setJobId(null);
     setPhase("extracting_pdf");
 
     if (file.type === "application/pdf") {
@@ -139,19 +197,55 @@ export default function ScannerClient() {
         }
         setExtractedPages(extracted);
         setPhase("pdf_preview");
+
+        // Upload to DB in background
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const pdfBase64 = reader.result as string;
+          const res = await fetch("/api/inventory/scan-jobs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName: file.name,
+              pdfBase64,
+              headers,
+              pages: extracted
+            })
+          });
+          const data = await res.json();
+          if (data.job) setJobId(data.job._id);
+        };
+        reader.readAsDataURL(file);
+
       } catch (err: any) {
         setScanError("Failed to parse PDF: " + err.message);
         setPhase(workingDataset.length > 0 ? "working_dataset" : "define_headers");
       }
     } else {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setExtractedPages([{
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        const extracted: ExtractedPage[] = [{
           id: 1,
-          thumbnail: reader.result as string,
+          thumbnail: base64,
           status: "pending"
-        }]);
+        }];
+        setExtractedPages(extracted);
         setPhase("pdf_preview");
+        
+        // Upload to DB
+        const res = await fetch("/api/inventory/scan-jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileName: file.name,
+            pdfBase64: base64,
+            headers,
+            pages: extracted
+          })
+        });
+        const data = await res.json();
+        if (data.job) setJobId(data.job._id);
       };
       reader.readAsDataURL(file);
     }
@@ -164,15 +258,14 @@ export default function ScannerClient() {
     setPhase("scanning");
     setScanError(null);
 
-    // Update status to processing
     const updated = [...extractedPages];
     updated[pageIndex].status = "processing";
     setExtractedPages(updated);
+    if (jobId) saveJobProgress(updated, workingDataset);
 
     try {
       let base64String = extractedPages[pageIndex].thumbnail; // fallback
       
-      // If we have a PDF, extract a high-res version for the AI to read
       if (pdfDoc) {
         const page = await pdfDoc.getPage(pageIndex + 1);
         const viewport = page.getViewport({ scale: 1.5 });
@@ -214,11 +307,12 @@ export default function ScannerClient() {
 
       setScannedRows(normalizedRows);
       
-      // Update status to done
       const finished = [...extractedPages];
       finished[pageIndex].status = "done";
       finished[pageIndex].data = normalizedRows;
       setExtractedPages(finished);
+      if (jobId) saveJobProgress(finished, workingDataset);
+      
       setPhase("review_scan");
 
     } catch (err: any) {
@@ -226,9 +320,9 @@ export default function ScannerClient() {
       errored[pageIndex].status = "error";
       errored[pageIndex].error = err.message;
       setExtractedPages(errored);
+      if (jobId) saveJobProgress(errored, workingDataset);
       
       setScanError(err.message);
-      // Wait a moment then show review scan with error state
       setPhase("review_scan");
     }
   }
@@ -250,18 +344,28 @@ export default function ScannerClient() {
   }
 
   function confirmScannedRows() {
+    let newDataset = [...workingDataset];
     if (workingDataset.length > 0) {
       const separatorRow: Record<string, string> = {};
       headers.forEach(h => separatorRow[h] = "");
       separatorRow.itemName = `--- Page ${pageCount + 1} ---`;
-      setWorkingDataset([...workingDataset, separatorRow, ...scannedRows]);
+      newDataset = [...workingDataset, separatorRow, ...scannedRows];
+      setWorkingDataset(newDataset);
       setPageCount(prev => prev + 1);
     } else {
-      setWorkingDataset([...scannedRows]);
+      newDataset = [...scannedRows];
+      setWorkingDataset(newDataset);
+    }
+    
+    // Save to DB
+    if (activePageIndex !== null && jobId) {
+      const updatedPages = [...extractedPages];
+      updatedPages[activePageIndex].data = scannedRows;
+      saveJobProgress(updatedPages, newDataset);
     }
     
     setScannedRows([]);
-    setPhase("pdf_preview"); // Go back to the grid to select next page
+    setPhase("pdf_preview");
   }
 
   function discardScannedRows() {
@@ -272,6 +376,7 @@ export default function ScannerClient() {
         reset[activePageIndex].error = undefined;
         reset[activePageIndex].data = undefined;
         setExtractedPages(reset);
+        if (jobId) saveJobProgress(reset, workingDataset);
       }
       setScannedRows([]);
       setPhase("pdf_preview");
@@ -279,8 +384,11 @@ export default function ScannerClient() {
   }
 
   function removeDatasetRow(rowIndex: number) {
-    setWorkingDataset(workingDataset.filter((_, i) => i !== rowIndex));
-    if (workingDataset.length === 1) { // if this was the last row
+    const newDataset = workingDataset.filter((_, i) => i !== rowIndex);
+    setWorkingDataset(newDataset);
+    if (jobId) saveJobProgress(extractedPages, newDataset);
+    
+    if (newDataset.length === 0) {
        setPhase("define_headers");
     }
   }
@@ -288,16 +396,28 @@ export default function ScannerClient() {
   function clearDataset() {
     if (confirm("Are you sure you want to clear the entire working document? This cannot be undone.")) {
       setWorkingDataset([]);
+      if (jobId) saveJobProgress(extractedPages, []);
       setPhase("define_headers");
     }
   }
 
-  function exportToExcel() {
+  async function exportToExcel() {
     if (workingDataset.length === 0) return;
     const worksheet = XLSX.utils.json_to_sheet(workingDataset);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Inventory");
     XLSX.writeFile(workbook, `Inventory_Export_${new Date().toISOString().split("T")[0]}.xlsx`);
+    
+    // Delete job from DB on completion to save space
+    if (jobId) {
+      try {
+        await fetch(`/api/inventory/scan-jobs/${jobId}`, { method: "DELETE" });
+        setJobId(null);
+        setInProgressJobs(inProgressJobs.filter(j => j._id !== jobId));
+      } catch (e) {
+        console.error("Failed to delete completed job", e);
+      }
+    }
   }
 
   return (
@@ -351,63 +471,87 @@ export default function ScannerClient() {
 
       {/* PHASE 1: Define Headers */}
       {(phase === "define_headers" || (phase === "working_dataset" && workingDataset.length === 0)) && (
-        <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in duration-300">
-          <div className="bg-zinc-50 border-b border-zinc-200 p-6">
-            <h2 className="text-lg font-bold text-zinc-900">Step 1: Define Document Columns</h2>
-            <p className="text-sm text-zinc-500 mt-1">What headers are written on the inventory sheet you are about to scan?</p>
-          </div>
-          <div className="p-6">
-            <div className="flex flex-wrap gap-2 mb-6">
-              {headers.map((h, idx) => (
-                <div key={idx} className="bg-teal-50 border border-teal-200 text-teal-800 px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-2">
-                  {h}
-                  <button onClick={() => removeHeader(idx)} className="text-teal-600 hover:text-teal-900 ml-1">
-                    ✕
+        <div className="space-y-6">
+          {inProgressJobs.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 shadow-sm animate-in fade-in">
+              <h2 className="text-lg font-bold text-amber-900 mb-4 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                In-Progress Scans
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {inProgressJobs.map(job => (
+                  <div key={job._id} onClick={() => resumeJob(job._id)} className="bg-white border border-amber-200 p-4 rounded-xl shadow-sm hover:shadow-md hover:border-amber-400 cursor-pointer transition-all flex justify-between items-center group">
+                    <div className="truncate">
+                      <p className="font-bold text-zinc-900 truncate" title={job.fileName}>{job.fileName}</p>
+                      <p className="text-xs text-zinc-500 mt-1">Last edited: {new Date(job.updatedAt).toLocaleDateString()}</p>
+                    </div>
+                    <div className="bg-amber-100 text-amber-800 p-2 rounded-lg group-hover:bg-amber-200 transition-colors shrink-0 ml-3">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in duration-300">
+            <div className="bg-zinc-50 border-b border-zinc-200 p-6">
+              <h2 className="text-lg font-bold text-zinc-900">Step 1: Define Document Columns</h2>
+              <p className="text-sm text-zinc-500 mt-1">What headers are written on the inventory sheet you are about to scan?</p>
+            </div>
+            <div className="p-6">
+              <div className="flex flex-wrap gap-2 mb-6">
+                {headers.map((h, idx) => (
+                  <div key={idx} className="bg-teal-50 border border-teal-200 text-teal-800 px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-2">
+                    {h}
+                    <button onClick={() => removeHeader(idx)} className="text-teal-600 hover:text-teal-900 ml-1">
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3 w-full max-w-sm">
+                  <input
+                    type="text"
+                    placeholder="e.g. Expiry Date"
+                    value={newHeader}
+                    onChange={(e) => setNewHeader(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addHeader()}
+                    className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all shadow-sm"
+                  />
+                  <button
+                    onClick={addHeader}
+                    disabled={!newHeader.trim()}
+                    className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50 whitespace-nowrap"
+                  >
+                    Add Column
                   </button>
                 </div>
-              ))}
-            </div>
-            
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3 w-full max-w-sm">
-                <input
-                  type="text"
-                  placeholder="e.g. Expiry Date"
-                  value={newHeader}
-                  onChange={(e) => setNewHeader(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addHeader()}
-                  className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all shadow-sm"
-                />
                 <button
-                  onClick={addHeader}
-                  disabled={!newHeader.trim()}
-                  className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50 whitespace-nowrap"
+                  onClick={() => setHeaders([
+                    "itemName", "brand", "size", "category", "unitHierarchy", 
+                    "receivedForm", "receivedQuantity", "purchaseAmount", "supplierName", 
+                    "batchNumber", "expiryDate", "priceForm", "sisterStorePrice", 
+                    "branchPrice", "distributorPrice", "wholesalerPrice", "retailerPrice"
+                  ])}
+                  className="text-sm font-semibold text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-100 transition-colors flex items-center gap-2 whitespace-nowrap"
                 >
-                  Add Column
+                  <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                  Load Bulk Receive Defaults
                 </button>
               </div>
-              <button
-                onClick={() => setHeaders([
-                  "itemName", "brand", "size", "category", "unitHierarchy", 
-                  "receivedForm", "receivedQuantity", "purchaseAmount", "supplierName", 
-                  "batchNumber", "expiryDate", "priceForm", "sisterStorePrice", 
-                  "branchPrice", "distributorPrice", "wholesalerPrice", "retailerPrice"
-                ])}
-                className="text-sm font-semibold text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-100 transition-colors flex items-center gap-2 whitespace-nowrap"
-              >
-                <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                Load Bulk Receive Defaults
-              </button>
             </div>
-          </div>
-          <div className="bg-zinc-50 border-t border-zinc-100 p-6 flex justify-end">
-             <button
-               onClick={() => fileInputRef.current?.click()}
-               disabled={headers.length === 0}
-               className="bg-teal-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-teal-800 hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-             >
-               Confirm & Upload Document →
-             </button>
+            <div className="bg-zinc-50 border-t border-zinc-100 p-6 flex justify-end">
+               <button
+                 onClick={() => fileInputRef.current?.click()}
+                 disabled={headers.length === 0}
+                 className="bg-teal-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-teal-800 hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+               >
+                 Confirm & Upload Document →
+               </button>
+            </div>
           </div>
         </div>
       )}
@@ -416,8 +560,8 @@ export default function ScannerClient() {
       {phase === "extracting_pdf" && (
         <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-12 flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-500 min-h-[400px]">
           <div className="w-16 h-16 border-4 border-teal-100 border-t-teal-700 rounded-full animate-spin mb-6"></div>
-          <h2 className="text-xl font-bold text-zinc-900">Extracting Pages...</h2>
-          <p className="text-zinc-500 mt-2 max-w-md text-center">Breaking down your document into individual images.</p>
+          <h2 className="text-xl font-bold text-zinc-900">Processing Document...</h2>
+          <p className="text-zinc-500 mt-2 max-w-md text-center">Loading PDF from database or breaking down into images.</p>
         </div>
       )}
 
@@ -443,7 +587,15 @@ export default function ScannerClient() {
               {extractedPages.map((page, idx) => (
                 <div key={idx} className="flex flex-col group">
                   <div 
-                    onClick={() => page.status !== "done" ? startScanningPage(idx) : null}
+                    onClick={() => {
+                      if (page.status === "done") {
+                        setScannedRows(page.data || []);
+                        setActivePageIndex(idx);
+                        setPhase("review_scan");
+                      } else {
+                        startScanningPage(idx);
+                      }
+                    }}
                     className={`relative aspect-[3/4] rounded-xl overflow-hidden border-2 cursor-pointer transition-all ${
                       page.status === "done" ? "border-green-500 ring-4 ring-green-500/20" : 
                       page.status === "processing" ? "border-teal-500 ring-4 ring-teal-500/20 opacity-80" : 
@@ -473,6 +625,13 @@ export default function ScannerClient() {
                       <div className="absolute inset-0 bg-teal-900/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                          <span className="bg-white text-teal-900 font-bold px-4 py-2 rounded-lg text-sm shadow-xl transform scale-95 group-hover:scale-100 transition-transform">
                            Process Page
+                         </span>
+                      </div>
+                    )}
+                    {page.status === "done" && (
+                      <div className="absolute inset-0 bg-green-900/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                         <span className="bg-white text-green-900 font-bold px-4 py-2 rounded-lg text-sm shadow-xl transform scale-95 group-hover:scale-100 transition-transform">
+                           Edit Data
                          </span>
                       </div>
                     )}
@@ -532,7 +691,7 @@ export default function ScannerClient() {
                 disabled={!!scanError}
                 className="bg-white text-teal-900 hover:bg-teal-50 px-5 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors disabled:opacity-50"
               >
-                Confirm & Append Data
+                Confirm & Save Progress
               </button>
             </div>
           </div>
@@ -666,7 +825,7 @@ export default function ScannerClient() {
                 onClick={() => fileInputRef.current?.click()}
                 className="bg-white border border-teal-200 text-teal-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-teal-50 transition-colors flex items-center gap-2"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /></svg>
                 Scan New Document
               </button>
               <button
