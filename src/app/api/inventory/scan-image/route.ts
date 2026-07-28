@@ -23,15 +23,27 @@ export async function POST(req: NextRequest) {
     // Clean up base64 string if it contains data URI prefix
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
 
-    const prompt = `You are a highly accurate data extraction assistant.
-I am providing an image of a table/inventory list (which might be handwritten or printed).
-The expected column headers for this inventory are: ${headers.join(", ")}.
+    const prompt = `You are an expert data extraction assistant for a pharmacy inventory system.
+I am providing an image of a physical inventory ledger (often handwritten).
+The expected final column headers for our system are: ${headers.join(", ")}.
 
-Extract all the rows of data visible in the image.
+CRITICAL RULES FOR EXTRACTING AND TRANSFORMING DATA:
+1. The physical ledger will typically have columns like "Quantity" (e.g., "2 ctn", "5 packs") and "No inside carton" (e.g., "24 packs", "6 pieces").
+2. You must transform these physical columns into our required system headers:
+   - \`receivedQuantity\`: Extract ONLY the number from the physical "Quantity" column (e.g. if it says "2 ctn", output "2").
+   - \`receivedForm\`: Extract the unit text from the physical "Quantity" column and normalize it (e.g., "ctn" -> "carton", "packs" -> "pack", "cups" -> "cup", "pcs" -> "piece").
+   - \`unitHierarchy\`: You must combine the form and the "No inside carton" to create our strict hierarchy string. 
+     * Example 1: Quantity is "2 ctn", No inside carton is "24 packs" -> unitHierarchy must be "carton:1>pack:24"
+     * Example 2: Quantity is "5 packs", No inside carton is "6 pieces" -> unitHierarchy must be "pack:1>piece:6"
+     * Example 3: Quantity is "12 cups", No inside carton is "24 cups" (meaning 24 cups in a carton) -> unitHierarchy must be "carton:1>cup:24".
+3. \`itemName\`: Extract the exact product name. Expand ditto marks (") by copying the name from the row above.
+4. \`expiryDate\`: Standardize any dates to YYYY-MM-DD. If it says "06/2027", output "2027-06-30" (end of month).
+
+Extract all visible rows of data from the image.
 Return the data strictly as a JSON array of objects.
-Each object should represent one row from the image.
-The keys of the object must EXACTLY match the expected column headers provided above.
-If a column's data is missing or unreadable for a specific row, use an empty string "" for that key.
+Each object should represent one row.
+The keys of the object must EXACTLY match the expected final column headers provided above.
+If a column's data cannot be deduced, use an empty string "" for that key.
 
 Do not include any markdown formatting (like \`\`\`json), just return the raw JSON array.`;
 
