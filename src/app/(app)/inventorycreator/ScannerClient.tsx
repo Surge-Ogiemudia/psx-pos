@@ -350,23 +350,34 @@ export default function ScannerClient() {
   }
 
   function confirmScannedRows() {
-    let newDataset = [...workingDataset];
-    if (workingDataset.length > 0) {
-      const separatorRow: Record<string, string> = {};
-      headers.forEach(h => separatorRow[h] = "");
-      separatorRow.itemName = `--- Page ${pageCount + 1} ---`;
-      newDataset = [...workingDataset, separatorRow, ...scannedRows];
-      setWorkingDataset(newDataset);
-      setPageCount(prev => prev + 1);
-    } else {
-      newDataset = [...scannedRows];
-      setWorkingDataset(newDataset);
+    const updatedPages = [...extractedPages];
+    if (activePageIndex !== null) {
+      updatedPages[activePageIndex].data = scannedRows;
+      updatedPages[activePageIndex].status = "done";
+      setExtractedPages(updatedPages);
     }
-    
+
+    let newDataset: Record<string, string>[] = [];
+    let pagesProcessed = 0;
+
+    updatedPages.forEach(page => {
+      if (page.status === "done" && page.data && page.data.length > 0) {
+        if (pagesProcessed > 0) {
+          const separatorRow: Record<string, string> = {};
+          headers.forEach(h => separatorRow[h] = "");
+          separatorRow.itemName = `--- Page ${page.id} ---`;
+          newDataset.push(separatorRow);
+        }
+        newDataset = [...newDataset, ...page.data];
+        pagesProcessed++;
+      }
+    });
+
+    setWorkingDataset(newDataset);
+    setPageCount(pagesProcessed);
+
     // Save to DB
     if (activePageIndex !== null && jobId) {
-      const updatedPages = [...extractedPages];
-      updatedPages[activePageIndex].data = scannedRows;
       saveJobProgress(updatedPages, newDataset);
     }
     
