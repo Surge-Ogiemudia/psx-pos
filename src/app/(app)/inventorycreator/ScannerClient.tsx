@@ -219,21 +219,35 @@ export default function ScannerClient() {
               ))}
             </div>
             
-            <div className="flex items-center gap-3 max-w-sm">
-              <input
-                type="text"
-                placeholder="e.g. Expiry Date"
-                value={newHeader}
-                onChange={(e) => setNewHeader(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addHeader()}
-                className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all shadow-sm"
-              />
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3 w-full max-w-sm">
+                <input
+                  type="text"
+                  placeholder="e.g. Expiry Date"
+                  value={newHeader}
+                  onChange={(e) => setNewHeader(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addHeader()}
+                  className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none transition-all shadow-sm"
+                />
+                <button
+                  onClick={addHeader}
+                  disabled={!newHeader.trim()}
+                  className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50 whitespace-nowrap"
+                >
+                  Add Column
+                </button>
+              </div>
               <button
-                onClick={addHeader}
-                disabled={!newHeader.trim()}
-                className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                onClick={() => setHeaders([
+                  "itemName", "brand", "size", "category", "unitHierarchy", 
+                  "receivedForm", "receivedQuantity", "purchaseAmount", "supplierName", 
+                  "batchNumber", "expiryDate", "priceForm", "sisterStorePrice", 
+                  "branchPrice", "distributorPrice", "wholesalerPrice", "retailerPrice"
+                ])}
+                className="text-sm font-semibold text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-100 transition-colors flex items-center gap-2 whitespace-nowrap"
               >
-                Add Column
+                <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                Load Bulk Receive Defaults
               </button>
             </div>
           </div>
