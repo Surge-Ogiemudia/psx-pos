@@ -41,7 +41,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
     // Update fields if provided
-    if (body.pages) job.pages = body.pages;
+    if (body.pages) {
+      job.pages = body.pages.map((p: any) => ({
+        id: p.id,
+        status: p.status,
+        data: p.data,
+        error: p.error
+      }));
+    }
     if (body.workingDataset) job.workingDataset = body.workingDataset;
     if (body.status) job.status = body.status;
 

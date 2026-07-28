@@ -9,7 +9,7 @@ if (typeof window !== "undefined") {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 }
 
-type Phase = "define_headers" | "extracting_pdf" | "pdf_preview" | "scanning" | "review_scan" | "working_dataset";
+type Phase = "define_headers" | "extracting_pdf" | "pdf_preview" | "scanning" | "review_scan" | "working_dataset" | "reupload_pdf";
 
 type ExtractedPage = {
   id: number;
@@ -76,6 +76,7 @@ export default function ScannerClient() {
 
   const [jobId, setJobId] = useState<string | null>(null);
   const [inProgressJobs, setInProgressJobs] = useState<InProgressJob[]>([]);
+  const [resumingJob, setResumingJob] = useState<any>(null);
 
   // Load in-progress jobs on mount
   useEffect(() => {
@@ -116,26 +117,10 @@ export default function ScannerClient() {
       setWorkingDataset(job.workingDataset || []);
       setPageCount(job.pages.filter((p: any) => p.status === "done").length + 1);
       
-      // Parse base64
-      if (job.pdfBase64.startsWith("data:application/pdf")) {
-        const binaryString = window.atob(job.pdfBase64.split(",")[1]);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        const pdf = await pdfjsLib.getDocument({ data: bytes.buffer }).promise;
-        setPdfDoc(pdf);
-      } else {
-        setPdfDoc(null);
-      }
+      // Save the DB state to merge later after re-uploading the file locally
+      setResumingJob(job);
+      setPhase("reupload_pdf");
       
-      setExtractedPages(job.pages || []);
-      
-      if (job.workingDataset && job.workingDataset.length > 0) {
-         setPhase("working_dataset");
-      } else {
-         setPhase("pdf_preview");
-      }
     } catch (err: any) {
       setScanError(err.message);
       setPhase("define_headers");
@@ -181,41 +166,54 @@ export default function ScannerClient() {
         const extracted: ExtractedPage[] = [];
         for (let i = 1; i <= total; i++) {
           const page = await pdf.getPage(i);
-          const viewport = page.getViewport({ scale: 0.5 }); // Low res for thumbnails to save memory
+          const viewport = page.getViewport({ scale: 0.5 });
           const canvas = document.createElement("canvas");
           canvas.width = viewport.width;
           canvas.height = viewport.height;
           const ctx = canvas.getContext("2d");
           if (ctx) {
             await page.render({ canvasContext: ctx, viewport }).promise;
+            
+            // Merge with resumed job data if exists
+            let initialStatus: any = "pending";
+            let initialData: any = undefined;
+            if (resumingJob && resumingJob.pages && resumingJob.pages.find((p:any) => p.id === i)) {
+               const savedPage = resumingJob.pages.find((p:any) => p.id === i);
+               initialStatus = savedPage.status;
+               initialData = savedPage.data;
+            }
+            
             extracted.push({
               id: i,
               thumbnail: canvas.toDataURL("image/jpeg", 0.6),
-              status: "pending"
+              status: initialStatus,
+              data: initialData
             });
           }
         }
         setExtractedPages(extracted);
-        setPhase("pdf_preview");
+        
+        if (resumingJob && resumingJob.workingDataset && resumingJob.workingDataset.length > 0) {
+           setPhase("working_dataset");
+        } else {
+           setPhase("pdf_preview");
+        }
 
-        // Upload to DB in background
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-          const pdfBase64 = reader.result as string;
+        // Upload to DB ONLY if it's a new job
+        if (!resumingJob) {
           const res = await fetch("/api/inventory/scan-jobs", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               fileName: file.name,
-              pdfBase64,
               headers,
               pages: extracted
             })
           });
           const data = await res.json();
           if (data.job) setJobId(data.job._id);
-        };
-        reader.readAsDataURL(file);
+        }
+        setResumingJob(null);
 
       } catch (err: any) {
         setScanError("Failed to parse PDF: " + err.message);
@@ -228,24 +226,32 @@ export default function ScannerClient() {
         const extracted: ExtractedPage[] = [{
           id: 1,
           thumbnail: base64,
-          status: "pending"
+          status: resumingJob ? resumingJob.pages[0]?.status || "pending" : "pending",
+          data: resumingJob ? resumingJob.pages[0]?.data : undefined
         }];
         setExtractedPages(extracted);
-        setPhase("pdf_preview");
         
-        // Upload to DB
-        const res = await fetch("/api/inventory/scan-jobs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileName: file.name,
-            pdfBase64: base64,
-            headers,
-            pages: extracted
-          })
-        });
-        const data = await res.json();
-        if (data.job) setJobId(data.job._id);
+        if (resumingJob && resumingJob.workingDataset && resumingJob.workingDataset.length > 0) {
+           setPhase("working_dataset");
+        } else {
+           setPhase("pdf_preview");
+        }
+        
+        // Upload to DB ONLY if it's a new job
+        if (!resumingJob) {
+          const res = await fetch("/api/inventory/scan-jobs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName: file.name,
+              headers,
+              pages: extracted
+            })
+          });
+          const data = await res.json();
+          if (data.job) setJobId(data.job._id);
+        }
+        setResumingJob(null);
       };
       reader.readAsDataURL(file);
     }
@@ -562,6 +568,35 @@ export default function ScannerClient() {
           <div className="w-16 h-16 border-4 border-teal-100 border-t-teal-700 rounded-full animate-spin mb-6"></div>
           <h2 className="text-xl font-bold text-zinc-900">Processing Document...</h2>
           <p className="text-zinc-500 mt-2 max-w-md text-center">Loading PDF from database or breaking down into images.</p>
+        </div>
+      )}
+
+      {/* Re-Upload PDF Screen for Resumed Jobs */}
+      {phase === "reupload_pdf" && resumingJob && (
+        <div className="bg-white border border-teal-200 rounded-2xl shadow-sm p-12 flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-500 min-h-[400px]">
+          <div className="w-16 h-16 bg-teal-100 text-teal-600 rounded-full flex items-center justify-center mb-6">
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+          </div>
+          <h2 className="text-xl font-bold text-zinc-900">Resume: {resumingJob.fileName}</h2>
+          <p className="text-zinc-500 mt-2 max-w-md text-center">To securely resume this scan without re-running the AI, please re-upload the exact same PDF file you used initially.</p>
+          <div className="mt-8 flex gap-4">
+             <button
+               onClick={() => {
+                 setResumingJob(null);
+                 setJobId(null);
+                 setPhase("define_headers");
+               }}
+               className="bg-zinc-100 text-zinc-700 px-6 py-2.5 rounded-xl font-bold hover:bg-zinc-200 transition-colors"
+             >
+               Cancel Resume
+             </button>
+             <button
+               onClick={() => fileInputRef.current?.click()}
+               className="bg-teal-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-sm hover:bg-teal-700 transition-colors"
+             >
+               Select File to Resume
+             </button>
+          </div>
         </div>
       )}
 
