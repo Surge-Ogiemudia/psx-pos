@@ -393,7 +393,27 @@ export default function ScannerClient() {
         reset[activePageIndex].error = undefined;
         reset[activePageIndex].data = undefined;
         setExtractedPages(reset);
-        if (jobId) saveJobProgress(reset, workingDataset);
+        
+        let newDataset: Record<string, string>[] = [];
+        let pagesProcessed = 0;
+
+        reset.forEach(page => {
+          if (page.status === "done" && page.data && page.data.length > 0) {
+            if (pagesProcessed > 0) {
+              const separatorRow: Record<string, string> = {};
+              headers.forEach(h => separatorRow[h] = "");
+              separatorRow.itemName = `--- Page ${page.id} ---`;
+              newDataset.push(separatorRow);
+            }
+            newDataset = [...newDataset, ...page.data];
+            pagesProcessed++;
+          }
+        });
+
+        setWorkingDataset(newDataset);
+        setPageCount(pagesProcessed);
+
+        if (jobId) saveJobProgress(reset, newDataset);
       }
       setScannedRows([]);
       setPhase("pdf_preview");
