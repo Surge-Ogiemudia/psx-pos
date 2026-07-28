@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
 
     const query: any = { status: "in_progress", userId: session.user.id, pharmacyId: session.user.pharmacyId };
 
-    // Don't pull down the heavy pdfBase64 for the list view
-    const jobs = await ScanJob.find(query).select("-pdfBase64").sort({ updatedAt: -1 });
+    // Select all fields since we no longer store heavy base64 strings
+    const jobs = await ScanJob.find(query).sort({ updatedAt: -1 });
 
     return NextResponse.json({ jobs });
   } catch (err: any) {
@@ -26,19 +26,26 @@ export async function POST(req: NextRequest) {
     await dbConnect();
 
     const body = await req.json();
-    const { fileName, pdfBase64, headers, pages } = body;
+    const { fileName, headers, pages } = body;
 
-    if (!fileName || !pdfBase64 || !headers || !pages) {
+    if (!fileName || !headers || !pages) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
+    
+    // Strip thumbnailBase64 to keep payload tiny
+    const cleanPages = pages.map((p: any) => ({
+      id: p.id,
+      status: p.status,
+      data: p.data,
+      error: p.error
+    }));
 
     const job = new ScanJob({
       pharmacyId: session.user.pharmacyId,
       userId: session.user.id,
       fileName,
-      pdfBase64,
       headers,
-      pages,
+      pages: cleanPages,
       workingDataset: [],
       status: "in_progress",
     });

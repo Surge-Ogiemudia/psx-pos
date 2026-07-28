@@ -5,7 +5,6 @@ const scanJobSchema = new mongoose.Schema({
   branchId: { type: mongoose.Schema.Types.ObjectId, ref: "Branch" },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   fileName: { type: String, required: true },
-  pdfBase64: { type: String, required: true },
   headers: { type: [String], required: true },
   pages: [{
     id: { type: Number, required: true },
