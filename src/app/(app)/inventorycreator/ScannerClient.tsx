@@ -116,7 +116,17 @@ export default function ScannerClient() {
         const normalizedRows = data.rows.map((row: any) => {
           const newRow: Record<string, string> = {};
           headers.forEach((h) => {
-            newRow[h] = row[h] !== undefined ? String(row[h]) : "";
+            let val = row[h] !== undefined ? String(row[h]) : "";
+            
+            // Auto-fill logic
+            if (!val && h === "brand" && row["itemName"]) {
+              val = String(row["itemName"]).split(" ")[0] || "";
+            }
+            if (!val && h === "purchaseAmount") {
+              val = "0";
+            }
+            
+            newRow[h] = val;
           });
           return newRow;
         });
@@ -305,7 +315,7 @@ export default function ScannerClient() {
       {/* PHASE 3: Review Scan */}
       {phase === "review_scan" && (
         <div className="bg-white border border-teal-200 rounded-2xl shadow-lg overflow-hidden animate-in slide-in-from-bottom-4 duration-500 ring-4 ring-teal-500/10">
-          <div className="bg-teal-700 p-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="bg-teal-700 p-6 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-20 shadow-md">
             <div>
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <svg className="w-6 h-6 text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
@@ -329,35 +339,55 @@ export default function ScannerClient() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto pb-4">
+            <table className="w-full text-left text-sm border-collapse min-w-max">
               <thead className="bg-zinc-50 border-b border-zinc-200">
                 <tr>
-                  <th className="w-10 px-3 py-3 text-center text-zinc-400">#</th>
-                  {headers.map((h, i) => (
-                    <th key={i} className="px-4 py-3 font-bold text-zinc-700 whitespace-nowrap">{h}</th>
-                  ))}
-                  <th className="w-16 px-4 py-3 text-center">Action</th>
+                  <th className="w-12 min-w-[48px] px-3 py-3 text-center text-zinc-400 sticky left-0 z-10 bg-zinc-50 border-r border-zinc-200">#</th>
+                  {headers.map((h, i) => {
+                    let widthClass = "min-w-[150px]";
+                    let stickyClass = "";
+                    if (h === "itemName") {
+                      widthClass = "min-w-[250px]";
+                      stickyClass = "sticky left-[48px] z-10 bg-zinc-50 border-r border-zinc-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]";
+                    }
+                    if (h === "receivedQuantity") widthClass = "min-w-[80px]";
+                    if (h === "size" || h === "category" || h === "purchaseAmount") widthClass = "min-w-[100px]";
+                    if (h === "unitHierarchy") widthClass = "min-w-[200px]";
+
+                    return (
+                      <th key={i} className={`px-4 py-3 font-bold text-zinc-700 whitespace-nowrap ${widthClass} ${stickyClass}`}>
+                        {h}
+                      </th>
+                    );
+                  })}
+                  <th className="w-16 min-w-[80px] px-4 py-3 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {scannedRows.map((row, rIdx) => (
-                  <tr key={rIdx} className="hover:bg-zinc-50/50 transition-colors">
-                    <td className="px-3 py-2 text-center text-zinc-400 font-mono text-xs">{rIdx + 1}</td>
-                    {headers.map((colKey, cIdx) => (
-                      <td key={cIdx} className="px-2 py-2">
-                        <input
-                          type="text"
-                          value={row[colKey] || ""}
-                          onChange={(e) => updateScannedRow(rIdx, colKey, e.target.value)}
-                          className={`w-full bg-transparent border border-transparent hover:border-zinc-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded px-2 py-1.5 transition-all outline-none ${
-                            !row[colKey] ? "bg-amber-50" : ""
-                          }`}
-                          placeholder="Empty"
-                        />
-                      </td>
-                    ))}
-                    <td className="px-4 py-2 text-center">
+                  <tr key={rIdx} className="hover:bg-zinc-50/50 transition-colors group">
+                    <td className="px-3 py-3 text-center text-zinc-400 font-mono text-xs sticky left-0 z-10 bg-white group-hover:bg-zinc-50/50 border-r border-zinc-200">
+                      {rIdx + 1}
+                    </td>
+                    {headers.map((colKey, cIdx) => {
+                      const isItemName = colKey === "itemName";
+                      const stickyClass = isItemName ? "sticky left-[48px] z-10 bg-white group-hover:bg-zinc-50/50 border-r border-zinc-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "";
+                      return (
+                        <td key={cIdx} className={`px-2 py-2 ${stickyClass}`}>
+                          <input
+                            type="text"
+                            value={row[colKey] || ""}
+                            onChange={(e) => updateScannedRow(rIdx, colKey, e.target.value)}
+                            className={`w-full bg-transparent border border-transparent hover:border-zinc-300 focus:border-teal-500 focus:bg-white focus:ring-1 focus:ring-teal-500 rounded px-3 py-2 transition-all outline-none font-medium ${
+                              !row[colKey] ? "bg-zinc-100/50 placeholder:text-zinc-400" : "text-zinc-900"
+                            }`}
+                            placeholder="—"
+                          />
+                        </td>
+                      );
+                    })}
+                    <td className="px-4 py-3 text-center">
                       <button
                         onClick={() => removeScannedRow(rIdx)}
                         className="text-zinc-400 hover:text-red-600 transition-colors p-1"
