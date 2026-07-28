@@ -65,7 +65,8 @@ export function formatNumber(n: number): string {
 /**
  * Stock is always tracked internally in base units (so batches with different packaging never
  * break the math), but staff think in whatever form they actually received the product as. Given
- * a hierarchy (largest to smallest), express a base-unit quantity in that largest unit instead.
+ * a hierarchy (largest to smallest), express a base-unit quantity in broken-down hierarchical units
+ * (e.g. "4 cartons, 3 boxes, 16 packs") for better inventory visualization.
  */
 export function describeStock(
   baseUnitQuantity: number,
@@ -75,10 +76,37 @@ export function describeStock(
   if (!hierarchy || hierarchy.length === 0) {
     return `${formatNumber(baseUnitQuantity)} ${pluralize(fallbackUnitName, baseUnitQuantity)}`;
   }
-  const largest = hierarchy[0];
-  const piecesPerLargest = computeBaseUnitsPerLevel(hierarchy)[largest.unitName] || 1;
-  const qtyInLargest = baseUnitQuantity / piecesPerLargest;
-  return `${formatNumber(qtyInLargest)} ${pluralize(largest.unitName, qtyInLargest)}`;
+
+  if (baseUnitQuantity === 0) {
+    return `0 ${pluralize(hierarchy[0].unitName, 0)}`;
+  }
+
+  const perLevel = computeBaseUnitsPerLevel(hierarchy);
+  let remaining = baseUnitQuantity;
+  const parts: string[] = [];
+
+  for (let i = 0; i < hierarchy.length; i++) {
+    const level = hierarchy[i];
+    const piecesPerUnit = perLevel[level.unitName] || 1;
+
+    // If it's the smallest level in the hierarchy, just take all the remaining
+    // so we don't drop fractional amounts.
+    if (i === hierarchy.length - 1) {
+      // Fix floating point math errors
+      const roundedRemaining = Math.round(remaining * 1000) / 1000;
+      if (roundedRemaining > 0) {
+        parts.push(`${formatNumber(roundedRemaining)} ${pluralize(level.unitName, roundedRemaining)}`);
+      }
+    } else {
+      const qtyInLevel = Math.floor(remaining / piecesPerUnit + 0.0001);
+      if (qtyInLevel > 0) {
+        parts.push(`${formatNumber(qtyInLevel)} ${pluralize(level.unitName, qtyInLevel)}`);
+        remaining -= qtyInLevel * piecesPerUnit;
+      }
+    }
+  }
+
+  return parts.length > 0 ? parts.join(", ") : `0 ${pluralize(hierarchy[0].unitName, 0)}`;
 }
 
 export function pluralize(unitName: string, quantity: number): string {
