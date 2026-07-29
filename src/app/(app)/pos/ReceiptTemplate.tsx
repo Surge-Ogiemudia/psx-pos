@@ -23,10 +23,11 @@ interface ReceiptTemplateProps {
   sale: ReceiptSale;
   pharmacyName: string;
   branchName?: string;
+  branchAddress?: string;
 }
 
 const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
-  ({ sale, pharmacyName, branchName }, ref) => {
+  ({ sale, pharmacyName, branchName, branchAddress }, ref) => {
     const formattedDate = new Date(sale.timestamp).toLocaleString("en-GB", {
       day: "2-digit",
       month: "2-digit",
@@ -54,10 +55,11 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         {/* Header */}
         <div style={{ textAlign: "center", marginBottom: "15px" }}>
           <h2 style={{ margin: "0", fontSize: "16px", fontWeight: "bold" }}>{pharmacyName}</h2>
-          {branchName && <p style={{ margin: "2px 0 0", fontSize: "12px" }}>{branchName}</p>}
+          {branchName && <p style={{ margin: "2px 0 0", fontSize: "12px", fontWeight: "bold" }}>{branchName}</p>}
+          {branchAddress && <p style={{ margin: "2px 0 0", fontSize: "11px", whiteSpace: "pre-wrap" }}>{branchAddress}</p>}
           <p style={{ margin: "5px 0 0", fontSize: "12px" }}>Date: {formattedDate}</p>
           <p style={{ margin: "2px 0 0", fontSize: "12px" }}>Receipt: #{sale._id.slice(-6).toUpperCase()}</p>
-          <p style={{ margin: "2px 0 0", fontSize: "12px" }}>Cashier: {sale.userName || "Admin"}</p>
+          <p style={{ margin: "2px 0 0", fontSize: "12px" }}>Staff: {sale.userName || "Admin"}</p>
         </div>
 
         <hr style={{ borderTop: "1px dashed #000", borderBottom: "none", margin: "10px 0" }} />
@@ -74,12 +76,20 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         {/* Items List */}
         <div style={{ marginBottom: "10px" }}>
           {sale.items.map((item, idx) => (
-            <div key={idx} style={{ marginBottom: "8px" }}>
-              <div style={{ fontWeight: "bold" }}>{item.productName}</div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>@{item.unitPrice.toLocaleString()}</span>
-                <span>x{item.quantity}</span>
-                <span style={{ fontWeight: "bold" }}>₦{item.lineTotal.toLocaleString()}</span>
+            <div key={idx} style={{ marginBottom: "8px", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", width: "100%" }}>
+                <div style={{ flex: 1, textAlign: "left", fontWeight: "bold", paddingRight: "5px" }}>
+                  {item.productName}
+                </div>
+                <div style={{ width: "30px", textAlign: "center" }}>
+                  {item.quantity}
+                </div>
+                <div style={{ width: "60px", textAlign: "right", fontWeight: "bold" }}>
+                  N{item.lineTotal?.toLocaleString() || "0"}
+                </div>
+              </div>
+              <div style={{ fontSize: "11px", color: "#444" }}>
+                @ N{item.unitPrice?.toLocaleString() || "0"}
               </div>
             </div>
           ))}
@@ -91,16 +101,16 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         <div style={{ marginBottom: "10px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold", fontSize: "14px", marginBottom: "5px" }}>
             <span>TOTAL</span>
-            <span>₦{sale.totalAmount.toLocaleString()}</span>
+            <span>N{sale.totalAmount?.toLocaleString() || "0"}</span>
           </div>
           
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span>Tendered</span>
-            <span>₦{sale.amountTendered.toLocaleString()}</span>
+            <span>N{sale.amountTendered?.toLocaleString() || "0"}</span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span>Change</span>
-            <span>₦{sale.changeGiven.toLocaleString()}</span>
+            <span>N{sale.changeGiven?.toLocaleString() || "0"}</span>
           </div>
         </div>
 
