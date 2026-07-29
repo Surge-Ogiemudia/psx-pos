@@ -17,8 +17,8 @@ export default async function PosPage() {
   if (activeBranchId) {
     const branch = await Branch.findById(activeBranchId).lean();
     if (branch) {
-      branchName = branch.name;
-      branchAddress = branch.address || "";
+      branchName = branch.branchName;
+      branchAddress = branch.location || "";
     }
   }
 
