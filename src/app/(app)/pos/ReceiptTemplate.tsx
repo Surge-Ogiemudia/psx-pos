@@ -45,6 +45,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
           maxWidth: "80mm", // Standard thermal paper width limit on screen
           padding: "0",
           margin: "0 auto",
+          marginTop: "-5mm", // Slight negative margin to combat stubborn printer drivers
           fontFamily: "'Courier New', Courier, monospace",
           fontSize: "12px",
           color: "#000",
@@ -112,6 +113,18 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
             <span>Change</span>
             <span>N{sale.changeGiven?.toLocaleString() || "0"}</span>
           </div>
+
+          {/* Payment Methods */}
+          {sale.payments && sale.payments.length > 0 && (
+            <div style={{ marginTop: "5px", paddingTop: "5px", borderTop: "1px dashed #ccc" }}>
+              {sale.payments.map((p, idx) => (
+                <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#333" }}>
+                  <span style={{ textTransform: "capitalize" }}>Paid via {p.method.replace('_', ' ')}</span>
+                  <span>N{p.amount?.toLocaleString() || "0"}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <hr style={{ borderTop: "1px dashed #000", borderBottom: "none", margin: "10px 0" }} />
