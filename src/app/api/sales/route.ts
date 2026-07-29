@@ -349,7 +349,7 @@ export async function POST(request: NextRequest) {
         saleDoc = created[0];
 
         if (customLines.length > 0) {
-          await ProductRequest.create(
+          await ProductRequest.insertMany(
             customLines.map((line) => ({
               ...scope,
               itemName: line.itemName,
@@ -361,7 +361,7 @@ export async function POST(request: NextRequest) {
               saleId: saleDoc!._id,
               requestedByUserId: session.user.id,
             })),
-            { session: dbSession }
+            { session: dbSession, ordered: true }
           );
         }
 
