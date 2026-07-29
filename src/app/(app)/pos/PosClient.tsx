@@ -78,7 +78,21 @@ function lineAmount(line: CartLine): number {
     : line.unitPrice * line.quantity;
 }
 
-export default function PosClient({ branchId, pharmacyId }: { branchId: string | null, pharmacyId: string }) {
+export default function PosClient({ 
+  branchId, 
+  pharmacyId, 
+  pharmacyName, 
+  branchName, 
+  branchAddress, 
+  staffName 
+}: { 
+  branchId: string | null; 
+  pharmacyId: string; 
+  pharmacyName?: string; 
+  branchName?: string; 
+  branchAddress?: string; 
+  staffName?: string; 
+}) {
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -610,7 +624,7 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
       const fullSaleData: ReceiptSale = {
         _id: data.sale._id,
         customerName: data.sale.customerName,
-        userName: "You", // Immediate print assumes current user
+        userName: staffName || "Staff", // Immediate print assumes current user
         items: data.sale.items,
         totalAmount: data.sale.totalAmount,
         payments: data.sale.payments,
@@ -627,8 +641,9 @@ export default function PosClient({ branchId, pharmacyId }: { branchId: string |
       {lastSale && (
         <ReceiptTemplate
           sale={lastSale}
-          pharmacyName="Pharmacy"
-          branchName={branchId ? "Branch" : undefined} // Ideally pulled from a config, using generic for now
+          pharmacyName={pharmacyName || "Pharmacy"}
+          branchName={branchName}
+          branchAddress={branchAddress}
         />
       )}
       <div className="lg:col-span-2">
