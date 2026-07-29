@@ -32,6 +32,13 @@ body {
 }
 
 @media print {
+  @page {
+    margin: 0; /* Removes browser headers and footers */
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+  }
   body * {
     visibility: hidden;
   }
@@ -43,5 +50,8 @@ body {
     position: absolute;
     left: 0;
     top: 0;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 10px !important;
   }
 }

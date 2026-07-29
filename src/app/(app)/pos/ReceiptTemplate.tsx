@@ -40,7 +40,8 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         ref={ref}
         className="print-receipt"
         style={{
-          width: "80mm", // Standard thermal paper width
+          width: "100%", 
+          maxWidth: "80mm", // Standard thermal paper width limit on screen
           padding: "0",
           margin: "0 auto",
           fontFamily: "'Courier New', Courier, monospace",
