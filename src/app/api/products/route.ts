@@ -12,6 +12,7 @@ import { productsToCsv } from "@/lib/csv";
 import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
 import { formatProductLabel } from "@/lib/types";
+import { syncProductsToPsx, deleteProductsFromPsx, getPharmacySlug } from "@/lib/psxSync";
 
 export async function GET(request: NextRequest) {
   try {
@@ -145,7 +146,7 @@ export async function POST(request: NextRequest) {
       : Math.max(0, parseNumeric(alertQuantity) || 0);
 
     const dbSession = await mongoose.startSession();
-    let product;
+    let product: any;
     try {
       await dbSession.withTransaction(async () => {
         const created = await Product.create(
@@ -202,6 +203,14 @@ export async function POST(request: NextRequest) {
       });
     } finally {
       await dbSession.endSession();
+    }
+
+    // Fire-and-forget PSX sync
+    if (product && product.category === "medicine") {
+      const slug = await getPharmacySlug(session.user.pharmacyId);
+      if (slug) {
+        syncProductsToPsx(slug, [product]).catch(() => {});
+      }
     }
 
     return NextResponse.json({ product }, { status: 201 });
@@ -261,6 +270,14 @@ export async function DELETE(request: NextRequest) {
       });
     } finally {
       await dbSession.endSession();
+    }
+
+    // Fire-and-forget PSX sync for deleted medicines
+    if (productsToDelete && productsToDelete.length > 0) {
+      const slug = await getPharmacySlug(session.user.pharmacyId);
+      if (slug) {
+        deleteProductsFromPsx(slug, productsToDelete).catch(() => {});
+      }
     }
 
     return NextResponse.json({ deletedCount });

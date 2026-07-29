@@ -12,6 +12,7 @@ import { logActivity } from "@/lib/activityLog";
 import { computeBaseUnitsPerLevel, compareBatchesFifo, planBestEffortDraw } from "@/lib/unitHierarchy";
 import { formatProductLabel, type ProductCategory } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
+import { syncProductsToPsx, getPharmacySlug } from "@/lib/psxSync";
 
 const CATEGORIES: ProductCategory[] = ["medicine", "non-medicine", "supermarket"];
 
@@ -177,7 +178,7 @@ export async function POST(request: NextRequest) {
     const scope = getBranchScope(session, body.branchId);
     const dbSession = await mongoose.startSession();
     try {
-      let saleDoc;
+      let saleDoc: any;
       await dbSession.withTransaction(async () => {
         let customerName = body.customerName;
         const customerId = body.customerId || null;
@@ -377,6 +378,31 @@ export async function POST(request: NextRequest) {
           refId: saleDoc!._id,
         });
       });
+
+      // Fire-and-forget: sync updated quantities to PSX for medicine items
+      if (saleDoc) {
+        const soldProductIds = (saleDoc.items || [])
+          .filter((item: any) => item.productId)
+          .map((item: any) => item.productId);
+
+        if (soldProductIds.length > 0) {
+          try {
+            const updatedProducts = await Product.find({
+              _id: { $in: soldProductIds },
+              category: "medicine",
+            }).lean();
+
+            if (updatedProducts.length > 0) {
+              const slug = await getPharmacySlug(session.user.pharmacyId);
+              if (slug) {
+                syncProductsToPsx(slug, updatedProducts as any[]).catch(() => {});
+              }
+            }
+          } catch {
+            // Never block the sale response
+          }
+        }
+      }
 
       return NextResponse.json({ sale: saleDoc }, { status: 201 });
     } finally {

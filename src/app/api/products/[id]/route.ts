@@ -8,6 +8,7 @@ import { parseNumeric } from "@/lib/numberInput";
 import { formatProductLabel } from "@/lib/types";
 import { productsToCsv } from "@/lib/csv";
 import { handleApiError } from "@/lib/apiError";
+import { syncProductsToPsx, deleteProductsFromPsx, getPharmacySlug } from "@/lib/psxSync";
 
 const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice", "alertQuantity"]);
 
@@ -82,6 +83,14 @@ export async function PATCH(
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
+    // Fire-and-forget PSX sync for updated medicine
+    if (product && product.category === "medicine") {
+      const slug = await getPharmacySlug(session.user.pharmacyId);
+      if (slug) {
+        syncProductsToPsx(slug, [product]).catch(() => {});
+      }
+    }
+
     return NextResponse.json({ product });
   } catch (error) {
     return handleApiError(error);
@@ -118,6 +127,14 @@ export async function DELETE(
       csvContent: productsToCsv([product]),
       csvFileName: `deleted-${label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.csv`,
     });
+
+    // Fire-and-forget PSX sync for deleted medicine
+    if (product) {
+      const slug = await getPharmacySlug(session.user.pharmacyId);
+      if (slug) {
+        deleteProductsFromPsx(slug, [product]).catch(() => {});
+      }
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
