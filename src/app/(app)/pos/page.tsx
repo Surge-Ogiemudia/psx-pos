@@ -29,7 +29,7 @@ export default async function PosPage() {
       pharmacyName={pharmacy?.pharmacyName || "Pharmacy"}
       branchName={branchName}
       branchAddress={branchAddress}
-      staffName={session.user.name}
+      staffName={session.user.name || undefined}
     />
   );
 }
