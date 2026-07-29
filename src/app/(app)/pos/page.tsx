@@ -26,7 +26,7 @@ export default async function PosPage() {
     <PosClient 
       branchId={activeBranchId} 
       pharmacyId={session.user.pharmacyId} 
-      pharmacyName={pharmacy?.name || "Pharmacy"}
+      pharmacyName={pharmacy?.pharmacyName || "Pharmacy"}
       branchName={branchName}
       branchAddress={branchAddress}
       staffName={session.user.name}
