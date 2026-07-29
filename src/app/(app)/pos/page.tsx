@@ -2,8 +2,8 @@ import { requireRetailPageSession } from "@/lib/session";
 import { resolveActiveBranch } from "@/lib/branchScope";
 import PosClient from "./PosClient";
 import { dbConnect } from "@/lib/mongodb";
-import { Pharmacy } from "@/models/Pharmacy";
-import { Branch } from "@/models/Branch";
+import Pharmacy from "@/models/Pharmacy";
+import Branch from "@/models/Branch";
 
 export default async function PosPage() {
   const session = await requireRetailPageSession();
