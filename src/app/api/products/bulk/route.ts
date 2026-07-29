@@ -9,6 +9,7 @@ import { parseNumeric } from "@/lib/numberInput";
 import { parseExpiryDateLoose } from "@/lib/dateInput";
 import { parseHierarchyString } from "@/lib/unitHierarchy";
 import { handleApiError } from "@/lib/apiError";
+import { syncProductsToPsx, getPharmacySlug } from "@/lib/psxSync";
 
 interface BulkRow {
   itemName?: string;
@@ -238,8 +239,12 @@ async function analyzeRows(rows: BulkRow[], scope: Record<string, unknown>) {
 }
 
 export async function POST(request: NextRequest) {
+  let insertedProducts: any[] = [];
+  let sessionPharmacyId: string | null = null;
+
   try {
     const session = await requireAdminApiSession();
+    sessionPharmacyId = session.user.pharmacyId;
     await dbConnect();
 
     const body = await request.json();
@@ -284,7 +289,7 @@ export async function POST(request: NextRequest) {
         },
       ]);
       importBatch = batch;
-      const insertedProducts = await Product.insertMany(toInsert.map((p) => ({ ...p, importBatchId: batch._id })));
+      insertedProducts = await Product.insertMany(toInsert.map((p) => ({ ...p, importBatchId: batch._id })));
 
       const now = new Date();
       const batchDocs = insertedProducts
@@ -318,5 +323,16 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     return handleApiError(error);
+  } finally {
+    // Fire-and-forget PSX sync for bulk-imported medicines
+    if (insertedProducts.length > 0 && sessionPharmacyId) {
+      const medicines = insertedProducts.filter((p: any) => p.category === "medicine");
+      if (medicines.length > 0) {
+        const slug = await getPharmacySlug(sessionPharmacyId);
+        if (slug) {
+          syncProductsToPsx(slug, medicines).catch(() => {});
+        }
+      }
+    }
   }
 }
