@@ -105,8 +105,7 @@ export default function PosClient({
   const [loadingPrescription, setLoadingPrescription] = useState(false);
   const [currentCustomer, setCurrentCustomer] = useState<{ id: string | null; name: string | null; encounterId: string | null }>({ id: null, name: null, encounterId: null });
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [requestRemotePrint, setRequestRemotePrint] = useState(false);
-  const [enablePrintListener, setEnablePrintListener] = useState(false);
+  const [showPrintPrompt, setShowPrintPrompt] = useState(false);
   const [lastSale, setLastSale] = useState<ReceiptSale | null>(null);
   
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -289,17 +288,29 @@ export default function PosClient({
     localStorage.setItem(heldSalesStorageKey(branchId), JSON.stringify(heldSales));
   }, [heldSales, branchId]);
 
-  // Handle auto-printing of the local computer's sale
-  useEffect(() => {
-    if (lastSale) {
-      const timeout = setTimeout(() => {
-        window.print();
-        // clear lastSale so it doesn't print again if the component re-renders
-        setLastSale(null);
-      }, 500); // Wait for the DOM to render the hidden receipt
-      return () => clearTimeout(timeout);
-    }
-  }, [lastSale]);
+  const handleLocalPrint = () => {
+    setShowPrintPrompt(false);
+    setTimeout(() => {
+      window.print();
+      setLastSale(null);
+    }, 100);
+  };
+
+  const handleRemotePrint = async () => {
+    if (!lastSale) return;
+    setSubmitting(true);
+    try {
+      await fetch(`/api/sales/${lastSale._id}/request-print?branchId=${branchId}`, { method: "PATCH" });
+    } catch (e) {}
+    setSubmitting(false);
+    setShowPrintPrompt(false);
+    setLastSale(null);
+  };
+
+  const handleNoPrint = () => {
+    setShowPrintPrompt(false);
+    setLastSale(null);
+  };
 
   // Background print listener for remote mobile sales
   const isPrintingRemoteRef = useRef(false);
@@ -580,8 +591,7 @@ export default function PosClient({
                 quantity: line.quantity,
                 unitPrice: line.unitPrice,
               }
-        ),
-        requestRemotePrint,
+        )
       }),
     });
 
@@ -614,12 +624,10 @@ export default function PosClient({
     setPayments([{ method: "cash", amount: "" }]);
     setPaymentsTouched(false);
     setChangeFee("0");
-    setRequestRemotePrint(false);
     const refreshed = await fetch(`/api/products?${productParams()}`);
     if (refreshed.ok) setProducts((await refreshed.json()).products);
     
-    // Auto-trigger direct print if they didn't explicitly request a remote print
-    if (!requestRemotePrint && data.sale) {
+    if (data.sale) {
       // Re-map the API response to fit the ReceiptSale shape needed by the template
       const fullSaleData: ReceiptSale = {
         _id: data.sale._id,
@@ -633,6 +641,7 @@ export default function PosClient({
         timestamp: data.sale.timestamp,
       };
       setLastSale(fullSaleData);
+      setShowPrintPrompt(true);
     }
   }
 
@@ -1249,17 +1258,7 @@ export default function PosClient({
               </div>
             </div>
 
-            <div className="border-t border-zinc-200 bg-zinc-50 p-4 flex items-center justify-between">
-              <label className="flex md:hidden items-center gap-2 cursor-pointer text-sm font-medium text-zinc-700">
-                <input 
-                  type="checkbox" 
-                  checked={requestRemotePrint} 
-                  onChange={(e) => setRequestRemotePrint(e.target.checked)}
-                  className="rounded border-zinc-300 text-teal-600 focus:ring-teal-600 w-4 h-4" 
-                />
-                📱 Send to Computer Printer
-              </label>
-              
+            <div className="border-t border-zinc-200 bg-zinc-50 p-4 flex items-center justify-end">
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -1285,6 +1284,41 @@ export default function PosClient({
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPrintPrompt && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-sm rounded-xl bg-white shadow-2xl overflow-hidden border border-zinc-200 animate-in fade-in zoom-in-95 duration-150 p-6 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-teal-100 mb-4">
+              <span className="text-2xl">✅</span>
+            </div>
+            <h2 className="text-lg font-bold text-zinc-900 mb-2">Sale Successful!</h2>
+            <p className="text-sm text-zinc-500 mb-6">How would you like to handle the receipt?</p>
+            
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={handleLocalPrint}
+                className="w-full rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 shadow-sm"
+              >
+                🖨️ Print Receipt Now
+              </button>
+              <button
+                onClick={handleRemotePrint}
+                disabled={submitting}
+                className="w-full rounded-lg border border-teal-700 bg-teal-50 px-4 py-2.5 text-sm font-semibold text-teal-800 hover:bg-teal-100 disabled:opacity-50"
+              >
+                {submitting ? "Sending..." : "💻 Send to Computer Printer"}
+              </button>
+              <button
+                onClick={handleNoPrint}
+                disabled={submitting}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 mt-2 disabled:opacity-50"
+              >
+                No Receipt Needed
+              </button>
             </div>
           </div>
         </div>
