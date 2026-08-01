@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ActivityLogJSON, PaymentMethod, RefundJSON, SaleJSON } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
+import ReceiptTemplate, { ReceiptSale } from "../pos/ReceiptTemplate";
 
 const ACTIVITY_ACTION_LABEL: Record<string, string> = {
   product_create: "Added product",
@@ -29,12 +30,26 @@ interface ReportData {
   byStaff: { userId: string; userName: string; totalAmount: number; saleCount: number }[];
 }
 
-export default function ReportsClient({ branchId }: { branchId: string | null }) {
+export default function ReportsClient({ 
+  branchId,
+  pharmacyName,
+  branchName,
+  branchAddress,
+  staffName,
+}: { 
+  branchId: string | null;
+  pharmacyName: string;
+  branchName: string;
+  branchAddress: string;
+  staffName?: string;
+}) {
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
   const [report, setReport] = useState<ReportData | null>(null);
   const [sales, setSales] = useState<SaleJSON[]>([]);
   const [refunds, setRefunds] = useState<RefundJSON[]>([]);
+
+  const [reprintingSale, setReprintingSale] = useState<ReceiptSale | null>(null);
 
   const [refundingSaleId, setRefundingSaleId] = useState<string | null>(null);
   const [refundQuantities, setRefundQuantities] = useState<Record<string, string>>({});
@@ -90,6 +105,30 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
 
   function totalRefunded(saleId: string): number {
     return refunds.filter((r) => r.saleId === saleId).reduce((sum, r) => sum + r.totalAmount, 0);
+  }
+
+  function handleReprint(sale: SaleJSON) {
+    const receiptSale: ReceiptSale = {
+      _id: sale._id,
+      customerName: sale.customerName,
+      userName: sale.userName,
+      items: sale.items.map(i => ({
+        productName: i.productName,
+        quantity: i.formQuantity ?? i.quantity,
+        unitPrice: i.unitPrice,
+        lineTotal: i.lineTotal,
+      })),
+      totalAmount: sale.totalAmount,
+      payments: sale.payments,
+      amountTendered: sale.amountTendered,
+      changeGiven: sale.changeGiven,
+      timestamp: sale.timestamp,
+    };
+    setReprintingSale(receiptSale);
+    setTimeout(() => {
+      window.print();
+      setReprintingSale(null);
+    }, 500);
   }
 
   function openRefund(sale: SaleJSON) {
@@ -361,6 +400,12 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
                   </td>
                   <td className="px-3 py-2 flex items-center gap-3">
                     <button
+                      onClick={() => handleReprint(sale)}
+                      className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 hover:underline"
+                    >
+                      Reprint
+                    </button>
+                    <button
                       onClick={() => openEditPayment(sale)}
                       className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
                     >
@@ -599,6 +644,16 @@ export default function ReportsClient({ branchId }: { branchId: string | null })
           </div>
         )}
       </div>
+
+      {reprintingSale && (
+        <ReceiptTemplate
+          sale={reprintingSale}
+          pharmacyName={pharmacyName}
+          branchName={branchName}
+          branchAddress={branchAddress}
+          staffName={staffName}
+        />
+      )}
     </div>
   );
 }
