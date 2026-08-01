@@ -106,6 +106,7 @@ export default function PosClient({
   const [currentCustomer, setCurrentCustomer] = useState<{ id: string | null; name: string | null; encounterId: string | null }>({ id: null, name: null, encounterId: null });
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showPrintPrompt, setShowPrintPrompt] = useState(false);
+  const [enablePrintListener, setEnablePrintListener] = useState(false);
   const [lastSale, setLastSale] = useState<ReceiptSale | null>(null);
   
   const iframeRef = useRef<HTMLIFrameElement>(null);
