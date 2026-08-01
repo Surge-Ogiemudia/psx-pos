@@ -651,7 +651,6 @@ export default function ReportsClient({
           pharmacyName={pharmacyName}
           branchName={branchName}
           branchAddress={branchAddress}
-          staffName={staffName}
         />
       )}
     </div>
