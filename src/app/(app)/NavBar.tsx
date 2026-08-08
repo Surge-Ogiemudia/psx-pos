@@ -10,7 +10,6 @@ import type { StoreOption } from "@/lib/storeScope";
 
 const RETAIL_LINKS = [
   { href: "/pos", label: "Point of Sale" },
-  { href: "/dispensary", label: "Dispensary" },
   { href: "/products", label: "Catalog" },
 ];
 
@@ -59,7 +58,6 @@ export default function NavBar({
   const [isEmrOpen, setIsEmrOpen] = useState(false);
   const links = [
     ...(userRole === "admin" || userRole === "staff" ? RETAIL_LINKS : []),
-    ...(allowWebClockIn && (userRole === "admin" || userRole === "staff") ? [{ href: "/clockin", label: "Clock In" }] : []),
     ...(userRole === "admin" ? ADMIN_LINKS : []),
     ...(userRole === "admin" || userRole === "store_manager" || userRole === "store_keeper" ? STORE_LINKS : []),
   ];
