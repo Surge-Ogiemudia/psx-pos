@@ -24,6 +24,9 @@ function endOfDay(date: Date): Date {
 export async function GET(request: NextRequest) {
   try {
     const session = await requireApiSession();
+    if (session.user.role !== "admin") {
+      return NextResponse.json({ error: "Admin access required for reports" }, { status: 403 });
+    }
     await dbConnect();
 
     const fromParam = request.nextUrl.searchParams.get("from");
@@ -37,23 +40,11 @@ export async function GET(request: NextRequest) {
       pharmacyId: new mongoose.Types.ObjectId(session.user.pharmacyId),
       timestamp: { $gte: from, $lte: to },
     };
-    if (session.user.role === "admin") {
-      // Admin is pharmacy-wide: a specific branch narrows the report, omitting it aggregates everything.
-      if (requestedBranchId) match.branchId = new mongoose.Types.ObjectId(requestedBranchId);
-    } else if (session.user.branchId) {
-      match.branchId = new mongoose.Types.ObjectId(session.user.branchId);
-    } else {
-      return NextResponse.json({ error: "No branch access" }, { status: 403 });
-    }
+    if (requestedBranchId) match.branchId = new mongoose.Types.ObjectId(requestedBranchId);
 
-    // Staff only ever see their own sales/refunds, never branch-wide totals or other staff's numbers.
-    const isStaff = session.user.role === "staff";
-    const saleMatch = isStaff
-      ? { ...match, userId: new mongoose.Types.ObjectId(session.user.id) }
-      : match;
-    const refundMatch = isStaff
-      ? { ...match, processedByUserId: new mongoose.Types.ObjectId(session.user.id) }
-      : match;
+    const isStaff = false;
+    const saleMatch = match;
+    const refundMatch = match;
 
     const results = await Sale.aggregate([
       { $match: saleMatch },

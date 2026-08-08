@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireRetailPageSession } from "@/lib/session";
 import { resolveActiveBranch } from "@/lib/branchScope";
 import ReportsClient from "./ReportsClient";
@@ -7,6 +8,9 @@ import Branch from "@/models/Branch";
 
 export default async function ReportsPage() {
   const session = await requireRetailPageSession();
+  if (session.user.role !== "admin") {
+    redirect("/pos");
+  }
   const { activeBranchId } = await resolveActiveBranch(session);
   
   await dbConnect();
