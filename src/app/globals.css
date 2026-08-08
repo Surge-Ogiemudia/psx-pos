@@ -47,6 +47,10 @@ body {
   .print-receipt,
   .print-receipt * {
     visibility: visible;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    text-shadow: 0 0 0.4px #000 !important;
   }
   .print-receipt {
     position: absolute !important;

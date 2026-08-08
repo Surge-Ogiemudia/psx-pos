@@ -46,79 +46,80 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
           padding: "0",
           margin: "0 auto",
           marginTop: "-5mm", // Slight negative margin to combat stubborn printer drivers
-          fontFamily: "'Courier New', Courier, monospace",
+          fontFamily: "Arial, Helvetica, sans-serif",
           fontSize: "12px",
+          fontWeight: 700,
           color: "#000",
           backgroundColor: "#fff",
-          lineHeight: "1.4",
+          lineHeight: "1.3",
         }}
       >
         {/* Header */}
-        <div style={{ textAlign: "center", marginBottom: "15px" }}>
-          <h2 style={{ margin: "0", fontSize: "16px", fontWeight: "bold" }}>{pharmacyName}</h2>
-          {branchName && <p style={{ margin: "2px 0 0", fontSize: "12px", fontWeight: "bold" }}>{branchName}</p>}
-          {branchAddress && <p style={{ margin: "2px 0 0", fontSize: "11px", whiteSpace: "pre-wrap" }}>{branchAddress}</p>}
-          <p style={{ margin: "5px 0 0", fontSize: "12px" }}>Date: {formattedDate}</p>
-          <p style={{ margin: "2px 0 0", fontSize: "12px" }}>Receipt: #{sale._id.slice(-6).toUpperCase()}</p>
-          <p style={{ margin: "2px 0 0", fontSize: "12px" }}>Staff: {sale.userName || "Admin"}</p>
+        <div style={{ textAlign: "center", marginBottom: "12px" }}>
+          <h2 style={{ margin: "0", fontSize: "16px", fontWeight: "900", color: "#000" }}>{pharmacyName}</h2>
+          {branchName && <p style={{ margin: "2px 0 0", fontSize: "12px", fontWeight: "800", color: "#000" }}>{branchName}</p>}
+          {branchAddress && <p style={{ margin: "2px 0 0", fontSize: "11px", fontWeight: "700", color: "#000", whiteSpace: "pre-wrap" }}>{branchAddress}</p>}
+          <p style={{ margin: "5px 0 0", fontSize: "12px", fontWeight: "700", color: "#000" }}>Date: {formattedDate}</p>
+          <p style={{ margin: "2px 0 0", fontSize: "12px", fontWeight: "700", color: "#000" }}>Receipt: #{sale._id.slice(-6).toUpperCase()}</p>
+          <p style={{ margin: "2px 0 0", fontSize: "12px", fontWeight: "700", color: "#000" }}>Staff: {sale.userName || "Admin"}</p>
         </div>
 
-        <hr style={{ borderTop: "1px dashed #000", borderBottom: "none", margin: "10px 0" }} />
+        <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "8px 0" }} />
 
         {/* Items Header */}
-        <div style={{ display: "flex", fontWeight: "bold", marginBottom: "5px" }}>
+        <div style={{ display: "flex", fontWeight: "900", fontSize: "12px", color: "#000", marginBottom: "4px" }}>
           <div style={{ flex: 1, textAlign: "left" }}>Item</div>
-          <div style={{ width: "30px", textAlign: "center" }}>Qty</div>
-          <div style={{ width: "60px", textAlign: "right" }}>Total</div>
+          <div style={{ width: "35px", textAlign: "center" }}>Qty</div>
+          <div style={{ width: "65px", textAlign: "right" }}>Total</div>
         </div>
 
-        <hr style={{ borderTop: "1px dashed #000", borderBottom: "none", margin: "5px 0 10px" }} />
+        <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "4px 0 8px" }} />
 
         {/* Items List */}
-        <div style={{ marginBottom: "10px" }}>
+        <div style={{ marginBottom: "8px" }}>
           {sale.items.map((item, idx) => (
-            <div key={idx} style={{ marginBottom: "8px", display: "flex", flexDirection: "column" }}>
-              <div style={{ display: "flex", width: "100%" }}>
-                <div style={{ flex: 1, textAlign: "left", fontWeight: "bold", paddingRight: "5px" }}>
+            <div key={idx} style={{ marginBottom: "6px", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", width: "100%", color: "#000" }}>
+                <div style={{ flex: 1, textAlign: "left", fontWeight: "800", paddingRight: "4px" }}>
                   {item.productName}
                 </div>
-                <div style={{ width: "30px", textAlign: "center" }}>
+                <div style={{ width: "35px", textAlign: "center", fontWeight: "800" }}>
                   {item.quantity}
                 </div>
-                <div style={{ width: "60px", textAlign: "right", fontWeight: "bold" }}>
+                <div style={{ width: "65px", textAlign: "right", fontWeight: "900" }}>
                   N{item.lineTotal?.toLocaleString() || "0"}
                 </div>
               </div>
-              <div style={{ fontSize: "11px", color: "#444" }}>
+              <div style={{ fontSize: "11px", fontWeight: "700", color: "#000" }}>
                 @ N{item.unitPrice?.toLocaleString() || "0"}
               </div>
             </div>
           ))}
         </div>
 
-        <hr style={{ borderTop: "1px dashed #000", borderBottom: "none", margin: "10px 0" }} />
+        <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "8px 0" }} />
 
         {/* Totals */}
-        <div style={{ marginBottom: "10px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold", fontSize: "14px", marginBottom: "5px" }}>
+        <div style={{ marginBottom: "8px", color: "#000" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "900", fontSize: "15px", marginBottom: "4px" }}>
             <span>TOTAL</span>
             <span>N{sale.totalAmount?.toLocaleString() || "0"}</span>
           </div>
           
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "700", fontSize: "12px" }}>
             <span>Tendered</span>
             <span>N{sale.amountTendered?.toLocaleString() || "0"}</span>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "700", fontSize: "12px" }}>
             <span>Change</span>
             <span>N{sale.changeGiven?.toLocaleString() || "0"}</span>
           </div>
 
           {/* Payment Methods */}
           {sale.payments && sale.payments.length > 0 && (
-            <div style={{ marginTop: "5px", paddingTop: "5px", borderTop: "1px dashed #ccc" }}>
+            <div style={{ marginTop: "4px", paddingTop: "4px", borderTop: "1px dashed #000" }}>
               {sale.payments.map((p, idx) => (
-                <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#333" }}>
+                <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", fontWeight: "700", color: "#000" }}>
                   <span style={{ textTransform: "capitalize" }}>Paid via {p.method.replace('_', ' ')}</span>
                   <span>N{p.amount?.toLocaleString() || "0"}</span>
                 </div>
@@ -127,12 +128,12 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
           )}
         </div>
 
-        <hr style={{ borderTop: "1px dashed #000", borderBottom: "none", margin: "10px 0" }} />
+        <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "8px 0" }} />
 
         {/* Footer */}
-        <div style={{ textAlign: "center", marginTop: "15px", fontSize: "11px" }}>
+        <div style={{ textAlign: "center", marginTop: "10px", fontSize: "11px", fontWeight: "800", color: "#000" }}>
           <p style={{ margin: "0" }}>Thank you for your patronage!</p>
-          <p style={{ margin: "5px 0 0" }}>Please call again.</p>
+          <p style={{ margin: "3px 0 0" }}>Please call again.</p>
         </div>
       </div>
     );
