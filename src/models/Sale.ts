@@ -50,6 +50,7 @@ const SaleSchema = new Schema(
   {
     pharmacyId: { type: Schema.Types.ObjectId, ref: "Pharmacy", required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true, index: true },
+    receiptNumber: { type: String, required: true, index: true },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     customerId: { type: Schema.Types.ObjectId, ref: "Patient", default: null },
     customerName: { type: String, default: null },

@@ -87,6 +87,7 @@ export interface RefundItemJSON {
 export interface RefundJSON {
   _id: string;
   saleId: string;
+  receiptNumber: string;
   items: RefundItemJSON[];
   totalAmount: number;
   totalCost: number;

@@ -291,12 +291,12 @@ export default function ReportsClient({
             </p>
           </div>
           <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-            <p className="text-sm text-zinc-500">Net Cost</p>
-            <p className="text-2xl font-bold text-zinc-900">₦{report.summary.netCost.toFixed(2)}</p>
-          </div>
-          <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
             <p className="text-sm text-zinc-500">Net sales</p>
             <p className="text-2xl font-bold text-zinc-900">₦{report.summary.netAmount.toFixed(2)}</p>
+          </div>
+          <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+            <p className="text-sm text-zinc-500">Net Cost</p>
+            <p className="text-2xl font-bold text-zinc-900">₦{report.summary.netCost.toFixed(2)}</p>
           </div>
           <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 shadow-sm">
             <p className="text-sm text-orange-700">Gross Profit</p>

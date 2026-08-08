@@ -17,6 +17,7 @@ const RefundSchema = new Schema(
   {
     pharmacyId: { type: Schema.Types.ObjectId, ref: "Pharmacy", required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true, index: true },
+    receiptNumber: { type: String, required: true, index: true },
     saleId: { type: Schema.Types.ObjectId, ref: "Sale", required: true, index: true },
     items: { type: [RefundItemSchema], required: true, validate: (v: unknown[]) => v.length > 0 },
     totalAmount: { type: Number, required: true, min: 0 },
