@@ -1388,6 +1388,16 @@ export default function ProductsClient({
             onChange={(e) => setForm({ ...form, alertQuantity: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
+          <div className="flex flex-col">
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="CostPrice"
+              value={form.costPrice}
+              onChange={(e) => setForm({ ...form, costPrice: e.target.value })}
+              className="rounded border border-zinc-300 bg-orange-50/50 px-2 py-1.5 text-sm"
+            />
+          </div>
           <input
             type="text"
             inputMode="decimal"
@@ -1411,16 +1421,6 @@ export default function ProductsClient({
               placeholder="Distributor price"
               value={form.distributorPrice}
               onChange={(e) => setForm({ ...form, distributorPrice: e.target.value })}
-              className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
-            />
-          </div>
-          <div className="flex flex-col">
-            <input
-              type="text"
-              inputMode="decimal"
-              placeholder="Cost price"
-              value={form.costPrice}
-              onChange={(e) => setForm({ ...form, costPrice: e.target.value })}
               className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
             />
           </div>
@@ -1818,12 +1818,12 @@ export default function ProductsClient({
               <th className="px-3 py-2">Category</th>
               <th className="px-3 py-2">Form</th>
               <th className="px-3 py-2">Stock</th>
+              {isAdmin && <th className="px-3 py-2">CostPrice</th>}
               <th className="px-3 py-2">{isAdmin ? "Retail" : "Selling price"}</th>
               {isAdmin && (
                 <>
                   <th className="px-3 py-2">Wholesale</th>
                   <th className="px-3 py-2">Distributor</th>
-                  <th className="px-3 py-2">Cost</th>
                 </>
               )}
               <th className="px-3 py-2">Batch</th>
@@ -1941,6 +1941,15 @@ export default function ProductsClient({
                           className="w-16 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
+                      <td className="px-1 py-1">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={editForm.costPrice as string | number}
+                          onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
+                          className="w-20 rounded border border-zinc-300 bg-orange-50/50 px-1 py-1 text-sm"
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         <input
                           type="text"
@@ -1966,15 +1975,6 @@ export default function ProductsClient({
                             value={editForm.distributorPrice as string | number}
                             onChange={(e) => setEditForm({ ...editForm, distributorPrice: e.target.value })}
                             className="w-20 rounded border border-zinc-300 px-1 py-1 text-sm"
-                          />
-                        </td>
-                        <td className="px-1 py-1">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={editForm.costPrice as string | number}
-                            onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
-                            className="w-20 rounded border border-zinc-300 px-1 py-1 text-sm bg-orange-50/50"
                           />
                         </td>
                       <td className="px-3 py-2">
@@ -2016,12 +2016,14 @@ export default function ProductsClient({
                           : "—"}
                       </td>
                       <td className="px-3 py-2 text-zinc-600">{product.quantityInStock}</td>
+                      {isAdmin && (
+                        <td className="px-3 py-2 font-medium text-orange-600">₦{(product.costPrice || 0).toFixed(2)}</td>
+                      )}
                       <td className="px-3 py-2 text-zinc-600">₦{product.retailPrice.toFixed(2)}</td>
                       {isAdmin && (
                         <>
                           <td className="px-3 py-2 text-zinc-600">₦{product.wholesalePrice.toFixed(2)}</td>
                           <td className="px-3 py-2 text-zinc-600">₦{product.distributorPrice.toFixed(2)}</td>
-                          <td className="px-3 py-2 font-medium text-orange-600">₦{(product.costPrice || 0).toFixed(2)}</td>
                         </>
                       )}
                       <td className="px-3 py-2 text-zinc-600">{product.batchNumber || "—"}</td>
