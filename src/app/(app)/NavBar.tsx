@@ -12,10 +12,10 @@ const RETAIL_LINKS = [
   { href: "/pos", label: "Point of Sale" },
   { href: "/dispensary", label: "Dispensary" },
   { href: "/products", label: "Catalog" },
-  { href: "/reports", label: "Reports" },
 ];
 
 const ADMIN_LINKS = [
+  { href: "/reports", label: "Reports" },
   { href: "/staff", label: "Staff" },
   { href: "/locations", label: "Locations" },
 ];
