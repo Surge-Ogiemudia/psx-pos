@@ -10,7 +10,7 @@ import { productsToCsv } from "@/lib/csv";
 import { handleApiError } from "@/lib/apiError";
 import { syncProductsToPsx, deleteProductsFromPsx, getPharmacySlug } from "@/lib/psxSync";
 
-const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice", "alertQuantity"]);
+const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice", "alertQuantity", "quantityInStock"]);
 
 export async function GET(
   request: NextRequest,
@@ -39,15 +39,13 @@ export async function PATCH(
     const { id } = await ctx.params;
 
     const body = await request.json();
-    // quantityInStock is deliberately not editable here — it has to go through
-    // /adjust-stock so the change is reconciled against batch history instead of just
-    // overwriting the flat number and leaving it out of sync with expiry/batch tracking.
     const allowedFields = [
       "itemName",
       "brand",
       "size",
       "category",
       "unitHierarchy",
+      "quantityInStock",
       "alertQuantity",
       "retailPrice",
       "wholesalePrice",

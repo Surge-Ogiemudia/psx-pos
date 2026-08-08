@@ -559,6 +559,7 @@ export default function ProductsClient({
         brand: product.brand,
         size: product.size,
         category: product.category,
+        quantityInStock: Math.round((product.quantityInStock / (multiplier || 1)) * 100) / 100,
         retailPrice: Math.round(product.retailPrice * multiplier * 100) / 100,
         wholesalePrice: Math.round(product.wholesalePrice * multiplier * 100) / 100,
         distributorPrice: Math.round(product.distributorPrice * multiplier * 100) / 100,
@@ -576,6 +577,7 @@ export default function ProductsClient({
         brand: product.brand,
         size: product.size,
         category: product.category,
+        quantityInStock: product.quantityInStock,
         retailPrice: product.retailPrice,
         wholesalePrice: product.wholesalePrice,
         distributorPrice: product.distributorPrice,
@@ -612,9 +614,15 @@ export default function ProductsClient({
       if (payload.retailPrice) payload.retailPrice = parseNumeric(payload.retailPrice) / divisor;
       if (payload.wholesalePrice) payload.wholesalePrice = parseNumeric(payload.wholesalePrice) / divisor;
       if (payload.distributorPrice) payload.distributorPrice = parseNumeric(payload.distributorPrice) / divisor;
+      if (payload.quantityInStock !== undefined && payload.quantityInStock !== "") {
+        payload.quantityInStock = Math.round(parseNumeric(payload.quantityInStock) * divisor);
+      }
     } else {
       // Clear hierarchy if user toggled it off
       payload.unitHierarchy = null;
+      if (payload.quantityInStock !== undefined && payload.quantityInStock !== "") {
+        payload.quantityInStock = parseNumeric(payload.quantityInStock);
+      }
     }
     const res = await fetch(`/api/products/${id}`, {
       method: "PATCH",
@@ -1896,8 +1904,14 @@ export default function ProductsClient({
                           )}
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-zinc-600" title='Use "Adjust stock" to change this'>
-                        {product.quantityInStock}
+                      <td className="px-3 py-2">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={editForm.quantityInStock as string | number ?? ""}
+                          onChange={(e) => setEditForm({ ...editForm, quantityInStock: e.target.value })}
+                          className="w-16 rounded border border-zinc-300 px-1.5 py-1"
+                        />
                       </td>
                       <td className="px-3 py-2">
                         <input
