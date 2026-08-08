@@ -87,7 +87,10 @@ export function usePosOfflineSync(branchId: string | null) {
 
   async function syncPendingSales() {
     try {
-      const pending = await db.pendingSales.where("synced").equals(0).toArray();
+      const pending0 = await db.pendingSales.where("synced").equals(0).toArray();
+      const pendingFalse = await db.pendingSales.where("synced").equals(false as any).toArray();
+      const pending = [...pending0, ...pendingFalse];
+      
       if (pending.length === 0) return;
 
       setSyncStatus(`Syncing ${pending.length} offline sales...`);
@@ -108,12 +111,13 @@ export function usePosOfflineSync(branchId: string | null) {
         });
 
         if (res.ok) {
-          await db.pendingSales.update(sale.id!, { synced: true });
+          await db.pendingSales.update(sale.id!, { synced: 1 });
         }
       }
 
       // Cleanup fully synced ones
       await db.pendingSales.where("synced").equals(1).delete();
+      await db.pendingSales.where("synced").equals(true as any).delete();
       setSyncStatus("Fully synced");
 
     } catch (err) {

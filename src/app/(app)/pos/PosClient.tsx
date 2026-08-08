@@ -692,7 +692,7 @@ export default function PosClient({
         changeGiven: changeFeeValue,
         timestamp: new Date().toISOString(),
         pharmacyId,
-        synced: false
+        synced: 0
       });
 
       setSubmitting(false);
