@@ -4,6 +4,7 @@ import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import ProductBatch from "@/models/ProductBatch";
 import Sale, { type SaleDoc } from "@/models/Sale";
+import Counter from "@/models/Counter";
 import ProductRequest from "@/models/ProductRequest";
 import User from "@/models/User";
 import { requireApiSession, getBranchScope } from "@/lib/session";
@@ -337,10 +338,21 @@ export async function POST(request: NextRequest) {
         }
         const changeGiven = round2(changeDue - changeFeeInput);
 
+        const today = new Date();
+        const datePrefix = `${today.getFullYear()}${(today.getMonth() + 1).toString().padStart(2, "0")}${today.getDate().toString().padStart(2, "0")}`;
+        const counterId = `${session.user.pharmacyId}-${datePrefix}`;
+        const counterDoc = await Counter.findByIdAndUpdate(
+          counterId,
+          { $inc: { seq: 1 } },
+          { new: true, upsert: true, session: dbSession }
+        );
+        const receiptNumber = `${datePrefix}-${counterDoc.seq.toString().padStart(3, "0")}`;
+
         const created = await Sale.create(
           [
             {
               ...scope,
+              receiptNumber,
               userId: session.user.id,
               customerId,
               customerName,

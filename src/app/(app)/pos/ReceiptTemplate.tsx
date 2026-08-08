@@ -4,6 +4,7 @@ import React, { forwardRef } from "react";
 
 export interface ReceiptSale {
   _id: string;
+  receiptNumber: string;
   customerName?: string;
   userName?: string;
   items: {
@@ -59,7 +60,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
           {branchName && <p style={{ margin: "2px 0 0", fontSize: "12px", fontWeight: "bold", color: "#000" }}>{branchName}</p>}
           {branchAddress && <p style={{ margin: "2px 0 0", fontSize: "11px", color: "#000", whiteSpace: "pre-wrap" }}>{branchAddress}</p>}
           <p style={{ margin: "5px 0 0", fontSize: "12px", color: "#000" }}>Date: {formattedDate}</p>
-          <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#000" }}>Receipt: #{sale._id.slice(-6).toUpperCase()}</p>
+          <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#000" }}>Receipt: #{sale.receiptNumber}</p>
           <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#000" }}>Staff: {sale.userName || "Admin"}</p>
         </div>
 

@@ -59,6 +59,7 @@ export interface PaymentLineJSON {
 
 export interface SaleJSON {
   _id: string;
+  receiptNumber: string;
   items: SaleItemJSON[];
   totalAmount: number;
   totalCost: number;
