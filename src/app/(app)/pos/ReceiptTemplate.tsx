@@ -69,7 +69,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         <div style={{ display: "flex", fontWeight: "bold", fontSize: "12px", color: "#000", marginBottom: "4px" }}>
           <div style={{ flex: 1, textAlign: "left" }}>Item</div>
           <div style={{ width: "35px", textAlign: "center" }}>Qty</div>
-          <div style={{ width: "75px", textAlign: "right" }}>Total</div>
+          <div style={{ width: "85px", textAlign: "right" }}>Total</div>
         </div>
 
         <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "4px 0 8px" }} />
@@ -85,7 +85,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
                 <div style={{ width: "35px", textAlign: "center", fontWeight: "bold" }}>
                   {item.quantity}
                 </div>
-                <div style={{ width: "75px", textAlign: "right", fontWeight: "bold" }}>
+                <div style={{ width: "85px", textAlign: "right", fontWeight: "bold" }}>
                   N{item.lineTotal?.toLocaleString() || "0"}
                 </div>
               </div>
@@ -131,7 +131,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
 
         {/* Footer */}
         <div style={{ textAlign: "center", marginTop: "10px", fontSize: "11px", color: "#000" }}>
-          <p style={{ margin: "0 0 5px", fontWeight: "bold" }}>Please no refund of goods after payment</p>
+          <p style={{ margin: "0 0 5px", fontWeight: "bold" }}>Please no return of goods after payment</p>
           <p style={{ margin: "0" }}>Thank you for your patronage!</p>
           <p style={{ margin: "3px 0 0" }}>Please call again.</p>
         </div>
