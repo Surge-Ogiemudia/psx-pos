@@ -34,6 +34,9 @@ const ProductSchema = new Schema(
     distributorPrice: { type: Number, required: true, min: 0 },
     batchNumber: { type: String, default: "" },
     expiryDate: { type: Date, default: null },
+    // Optional barcode/UPC for scanning. Unique per branch if present, though
+    // mongoose sparse index handles the uniqueness. We'll just index it for fast lookup.
+    barcode: { type: String, trim: true, default: "" },
     // Set only when this product was created via a bulk file import — lets the whole
     // batch be deleted together in one action instead of one product at a time.
     importBatchId: { type: Schema.Types.ObjectId, ref: "ImportBatch", default: null, index: true },
@@ -42,6 +45,7 @@ const ProductSchema = new Schema(
 );
 
 ProductSchema.index({ pharmacyId: 1, branchId: 1, itemName: 1 });
+ProductSchema.index({ pharmacyId: 1, branchId: 1, barcode: 1 });
 ProductSchema.index({ pharmacyId: 1, itemName: "text", brand: "text" });
 
 export type ProductDoc = InferSchemaType<typeof ProductSchema>;

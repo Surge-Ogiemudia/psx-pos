@@ -31,6 +31,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ products });
     }
 
+    // Exact barcode match takes absolute precedence
+    const exactBarcodeMatch = products.find((p) => p.barcode && p.barcode === search);
+    if (exactBarcodeMatch) {
+      return NextResponse.json({ products: [exactBarcodeMatch] });
+    }
+
     // Search-as-you-type: rank by prefix/substring match first, then typo-tolerant fuzzy match
     // (e.g. "Swiss" also finds "Swoss"/"Suoss"), so a single letter still shows sensible results.
     const ranked = products
@@ -64,6 +70,7 @@ export async function POST(request: NextRequest) {
       batchNumber,
       expiryDate,
       unitHierarchy,
+      barcode,
     } = body;
 
     const missing = (v: unknown) => v === undefined || v === null || v === "";
@@ -164,6 +171,7 @@ export async function POST(request: NextRequest) {
               distributorPrice: missing(distributorPrice) ? retail : parseNumeric(distributorPrice),
               batchNumber: initialBatchNumber,
               expiryDate: initialExpiryDate,
+              barcode: trimmed(barcode),
               ...(hierarchy ? { unitHierarchy: hierarchy } : {}),
             },
           ],

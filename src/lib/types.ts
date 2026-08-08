@@ -20,6 +20,7 @@ export interface ProductJSON {
   distributorPrice: number;
   batchNumber?: string;
   expiryDate?: string | null;
+  barcode?: string;
 }
 
 export interface ProductBatchJSON {

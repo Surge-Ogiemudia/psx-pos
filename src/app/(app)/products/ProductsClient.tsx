@@ -29,6 +29,7 @@ const emptyForm = {
   distributorPrice: "",
   batchNumber: "",
   expiryDate: "",
+  barcode: "",
 };
 
 interface LevelForm {
@@ -565,6 +566,7 @@ export default function ProductsClient({
         distributorPrice: Math.round(product.distributorPrice * multiplier * 100) / 100,
         batchNumber: product.batchNumber || "",
         expiryDate: product.expiryDate ? product.expiryDate.slice(0, 10) : "",
+        barcode: product.barcode || "",
       });
     } else {
       setEditHierarchyEnabled(false);
@@ -583,6 +585,7 @@ export default function ProductsClient({
         distributorPrice: product.distributorPrice,
         batchNumber: product.batchNumber || "",
         expiryDate: product.expiryDate ? product.expiryDate.slice(0, 10) : "",
+        barcode: product.barcode || "",
       });
     }
   }
@@ -1414,6 +1417,12 @@ export default function ProductsClient({
             placeholder="Expiry date (optional)"
             value={form.expiryDate}
             onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
+            className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+          />
+          <input
+            placeholder="Barcode / UPC (scan here)"
+            value={form.barcode}
+            onChange={(e) => setForm({ ...form, barcode: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
 
