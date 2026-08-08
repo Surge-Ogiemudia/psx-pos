@@ -42,7 +42,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         className="print-receipt"
         style={{
           width: "100%", 
-          maxWidth: "80mm", // Standard thermal paper width limit on screen
+          maxWidth: "55mm", // Standard 58mm thermal paper width limit
           padding: "0",
           margin: "0 auto",
           marginTop: "-5mm", // Slight negative margin to combat stubborn printer drivers
@@ -68,8 +68,8 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         {/* Items Header */}
         <div style={{ display: "flex", fontWeight: "bold", fontSize: "12px", color: "#000", marginBottom: "4px" }}>
           <div style={{ flex: 1, textAlign: "left" }}>Item</div>
-          <div style={{ width: "35px", textAlign: "center" }}>Qty</div>
-          <div style={{ width: "85px", textAlign: "right" }}>Total</div>
+          <div style={{ width: "30px", textAlign: "center" }}>Qty</div>
+          <div style={{ width: "65px", textAlign: "right" }}>Total</div>
         </div>
 
         <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "4px 0 8px" }} />
@@ -79,13 +79,13 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
           {sale.items.map((item, idx) => (
             <div key={idx} style={{ marginBottom: "6px", display: "flex", flexDirection: "column" }}>
               <div style={{ display: "flex", width: "100%", color: "#000" }}>
-                <div style={{ flex: 1, textAlign: "left", fontWeight: "bold", paddingRight: "4px" }}>
+                <div style={{ flex: 1, textAlign: "left", fontWeight: "bold", paddingRight: "4px", wordBreak: "break-word" }}>
                   {item.productName}
                 </div>
-                <div style={{ width: "35px", textAlign: "center", fontWeight: "bold" }}>
+                <div style={{ width: "30px", textAlign: "center", fontWeight: "bold" }}>
                   {item.quantity}
                 </div>
-                <div style={{ width: "85px", textAlign: "right", fontWeight: "bold" }}>
+                <div style={{ width: "65px", textAlign: "right", fontWeight: "bold" }}>
                   N{item.lineTotal?.toLocaleString() || "0"}
                 </div>
               </div>
