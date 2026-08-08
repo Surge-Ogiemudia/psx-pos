@@ -45,6 +45,7 @@ export default function ReportsClient({
 }) {
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
+  const [searchQuery, setSearchQuery] = useState("");
   const [report, setReport] = useState<ReportData | null>(null);
   const [sales, setSales] = useState<SaleJSON[]>([]);
   const [refunds, setRefunds] = useState<RefundJSON[]>([]);
@@ -277,6 +278,16 @@ export default function ReportsClient({
         >
           Today
         </button>
+        <div className="ml-auto flex-1 min-w-[200px] max-w-sm">
+          <label className="mb-1 block text-sm font-medium text-zinc-700">Search</label>
+          <input
+            type="search"
+            placeholder="Search receipt #, item, staff, customer..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded border border-zinc-300 px-3 py-1.5 text-sm"
+          />
+        </div>
       </div>
 
       {report && (
@@ -416,7 +427,17 @@ export default function ReportsClient({
             </tr>
           </thead>
           <tbody>
-            {sales.map((sale) => {
+            {sales.filter(sale => {
+              if (!searchQuery.trim()) return true;
+              const q = searchQuery.toLowerCase();
+              return (
+                (sale.receiptNumber && sale.receiptNumber.toLowerCase().includes(q)) ||
+                (sale.userName && sale.userName.toLowerCase().includes(q)) ||
+                (sale.customerName && sale.customerName.toLowerCase().includes(q)) ||
+                (sale._id && sale._id.toLowerCase().includes(q)) ||
+                sale.items.some(item => item.productName && item.productName.toLowerCase().includes(q))
+              );
+            }).map((sale) => {
               const refunded = totalRefunded(sale._id);
               const refundableLines = sale.items.filter((line) => !line.isCustom && line.productId);
               const fullyRefunded = refundableLines.every(
