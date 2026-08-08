@@ -67,12 +67,14 @@ export async function POST(request: NextRequest) {
       retailPrice,
       wholesalePrice,
       distributorPrice,
+      costPrice,
       batchNumber,
       expiryDate,
       unitHierarchy,
       barcode,
     } = body;
 
+    const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice", "costPrice", "alertQuantity", "quantityInStock"]);
     const missing = (v: unknown) => v === undefined || v === null || v === "";
     const trimmed = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 

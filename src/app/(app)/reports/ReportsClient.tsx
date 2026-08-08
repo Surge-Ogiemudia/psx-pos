@@ -23,11 +23,11 @@ const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
 };
 
 interface ReportData {
-  summary: { totalAmount: number; saleCount: number; refundAmount: number; refundCount: number; netAmount: number };
-  byDay: { date: string; totalAmount: number; saleCount: number }[];
+  summary: { totalAmount: number; totalCost: number; grossProfit: number; saleCount: number; refundAmount: number; refundCost: number; refundCount: number; netAmount: number; netCost: number; };
+  byDay: { date: string; totalAmount: number; totalCost: number; grossProfit: number; saleCount: number }[];
   byMethod: { method: PaymentMethod; salesIn: number; refundsOut: number; changeOut: number; netCash: number }[];
   feeIncome: number;
-  byStaff: { userId: string; userName: string; totalAmount: number; saleCount: number }[];
+  byStaff: { userId: string; userName: string; totalAmount: number; totalCost: number; grossProfit: number; saleCount: number }[];
 }
 
 export default function ReportsClient({ 
@@ -253,7 +253,7 @@ export default function ReportsClient({
       </div>
 
       {report && (
-        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-6">
           <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
             <p className="text-sm text-zinc-500">Gross sales</p>
             <p className="text-2xl font-bold text-zinc-900">₦{report.summary.totalAmount.toFixed(2)}</p>
@@ -267,6 +267,10 @@ export default function ReportsClient({
           <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
             <p className="text-sm text-zinc-500">Net sales</p>
             <p className="text-2xl font-bold text-zinc-900">₦{report.summary.netAmount.toFixed(2)}</p>
+          </div>
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 shadow-sm">
+            <p className="text-sm text-orange-700">Gross Profit</p>
+            <p className="text-2xl font-bold text-orange-700">₦{report.summary.grossProfit.toFixed(2)}</p>
           </div>
           <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
             <p className="text-sm text-zinc-500">Transactions</p>

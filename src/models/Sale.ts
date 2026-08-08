@@ -32,6 +32,8 @@ const SaleItemSchema = new Schema(
     priceTierUsed: { type: String, enum: ["retail", "wholesale", "distributor", "custom"], required: true },
     unitPrice: { type: Number, required: true, min: 0 },
     lineTotal: { type: Number, required: true, min: 0 },
+    unitCost: { type: Number, required: true, default: 0, min: 0 },
+    costTotal: { type: Number, required: true, default: 0, min: 0 },
   },
   { _id: false }
 );
@@ -53,6 +55,8 @@ const SaleSchema = new Schema(
     customerName: { type: String, default: null },
     items: { type: [SaleItemSchema], required: true, validate: (v: unknown[]) => v.length > 0 },
     totalAmount: { type: Number, required: true, min: 0 },
+    totalCost: { type: Number, required: true, default: 0, min: 0 },
+    grossProfit: { type: Number, required: true, default: 0 },
     payments: { type: [PaymentLineSchema], required: true, validate: (v: unknown[]) => v.length > 0 },
     amountTendered: { type: Number, required: true, min: 0 },
     changeGiven: { type: Number, required: true, default: 0, min: 0 },

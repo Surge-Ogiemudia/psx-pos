@@ -17,6 +17,7 @@ type CartLine =
       size: string;
       category: ProductCategory;
       unitPrice: number;
+      unitCost: number;
       quantity: number;
       instruction?: string;
     };
@@ -76,6 +77,12 @@ function lineAmount(line: CartLine): number {
   return line.kind === "catalog"
     ? line.product.retailPrice * piecesPerForm(line.product, line.form) * line.quantity
     : line.unitPrice * line.quantity;
+}
+
+function lineCost(line: CartLine): number {
+  return line.kind === "catalog"
+    ? (line.product.costPrice || 0) * piecesPerForm(line.product, line.form) * line.quantity
+    : (line.unitCost || 0) * line.quantity;
 }
 
 export default function PosClient({ 
@@ -178,6 +185,7 @@ export default function PosClient({
                 size,
                 category: "medicine",
                 unitPrice: Number(med.price) || 0,
+                unitCost: 0,
                 quantity: Number(med.qty) || 1,
                 instruction: med.dose,
               });
@@ -193,6 +201,7 @@ export default function PosClient({
               size: "Standard",
               category: "medicine",
               unitPrice: 0,
+              unitCost: 0,
               quantity: Number(med.qty) || 1,
             });
           }
@@ -553,6 +562,7 @@ export default function PosClient({
         size,
         category: customForm.category,
         unitPrice: price,
+        unitCost: 0,
         quantity,
       },
     ]);
@@ -640,6 +650,7 @@ export default function PosClient({
                 category: line.category,
                 quantity: line.quantity,
                 unitPrice: line.unitPrice,
+                unitCost: line.unitCost,
               }
         )
       }),
