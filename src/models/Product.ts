@@ -32,6 +32,7 @@ const ProductSchema = new Schema(
     retailPrice: { type: Number, required: true, min: 0 },
     wholesalePrice: { type: Number, required: true, min: 0 },
     distributorPrice: { type: Number, required: true, min: 0 },
+    costPrice: { type: Number, required: true, default: 0, min: 0 },
     batchNumber: { type: String, default: "" },
     expiryDate: { type: Date, default: null },
     // Optional barcode/UPC for scanning. Unique per branch if present, though

@@ -27,6 +27,7 @@ const emptyForm = {
   retailPrice: "",
   wholesalePrice: "",
   distributorPrice: "",
+  costPrice: "",
   batchNumber: "",
   expiryDate: "",
   barcode: "",
@@ -112,6 +113,7 @@ const BULK_FIELDS = [
   "retailPrice",
   "wholesalePrice",
   "distributorPrice",
+  "costPrice",
   "batchNumber",
   "expiryDate",
   "unitHierarchy",
@@ -462,6 +464,7 @@ export default function ProductsClient({
       if (payload.retailPrice) payload.retailPrice = parseNumeric(payload.retailPrice) / divisor;
       if (payload.wholesalePrice) payload.wholesalePrice = parseNumeric(payload.wholesalePrice) / divisor;
       if (payload.distributorPrice) payload.distributorPrice = parseNumeric(payload.distributorPrice) / divisor;
+      if (payload.costPrice) payload.costPrice = parseNumeric(payload.costPrice) / divisor;
     }
 
     // Central catalog: check for an exact or near-name match before creating a second row.
@@ -564,6 +567,7 @@ export default function ProductsClient({
         retailPrice: Math.round(product.retailPrice * multiplier * 100) / 100,
         wholesalePrice: Math.round(product.wholesalePrice * multiplier * 100) / 100,
         distributorPrice: Math.round(product.distributorPrice * multiplier * 100) / 100,
+        costPrice: Math.round((product.costPrice || 0) * multiplier * 100) / 100,
         batchNumber: product.batchNumber || "",
         expiryDate: product.expiryDate ? product.expiryDate.slice(0, 10) : "",
         barcode: product.barcode || "",
@@ -583,6 +587,7 @@ export default function ProductsClient({
         retailPrice: product.retailPrice,
         wholesalePrice: product.wholesalePrice,
         distributorPrice: product.distributorPrice,
+        costPrice: product.costPrice || 0,
         batchNumber: product.batchNumber || "",
         expiryDate: product.expiryDate ? product.expiryDate.slice(0, 10) : "",
         barcode: product.barcode || "",
@@ -617,6 +622,7 @@ export default function ProductsClient({
       if (payload.retailPrice) payload.retailPrice = parseNumeric(payload.retailPrice) / divisor;
       if (payload.wholesalePrice) payload.wholesalePrice = parseNumeric(payload.wholesalePrice) / divisor;
       if (payload.distributorPrice) payload.distributorPrice = parseNumeric(payload.distributorPrice) / divisor;
+      if (payload.costPrice) payload.costPrice = parseNumeric(payload.costPrice) / divisor;
       if (payload.quantityInStock !== undefined && payload.quantityInStock !== "") {
         payload.quantityInStock = Math.round(parseNumeric(payload.quantityInStock) * divisor);
       }
@@ -1398,14 +1404,26 @@ export default function ProductsClient({
             onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
-          <input
-            type="text"
-            inputMode="decimal"
-            placeholder="Distributor price (optional)"
-            value={form.distributorPrice}
-            onChange={(e) => setForm({ ...form, distributorPrice: e.target.value })}
-            className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
-          />
+          <div className="flex flex-col">
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="Distributor price"
+              value={form.distributorPrice}
+              onChange={(e) => setForm({ ...form, distributorPrice: e.target.value })}
+              className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            />
+          </div>
+          <div className="flex flex-col">
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="Cost price"
+              value={form.costPrice}
+              onChange={(e) => setForm({ ...form, costPrice: e.target.value })}
+              className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
+            />
+          </div>
           <input
             placeholder="Batch number (optional)"
             value={form.batchNumber}
@@ -1805,6 +1823,7 @@ export default function ProductsClient({
                 <>
                   <th className="px-3 py-2">Wholesale</th>
                   <th className="px-3 py-2">Distributor</th>
+                  <th className="px-3 py-2">Cost</th>
                 </>
               )}
               <th className="px-3 py-2">Batch</th>
@@ -1940,15 +1959,24 @@ export default function ProductsClient({
                           className="w-20 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={editForm.distributorPrice as string | number}
-                          onChange={(e) => setEditForm({ ...editForm, distributorPrice: e.target.value })}
-                          className="w-20 rounded border border-zinc-300 px-1.5 py-1"
-                        />
-                      </td>
+                      <td className="px-1 py-1">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={editForm.distributorPrice as string | number}
+                            onChange={(e) => setEditForm({ ...editForm, distributorPrice: e.target.value })}
+                            className="w-20 rounded border border-zinc-300 px-1 py-1 text-sm"
+                          />
+                        </td>
+                        <td className="px-1 py-1">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={editForm.costPrice as string | number}
+                            onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
+                            className="w-20 rounded border border-zinc-300 px-1 py-1 text-sm bg-orange-50/50"
+                          />
+                        </td>
                       <td className="px-3 py-2">
                         <input
                           value={String(editForm.batchNumber ?? "")}
@@ -1993,6 +2021,7 @@ export default function ProductsClient({
                         <>
                           <td className="px-3 py-2 text-zinc-600">₦{product.wholesalePrice.toFixed(2)}</td>
                           <td className="px-3 py-2 text-zinc-600">₦{product.distributorPrice.toFixed(2)}</td>
+                          <td className="px-3 py-2 font-medium text-orange-600">₦{(product.costPrice || 0).toFixed(2)}</td>
                         </>
                       )}
                       <td className="px-3 py-2 text-zinc-600">{product.batchNumber || "—"}</td>

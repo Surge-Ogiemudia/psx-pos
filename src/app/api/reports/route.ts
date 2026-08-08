@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$timestamp" } },
           totalAmount: { $sum: "$totalAmount" },
+          totalCost: { $sum: { $ifNull: ["$totalCost", 0] } },
           saleCount: { $sum: 1 },
         },
       },
@@ -61,17 +62,19 @@ export async function GET(request: NextRequest) {
     const summary = results.reduce(
       (acc, r) => {
         acc.totalAmount += r.totalAmount;
+        acc.totalCost += r.totalCost || 0;
         acc.saleCount += r.saleCount;
         return acc;
       },
-      { totalAmount: 0, saleCount: 0 }
+      { totalAmount: 0, totalCost: 0, saleCount: 0 }
     );
 
     const refundResults = await Refund.aggregate([
       { $match: refundMatch },
-      { $group: { _id: null, refundAmount: { $sum: "$totalAmount" }, refundCount: { $sum: 1 } } },
+      { $group: { _id: null, refundAmount: { $sum: "$totalAmount" }, refundCost: { $sum: { $ifNull: ["$totalCost", 0] } }, refundCount: { $sum: 1 } } },
     ]);
     const refundAmount = refundResults[0]?.refundAmount ?? 0;
+    const refundCost = refundResults[0]?.refundCost ?? 0;
     const refundCount = refundResults[0]?.refundCount ?? 0;
 
     // Sales broken down by payment method. Legacy docs (pre-split-payments) have no `payments`
@@ -122,7 +125,7 @@ export async function GET(request: NextRequest) {
     if (!isStaff) {
       const byStaffRaw = await Sale.aggregate([
         { $match: saleMatch },
-        { $group: { _id: "$userId", totalAmount: { $sum: "$totalAmount" }, saleCount: { $sum: 1 } } },
+        { $group: { _id: "$userId", totalAmount: { $sum: "$totalAmount" }, totalCost: { $sum: { $ifNull: ["$totalCost", 0] } }, saleCount: { $sum: 1 } } },
         { $sort: { totalAmount: -1 } },
       ]);
       const staffDocs = await User.find({ _id: { $in: byStaffRaw.map((s) => s._id) } })
@@ -133,6 +136,8 @@ export async function GET(request: NextRequest) {
         userId: s._id.toString(),
         userName: staffNameById.get(s._id.toString()) ?? "Unknown",
         totalAmount: s.totalAmount,
+        totalCost: s.totalCost,
+        grossProfit: s.totalAmount - s.totalCost,
         saleCount: s.saleCount,
       }));
     }
@@ -143,10 +148,13 @@ export async function GET(request: NextRequest) {
       summary: {
         ...summary,
         refundAmount,
+        refundCost,
         refundCount,
         netAmount: summary.totalAmount - refundAmount,
+        netCost: summary.totalCost - refundCost,
+        grossProfit: (summary.totalAmount - refundAmount) - (summary.totalCost - refundCost),
       },
-      byDay: results.map((r) => ({ date: r._id, totalAmount: r.totalAmount, saleCount: r.saleCount })),
+      byDay: results.map((r) => ({ date: r._id, totalAmount: r.totalAmount, totalCost: r.totalCost || 0, grossProfit: r.totalAmount - (r.totalCost || 0), saleCount: r.saleCount })),
       byMethod,
       feeIncome,
       byStaff,

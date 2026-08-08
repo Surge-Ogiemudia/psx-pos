@@ -10,7 +10,7 @@ import { productsToCsv } from "@/lib/csv";
 import { handleApiError } from "@/lib/apiError";
 import { syncProductsToPsx, deleteProductsFromPsx, getPharmacySlug } from "@/lib/psxSync";
 
-const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice", "alertQuantity", "quantityInStock"]);
+const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice", "costPrice", "alertQuantity", "quantityInStock"]);
 
 export async function GET(
   request: NextRequest,
@@ -50,6 +50,7 @@ export async function PATCH(
       "retailPrice",
       "wholesalePrice",
       "distributorPrice",
+      "costPrice",
       "batchNumber",
       "expiryDate",
       "barcode",

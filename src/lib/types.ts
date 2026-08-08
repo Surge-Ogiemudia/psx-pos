@@ -21,6 +21,7 @@ export interface ProductJSON {
   batchNumber?: string;
   expiryDate?: string | null;
   barcode?: string;
+  costPrice: number;
 }
 
 export interface ProductBatchJSON {
@@ -47,6 +48,8 @@ export interface SaleItemJSON {
   priceTierUsed: PriceTier | "custom";
   unitPrice: number;
   lineTotal: number;
+  unitCost: number;
+  costTotal: number;
 }
 
 export interface PaymentLineJSON {
@@ -58,6 +61,8 @@ export interface SaleJSON {
   _id: string;
   items: SaleItemJSON[];
   totalAmount: number;
+  totalCost: number;
+  grossProfit: number;
   payments: PaymentLineJSON[];
   amountTendered: number;
   changeGiven: number;
@@ -75,6 +80,8 @@ export interface RefundItemJSON {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  unitCost: number;
+  costTotal: number;
 }
 
 export interface RefundJSON {
@@ -82,6 +89,7 @@ export interface RefundJSON {
   saleId: string;
   items: RefundItemJSON[];
   totalAmount: number;
+  totalCost: number;
   method: PaymentMethod;
   reason?: string;
   timestamp: string;

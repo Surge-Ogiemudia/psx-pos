@@ -200,6 +200,7 @@ export async function POST(request: NextRequest) {
 
         const saleItems = [];
         let totalAmount = 0;
+        let totalCost = 0;
 
         // Custom lines (items not in the catalog) file a ProductRequest once the sale is
         // created, so admin review has the sale to reconcile against.
@@ -213,7 +214,10 @@ export async function POST(request: NextRequest) {
             const category = item.category as ProductCategory;
             const unitPrice = round2(item.unitPrice as number);
             const lineTotal = round2(unitPrice * item.quantity);
+            const unitCost = 0;
+            const costTotal = 0;
             totalAmount += lineTotal;
+            totalCost += costTotal;
 
             saleItems.push({
               productId: null,
@@ -229,6 +233,8 @@ export async function POST(request: NextRequest) {
               priceTierUsed: "custom",
               unitPrice,
               lineTotal,
+              unitCost,
+              costTotal,
             });
             customLines.push({ itemName, brand, size, category, unitPrice, quantity: item.quantity });
             continue;
@@ -299,8 +305,11 @@ export async function POST(request: NextRequest) {
           }
 
           const unitPrice = product[priceField] as number;
+          const unitCost = product.costPrice || 0;
           const lineTotal = unitPrice * baseQuantity;
+          const costTotal = unitCost * baseQuantity;
           totalAmount += lineTotal;
+          totalCost += costTotal;
 
           saleItems.push({
             productId: product._id,
@@ -311,6 +320,8 @@ export async function POST(request: NextRequest) {
             priceTierUsed: item.priceTier,
             unitPrice,
             lineTotal,
+            unitCost,
+            costTotal,
             batchDraws,
           });
         }
@@ -335,6 +346,8 @@ export async function POST(request: NextRequest) {
               customerName,
               items: saleItems,
               totalAmount,
+              totalCost,
+              grossProfit: totalAmount - totalCost,
               payments: payments.map((p) => ({ method: p.method, amount: round2(p.amount) })),
               amountTendered,
               changeGiven,
