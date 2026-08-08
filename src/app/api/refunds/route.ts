@@ -5,6 +5,7 @@ import Product from "@/models/Product";
 import ProductBatch from "@/models/ProductBatch";
 import Sale from "@/models/Sale";
 import Refund from "@/models/Refund";
+import Counter from "@/models/Counter";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
@@ -177,10 +178,21 @@ export async function POST(request: NextRequest) {
           );
         }
 
+        const today = new Date();
+        const datePrefix = `${today.getFullYear()}${(today.getMonth() + 1).toString().padStart(2, "0")}${today.getDate().toString().padStart(2, "0")}`;
+        const counterId = `${session.user.pharmacyId}-${datePrefix}`;
+        const counterDoc = await Counter.findByIdAndUpdate(
+          counterId,
+          { $inc: { seq: 1 } },
+          { new: true, upsert: true, session: dbSession }
+        );
+        const receiptNumber = `${datePrefix}-${counterDoc.seq.toString().padStart(3, "0")}`;
+
         const created = await Refund.create(
           [
             {
               ...scope,
+              receiptNumber,
               saleId,
               items: refundItems,
               totalAmount,

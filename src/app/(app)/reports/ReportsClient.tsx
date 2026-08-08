@@ -424,7 +424,7 @@ export default function ReportsClient({
               return (
                 <tr key={sale._id} className="border-b border-zinc-100 last:border-0">
                   <td className="px-3 py-2 font-mono text-xs text-zinc-500 w-[100px] min-w-[100px] sticky left-0 z-10 bg-white shadow-[1px_0_0_0_#f4f4f5]" title={sale._id}>
-                    {sale._id.slice(-8)}
+                    {sale.receiptNumber}
                   </td>
                   <td className="px-3 py-2 text-zinc-600 w-[160px] min-w-[160px] sticky left-[100px] z-10 bg-white shadow-[1px_0_0_0_#f4f4f5]">{new Date(sale.timestamp).toLocaleString()}</td>
                   <td className="px-3 py-2 text-zinc-600 w-[120px] min-w-[120px] sticky left-[260px] z-10 bg-white shadow-[1px_0_0_0_#f4f4f5]">{sale.userName}</td>
@@ -506,7 +506,7 @@ export default function ReportsClient({
               <h3 className="mb-3 text-sm font-semibold text-zinc-900">
                 Refund sale from {new Date(sale.timestamp).toLocaleString()}
                 <span className="ml-2 font-mono text-xs font-normal text-zinc-400" title={sale._id}>
-                  #{sale._id.slice(-8)}
+                  #{sale.receiptNumber}
                 </span>
               </h3>
               <div className="mb-3 flex flex-col gap-2">
@@ -583,7 +583,7 @@ export default function ReportsClient({
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
               <div>
                 <h3 className="text-lg font-bold text-zinc-900">Edit Payment Method</h3>
-                <p className="text-xs text-zinc-500">Sale #{editingPaymentSale._id.slice(-8)} • Total ₦{editingPaymentSale.totalAmount.toFixed(2)}</p>
+                <p className="text-xs text-zinc-500">Sale #{editingPaymentSale.receiptNumber} • Total ₦{editingPaymentSale.totalAmount.toFixed(2)}</p>
               </div>
               <button
                 onClick={() => setEditingPaymentSale(null)}
