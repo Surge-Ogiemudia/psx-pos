@@ -20,15 +20,37 @@ export async function GET(request: NextRequest) {
     await dbConnect();
 
     const search = request.nextUrl.searchParams.get("search")?.trim();
+    const lastSyncedAt = request.nextUrl.searchParams.get("lastSyncedAt");
+    
     const query: Record<string, unknown> = getBranchScope(
       session,
       request.nextUrl.searchParams.get("branchId")
     );
 
+    let fullSyncRequired = false;
+    const serverTime = new Date().getTime();
+
+    if (lastSyncedAt && !search) {
+      const syncDate = new Date(Number(lastSyncedAt));
+      // If a deletion occurred since we last synced, we can't just delta sync 
+      // because we wouldn't know exactly which IDs were removed easily.
+      // Force a full clean sync instead.
+      const recentDeletion = await DeletionLog.findOne({
+        ...query,
+        createdAt: { $gt: syncDate }
+      }).lean();
+
+      if (recentDeletion) {
+        fullSyncRequired = true;
+      } else {
+        query.updatedAt = { $gt: syncDate };
+      }
+    }
+
     const products = await Product.find(query).sort({ itemName: 1, brand: 1 }).lean();
 
     if (!search) {
-      return NextResponse.json({ products });
+      return NextResponse.json({ products, fullSyncRequired, timestamp: serverTime });
     }
 
     // Exact barcode match takes absolute precedence
