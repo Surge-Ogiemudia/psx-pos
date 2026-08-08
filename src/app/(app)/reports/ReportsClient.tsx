@@ -384,10 +384,26 @@ export default function ReportsClient({
                   </td>
                   <td className="px-3 py-2 text-zinc-600">{new Date(sale.timestamp).toLocaleString()}</td>
                   <td className="px-3 py-2 text-zinc-600">{sale.userName}</td>
-                  <td className="px-3 py-2 text-zinc-600">
-                    {sale.items
-                      .map((i) => `${i.productName} ×${i.formQuantity ?? i.quantity}${i.form ? ` ${i.form}${(i.formQuantity ?? i.quantity) === 1 ? "" : "s"}` : ""}`)
-                      .join(", ")}
+                  <td className="px-3 py-2 text-zinc-600 min-w-[300px]">
+                    <div className="flex flex-col gap-1">
+                      {sale.items.map((i, idx) => {
+                        const qty = i.formQuantity ?? i.quantity;
+                        const qtySuffix = i.form ? ` ${i.form}${qty === 1 ? "" : "s"}` : "";
+                        const cost = i.unitCost || 0;
+                        const profit = i.unitPrice - cost;
+                        return (
+                          <div key={idx} className="flex flex-col border-b border-zinc-100 last:border-0 pb-1 last:pb-0">
+                            <span className="font-medium text-sm text-zinc-800">{i.productName}</span>
+                            <div className="flex flex-wrap gap-x-3 text-xs text-zinc-500">
+                              <span>Qty: <span className="font-medium text-zinc-700">{qty}{qtySuffix}</span></span>
+                              <span>Cost: <span className="font-medium text-zinc-700">₦{cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                              <span>Sell: <span className="font-medium text-zinc-700">₦{i.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                              <span>Profit: <span className={`font-medium ${profit >= 0 ? "text-orange-600" : "text-red-600"}`}>₦{profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-zinc-600">
                     {sale.payments.map((p) => `${PAYMENT_METHOD_LABEL[p.method]} ₦${p.amount.toFixed(2)}`).join(", ")}
