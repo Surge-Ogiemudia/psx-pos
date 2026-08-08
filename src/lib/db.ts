@@ -15,7 +15,7 @@ export interface PendingSale {
   changeGiven: number;
   timestamp: string;
   pharmacyId: string;
-  synced: boolean;
+  synced: number;
 }
 
 export interface SyncMetadata {
