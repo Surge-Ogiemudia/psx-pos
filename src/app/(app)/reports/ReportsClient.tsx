@@ -70,6 +70,7 @@ export default function ReportsClient({
 
   const topScrollRef = useRef<HTMLDivElement>(null);
   const bottomScrollRef = useRef<HTMLDivElement>(null);
+  const refundRef = useRef<HTMLDivElement>(null);
   const [tableWidth, setTableWidth] = useState<number>(0);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -85,6 +86,12 @@ export default function ReportsClient({
       setTableWidth(bottomScrollRef.current.scrollWidth);
     }
   }, [sales]);
+
+  useEffect(() => {
+    if (refundingSaleId && refundRef.current) {
+      refundRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [refundingSaleId]);
 
   async function loadActivity() {
     if (activityLoaded) return;
@@ -491,7 +498,7 @@ export default function ReportsClient({
           const sale = sales.find((s) => s._id === refundingSaleId);
           if (!sale) return null;
           return (
-            <div className="mt-4 max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+            <div ref={refundRef} className="mt-4 max-w-lg rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
               <h3 className="mb-3 text-sm font-semibold text-zinc-900">
                 Refund sale from {new Date(sale.timestamp).toLocaleString()}
                 <span className="ml-2 font-mono text-xs font-normal text-zinc-400" title={sale._id}>
