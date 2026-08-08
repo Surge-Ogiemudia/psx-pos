@@ -695,6 +695,7 @@ export default function PosClient({
       // Re-map the API response to fit the ReceiptSale shape needed by the template
       const fullSaleData: ReceiptSale = {
         _id: data.sale._id,
+        receiptNumber: data.sale.receiptNumber,
         customerName: data.sale.customerName,
         userName: staffName || "Staff", // Immediate print assumes current user
         items: data.sale.items,

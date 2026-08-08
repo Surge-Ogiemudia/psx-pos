@@ -136,6 +136,7 @@ export default function ReportsClient({
   function handleReprint(sale: SaleJSON) {
     const receiptSale: ReceiptSale = {
       _id: sale._id,
+      receiptNumber: sale.receiptNumber,
       customerName: sale.customerName,
       userName: sale.userName,
       items: sale.items.map(i => ({
