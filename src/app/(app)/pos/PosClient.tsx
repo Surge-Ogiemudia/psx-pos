@@ -417,8 +417,57 @@ export default function PosClient({
       clearTimeout(timeout);
       controller.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, branchId]);
+
+  // Global Barcode Scanner Listener
+  useEffect(() => {
+    let barcodeBuffer = "";
+    let lastKeyTime = Date.now();
+
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      // Ignore if user is intentionally typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) {
+        return;
+      }
+
+      const currentTime = Date.now();
+      // Barcode scanners type very fast (usually <20ms per character). 
+      // If there's a pause > 50ms, it's probably a human typing, so we reset.
+      if (currentTime - lastKeyTime > 50) {
+        barcodeBuffer = "";
+      }
+      lastKeyTime = currentTime;
+
+      if (e.key === "Enter" && barcodeBuffer.length > 3) {
+        e.preventDefault();
+        const scannedCode = barcodeBuffer;
+        barcodeBuffer = "";
+        
+        const params = new URLSearchParams({ search: scannedCode });
+        if (branchId) params.set("branchId", branchId);
+        
+        const res = await fetch(`/api/products?${params.toString()}`);
+        if (res.ok) {
+          const data = await res.json();
+          const matchedProduct = data.products.find((p: ProductJSON) => p.barcode === scannedCode);
+          if (matchedProduct) {
+            // We use the setState callback form in addToCart, so we don't have stale state issues
+            addToCart(matchedProduct);
+            scrollToCart();
+          }
+        }
+        return;
+      }
+
+      if (e.key.length === 1) {
+        barcodeBuffer += e.key;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchId]);
 
   function addToCart(product: ProductJSON) {
     setCart((prev) => {

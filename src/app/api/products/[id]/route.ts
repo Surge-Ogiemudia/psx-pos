@@ -52,6 +52,7 @@ export async function PATCH(
       "distributorPrice",
       "batchNumber",
       "expiryDate",
+      "barcode",
     ] as const;
 
     const update: Record<string, unknown> = {};
