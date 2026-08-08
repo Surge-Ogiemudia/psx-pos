@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import type { ActivityLogJSON, PaymentMethod, RefundJSON, SaleJSON } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
 import ReceiptTemplate, { ReceiptSale } from "../pos/ReceiptTemplate";
@@ -65,7 +65,26 @@ export default function ReportsClient({
 
   const [showActivity, setShowActivity] = useState(false);
   const [activityEntries, setActivityEntries] = useState<ActivityLogJSON[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(false);
   const [activityLoaded, setActivityLoaded] = useState(false);
+
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const bottomScrollRef = useRef<HTMLDivElement>(null);
+  const [tableWidth, setTableWidth] = useState<number>(0);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (e.target === topScrollRef.current && bottomScrollRef.current) {
+      bottomScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
+    } else if (e.target === bottomScrollRef.current && topScrollRef.current) {
+      topScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
+    }
+  };
+
+  useEffect(() => {
+    if (bottomScrollRef.current) {
+      setTableWidth(bottomScrollRef.current.scrollWidth);
+    }
+  }, [sales]);
 
   async function loadActivity() {
     if (activityLoaded) return;
@@ -357,14 +376,28 @@ export default function ReportsClient({
       )}
 
       <h2 className="mb-2 text-base font-semibold text-zinc-900">Sale history</h2>
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
+      {sales.length > 0 && (
+        <div 
+          ref={topScrollRef} 
+          className="overflow-x-auto w-full mb-1 border border-zinc-200 rounded shadow-sm bg-white"
+          onScroll={handleScroll}
+        >
+          <div style={{ width: tableWidth, height: '1px' }}></div>
+        </div>
+      )}
+
+      <div 
+        ref={bottomScrollRef}
+        className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm"
+        onScroll={handleScroll}
+      >
+        <table className="w-full text-left text-sm relative">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
             <tr>
-              <th className="px-3 py-2">Sale ID</th>
-              <th className="px-3 py-2">Time</th>
-              <th className="px-3 py-2">Staff</th>
-              <th className="px-3 py-2">Items</th>
+              <th className="px-3 py-2 w-[100px] min-w-[100px] sticky left-0 z-20 bg-zinc-50 shadow-[1px_0_0_0_#e5e7eb]">Sale ID</th>
+              <th className="px-3 py-2 w-[160px] min-w-[160px] sticky left-[100px] z-20 bg-zinc-50 shadow-[1px_0_0_0_#e5e7eb]">Time</th>
+              <th className="px-3 py-2 w-[120px] min-w-[120px] sticky left-[260px] z-20 bg-zinc-50 shadow-[1px_0_0_0_#e5e7eb]">Staff</th>
+              <th className="px-3 py-2 min-w-[300px] sticky left-[380px] z-20 bg-zinc-50 shadow-[1px_0_0_0_#e5e7eb] border-r border-zinc-200">Items</th>
               <th className="px-3 py-2">Payment</th>
               <th className="px-3 py-2">Total</th>
               <th className="px-3 py-2">Actions</th>
@@ -379,12 +412,12 @@ export default function ReportsClient({
               );
               return (
                 <tr key={sale._id} className="border-b border-zinc-100 last:border-0">
-                  <td className="px-3 py-2 font-mono text-xs text-zinc-500" title={sale._id}>
+                  <td className="px-3 py-2 font-mono text-xs text-zinc-500 w-[100px] min-w-[100px] sticky left-0 z-10 bg-white shadow-[1px_0_0_0_#f4f4f5]" title={sale._id}>
                     {sale._id.slice(-8)}
                   </td>
-                  <td className="px-3 py-2 text-zinc-600">{new Date(sale.timestamp).toLocaleString()}</td>
-                  <td className="px-3 py-2 text-zinc-600">{sale.userName}</td>
-                  <td className="px-3 py-2 text-zinc-600 min-w-[300px]">
+                  <td className="px-3 py-2 text-zinc-600 w-[160px] min-w-[160px] sticky left-[100px] z-10 bg-white shadow-[1px_0_0_0_#f4f4f5]">{new Date(sale.timestamp).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-zinc-600 w-[120px] min-w-[120px] sticky left-[260px] z-10 bg-white shadow-[1px_0_0_0_#f4f4f5]">{sale.userName}</td>
+                  <td className="px-3 py-2 text-zinc-600 min-w-[300px] sticky left-[380px] z-10 bg-white border-r border-zinc-100 shadow-[1px_0_0_0_#f4f4f5]">
                     <div className="flex flex-col gap-1">
                       {sale.items.map((i, idx) => {
                         const qty = i.formQuantity ?? i.quantity;

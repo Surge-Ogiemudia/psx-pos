@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import {
   formatProductLabel,
@@ -192,6 +192,26 @@ export default function ProductsClient({
   // Collapsed by default — import batches, the deletion log, and the delete-all danger zone
   // are all housekeeping/destructive tools, kept out of the way of day-to-day catalog use.
   const [toolsExpanded, setToolsExpanded] = useState(false);
+  const [showDeletionLogs, setShowDeletionLogs] = useState(false);
+
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const bottomScrollRef = useRef<HTMLDivElement>(null);
+  const [tableWidth, setTableWidth] = useState<number>(0);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (e.target === topScrollRef.current && bottomScrollRef.current) {
+      bottomScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
+    } else if (e.target === bottomScrollRef.current && topScrollRef.current) {
+      topScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
+    }
+  };
+
+  useEffect(() => {
+    if (bottomScrollRef.current) {
+      setTableWidth(bottomScrollRef.current.scrollWidth);
+    }
+  }, [products]);
+
   const [deletionLogs, setDeletionLogs] = useState<DeletionLogJSON[]>([]);
   const [expandedDeletionLogs, setExpandedDeletionLogs] = useState<Set<string>>(new Set());
 
@@ -1808,11 +1828,25 @@ export default function ProductsClient({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
+      {visibleProducts.length > 0 && (
+        <div 
+          ref={topScrollRef} 
+          className="overflow-x-auto w-full mb-1 border border-zinc-200 rounded shadow-sm bg-white"
+          onScroll={handleScroll}
+        >
+          <div style={{ width: tableWidth, height: '1px' }}></div>
+        </div>
+      )}
+
+      <div 
+        ref={bottomScrollRef}
+        className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm"
+        onScroll={handleScroll}
+      >
+        <table className="w-full text-left text-sm relative">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
             <tr>
-              <th className="px-3 py-2">Item name</th>
+              <th className="px-3 py-2 sticky left-0 z-20 bg-zinc-50 border-r border-zinc-200 shadow-[1px_0_0_0_#e5e7eb]">Item name</th>
               <th className="px-3 py-2">Brand</th>
               <th className="px-3 py-2">Size</th>
               <th className="px-3 py-2">Category</th>
@@ -1842,7 +1876,7 @@ export default function ProductsClient({
                 >
                   {editing ? (
                     <>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2 sticky left-0 z-10 bg-white border-r border-zinc-100 shadow-[1px_0_0_0_#f4f4f5]">
                         <input
                           value={String(editForm.itemName ?? "")}
                           onChange={(e) => setEditForm({ ...editForm, itemName: e.target.value })}
@@ -2006,7 +2040,7 @@ export default function ProductsClient({
                     </>
                   ) : (
                     <>
-                      <td className="px-3 py-2 font-medium text-zinc-900">{product.itemName}</td>
+                      <td className="px-3 py-2 font-medium text-zinc-900 sticky left-0 z-10 bg-white border-r border-zinc-100 shadow-[1px_0_0_0_#f4f4f5]">{product.itemName}</td>
                       <td className="px-3 py-2 text-zinc-600">{product.brand}</td>
                       <td className="px-3 py-2 text-zinc-600">{product.size}</td>
                       <td className="px-3 py-2 text-zinc-600">{product.category}</td>

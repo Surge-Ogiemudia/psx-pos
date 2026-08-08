@@ -343,9 +343,12 @@ export default function PosClient({
           const job = pendingSales[0];
           setLastSale(job);
           
-          // Wait enough time for the print dialog to trigger and close,
-          // then mark as printed so the next interval grabs the next job.
+          // Wait for DOM to render the receipt, then trigger print dialog.
+          // window.print() blocks until the dialog is closed.
           setTimeout(async () => {
+            window.print();
+            setLastSale(null);
+            
             try {
               await fetch(`/api/sales/${job._id}/mark-printed?${params}`, {
                 method: "POST",
@@ -353,7 +356,7 @@ export default function PosClient({
             } finally {
               isPrintingRemoteRef.current = false;
             }
-          }, 3000);
+          }, 500);
         }
       } catch (err) {
         console.error("Print listener error:", err);
