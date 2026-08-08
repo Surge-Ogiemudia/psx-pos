@@ -1,17 +1,7 @@
 import Dexie, { Table } from 'dexie';
+import { ProductJSON } from './types';
 
-export interface LocalProduct {
-  _id: string;
-  name: string;
-  category: string;
-  sellingPrice: number;
-  costPrice?: number;
-  barcode?: string;
-  quantity: number;
-  distributorPrice?: number;
-  forms?: { formName: string; conversionRate: number }[];
-  isCustom?: boolean;
-}
+export interface LocalProduct extends ProductJSON {}
 
 export interface PendingSale {
   id?: number; // Auto-increment IndexedDB ID

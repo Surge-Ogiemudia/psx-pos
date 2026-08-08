@@ -347,12 +347,14 @@ export async function POST(request: NextRequest) {
           { new: true, upsert: true, session: dbSession }
         );
         const receiptNumber = `${datePrefix}-${counterDoc.seq.toString().padStart(3, "0")}`;
+        const saleTimestamp = body.timestamp ? new Date(body.timestamp) : new Date();
 
         const created = await Sale.create(
           [
             {
               ...scope,
               receiptNumber,
+              offlineReceiptNumber: body.offlineReceiptNumber || null,
               userId: session.user.id,
               customerId,
               customerName,
@@ -366,7 +368,7 @@ export async function POST(request: NextRequest) {
               changeMethod: changeGiven > 0 ? changeMethod : "cash",
               changeFee: round2(changeFeeInput),
               printStatus: body.requestRemotePrint ? "pending" : "not_needed",
-              timestamp: new Date(),
+              timestamp: saleTimestamp,
             },
           ],
           { session: dbSession }

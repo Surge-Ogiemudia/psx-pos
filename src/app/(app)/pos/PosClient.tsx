@@ -6,6 +6,8 @@ import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
 import { parseNumeric } from "@/lib/numberInput";
 import ReceiptTemplate, { type ReceiptSale } from "./ReceiptTemplate";
+import { usePosOfflineSync } from "./usePosOfflineSync";
+import { db } from "@/lib/db";
 
 type CartLine =
   | { kind: "catalog"; key: string; product: ProductJSON; form: string; quantity: number; instruction?: string }
@@ -100,6 +102,7 @@ export default function PosClient({
   branchAddress?: string; 
   staffName?: string; 
 }) {
+  const { isOnline, syncStatus, lastSyncedAt } = usePosOfflineSync(branchId);
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -419,17 +422,28 @@ export default function PosClient({
   useEffect(() => {
     const controller = new AbortController();
     const timeout = setTimeout(async () => {
-      const res = await fetch(`/api/products?${productParams()}`, { signal: controller.signal });
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data.products);
+      if (!isOnline) {
+        const query = search.toLowerCase();
+        const allProducts = await db.products.toArray();
+        const filtered = allProducts.filter(p => 
+          (p.itemName && p.itemName.toLowerCase().includes(query)) ||
+          (p.brand && p.brand.toLowerCase().includes(query)) ||
+          (p.barcode && p.barcode.includes(query))
+        );
+        setProducts(filtered.slice(0, 50) as unknown as ProductJSON[]);
+      } else {
+        const res = await fetch(`/api/products?${productParams()}`, { signal: controller.signal });
+        if (res.ok) {
+          const data = await res.json();
+          setProducts(data.products);
+        }
       }
     }, 200);
     return () => {
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [search, branchId]);
+  }, [search, branchId, isOnline]);
 
   // Global Barcode Scanner Listener
   useEffect(() => {
@@ -455,17 +469,25 @@ export default function PosClient({
         const scannedCode = barcodeBuffer;
         barcodeBuffer = "";
         
-        const params = new URLSearchParams({ search: scannedCode });
-        if (branchId) params.set("branchId", branchId);
-        
-        const res = await fetch(`/api/products?${params.toString()}`);
-        if (res.ok) {
-          const data = await res.json();
-          const matchedProduct = data.products.find((p: ProductJSON) => p.barcode === scannedCode);
+        if (!navigator.onLine) {
+          const allProducts = await db.products.toArray();
+          const matchedProduct = allProducts.find(p => p.barcode === scannedCode);
           if (matchedProduct) {
-            // We use the setState callback form in addToCart, so we don't have stale state issues
-            addToCart(matchedProduct);
+            addToCart(matchedProduct as unknown as ProductJSON);
             scrollToCart();
+          }
+        } else {
+          const params = new URLSearchParams({ search: scannedCode });
+          if (branchId) params.set("branchId", branchId);
+          
+          const res = await fetch(`/api/products?${params.toString()}`);
+          if (res.ok) {
+            const data = await res.json();
+            const matchedProduct = data.products.find((p: ProductJSON) => p.barcode === scannedCode);
+            if (matchedProduct) {
+              addToCart(matchedProduct);
+              scrollToCart();
+            }
           }
         }
         return;
@@ -628,35 +650,81 @@ export default function PosClient({
 
     const customLabels = cart.filter((l) => l.kind === "custom").map((l) => l.itemName);
 
+    const payloadItems = cart.map((line) =>
+      line.kind === "catalog"
+        ? {
+            productId: line.product._id,
+            quantity: line.quantity,
+            form: line.product.unitHierarchy?.length ? line.form : undefined,
+            priceTier: "retail",
+          }
+        : {
+            custom: true,
+            itemName: line.itemName,
+            brand: line.brand,
+            size: line.size,
+            category: line.category,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            unitCost: line.unitCost,
+          }
+    );
+
+    const payload = {
+      branchId,
+      customerId: currentCustomer.id,
+      customerName: currentCustomer.name,
+      payments: payments.map((p) => ({ method: p.method, amount: parseNumeric(p.amount) })),
+      changeFee: changeFeeValue,
+      items: payloadItems,
+    };
+
+    if (!isOnline) {
+      const offlineReceiptNumber = `OFF-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*1000)}`;
+      await db.pendingSales.add({
+        offlineReceiptNumber,
+        customerName: currentCustomer.name || undefined,
+        userName: staffName,
+        items: payloadItems,
+        totalAmount: total,
+        payments: payload.payments,
+        amountTendered: payload.payments.reduce((sum, p) => sum + p.amount, 0),
+        changeGiven: changeFeeValue,
+        timestamp: new Date().toISOString(),
+        pharmacyId,
+        synced: false
+      });
+
+      setSubmitting(false);
+      setMessage({ type: "success", text: `Offline sale saved. Will sync when online.` });
+      
+      const fullSaleData: ReceiptSale = {
+        _id: `offline-${Date.now()}`,
+        receiptNumber: offlineReceiptNumber,
+        customerName: currentCustomer.name || undefined,
+        userName: staffName || "Staff",
+        items: payloadItems as any,
+        totalAmount: total,
+        payments: payload.payments as any,
+        amountTendered: payload.payments.reduce((sum, p) => sum + p.amount, 0),
+        changeGiven: changeFeeValue,
+        timestamp: new Date().toISOString(),
+      };
+      setLastSale(fullSaleData);
+      setShowPrintPrompt(true);
+
+      setCart([]);
+      setCurrentCustomer({ id: null, name: null, encounterId: null });
+      setPayments([{ method: "cash", amount: "" }]);
+      setPaymentsTouched(false);
+      setChangeFee("0");
+      return;
+    }
+
     const res = await fetch("/api/sales", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        branchId,
-        customerId: currentCustomer.id,
-        customerName: currentCustomer.name,
-        payments: payments.map((p) => ({ method: p.method, amount: parseNumeric(p.amount) })),
-        changeFee: changeFeeValue,
-        items: cart.map((line) =>
-          line.kind === "catalog"
-            ? {
-                productId: line.product._id,
-                quantity: line.quantity,
-                form: line.product.unitHierarchy?.length ? line.form : undefined,
-                priceTier: "retail",
-              }
-            : {
-                custom: true,
-                itemName: line.itemName,
-                brand: line.brand,
-                size: line.size,
-                category: line.category,
-                quantity: line.quantity,
-                unitPrice: line.unitPrice,
-                unitCost: line.unitCost,
-              }
-        )
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await res.json();
@@ -722,7 +790,16 @@ export default function PosClient({
       )}
       <div className="lg:col-span-2">
         <div className="sticky top-16 z-20 border-b border-zinc-100 bg-white pb-3 pt-1 md:top-[6.5rem]">
-          <h1 className="mb-3 text-lg font-semibold text-zinc-900">Product catalog</h1>
+          <div className="mb-2 flex items-center justify-between">
+            <h1 className="text-lg font-semibold text-zinc-900">Product catalog</h1>
+            <div className="flex items-center space-x-3 text-xs">
+              <span className={`inline-flex items-center space-x-1.5 rounded-full px-2 py-0.5 ${isOnline ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                <span>{isOnline ? "Online" : "Offline Mode"}</span>
+              </span>
+              <span className="text-zinc-500">{syncStatus}</span>
+            </div>
+          </div>
           <input
             type="text"
             placeholder="Search products..."
