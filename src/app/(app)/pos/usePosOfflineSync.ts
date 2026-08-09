@@ -101,7 +101,9 @@ export function usePosOfflineSync(branchId: string | null) {
           items: sale.items,
           payments: sale.payments,
           offlineReceiptNumber: sale.offlineReceiptNumber,
-          timestamp: sale.timestamp
+          timestamp: sale.timestamp,
+          branchId,
+          changeFee: Math.max(0, (sale.amountTendered - sale.totalAmount) - sale.changeGiven)
         };
 
         const res = await fetch("/api/sales", {
@@ -112,6 +114,13 @@ export function usePosOfflineSync(branchId: string | null) {
 
         if (res.ok) {
           await db.pendingSales.update(sale.id!, { synced: 1 });
+        } else {
+          const errText = await res.text();
+          console.error("Sale sync rejected by server:", errText);
+          // If it's a 4xx error (bad request, insufficient stock), mark it as failed (2) so it stops retrying
+          if (res.status >= 400 && res.status < 500) {
+            await db.pendingSales.update(sale.id!, { synced: 2 });
+          }
         }
       }
 
