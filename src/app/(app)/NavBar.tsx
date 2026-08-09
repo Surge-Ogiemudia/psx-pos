@@ -56,6 +56,20 @@ export default function NavBar({
   const [pending, setPending] = useState<Pending | null>(null);
   const [emrToken, setEmrToken] = useState<string | null>(null);
   const [isEmrOpen, setIsEmrOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    setIsOnline(navigator.onLine);
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
   const links = [
     ...(userRole === "admin" || userRole === "staff" ? RETAIL_LINKS : []),
     ...(userRole === "admin" ? ADMIN_LINKS : []),
@@ -174,34 +188,21 @@ export default function NavBar({
           </div>
         </div>
 
-        <nav className="hidden flex-wrap items-center gap-1 border-t border-zinc-100 py-2 md:flex">
-          {links.map((link) => {
-            const active = pathname === link.href || pathname.startsWith(link.href + "/");
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                  active ? "text-white" : "text-zinc-600 hover:bg-zinc-100"
-                }`}
-                style={active ? { backgroundColor: "var(--brand-color)" } : undefined}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        {menuOpen && (
-          <div className="order-last flex w-full flex-col gap-1 border-t border-zinc-200 pt-3 pb-3 md:hidden">
+        {!isOnline ? (
+          <nav className="hidden items-center gap-1 border-t border-zinc-100 py-2 md:flex">
+            <div className="rounded-lg px-3 py-1.5 text-sm font-medium text-amber-600 bg-amber-50">
+              Navigation disabled in offline mode
+            </div>
+          </nav>
+        ) : (
+          <nav className="hidden flex-wrap items-center gap-1 border-t border-zinc-100 py-2 md:flex">
             {links.map((link) => {
               const active = pathname === link.href || pathname.startsWith(link.href + "/");
               return (
                 <Link
                   key={link.href}
                   href={link.href}
-                  onClick={() => setMenuOpen(false)}
-                  className={`rounded-lg px-3 py-2 text-sm font-medium ${
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                     active ? "text-white" : "text-zinc-600 hover:bg-zinc-100"
                   }`}
                   style={active ? { backgroundColor: "var(--brand-color)" } : undefined}
@@ -210,6 +211,33 @@ export default function NavBar({
                 </Link>
               );
             })}
+          </nav>
+        )}
+
+        {menuOpen && (
+          <div className="order-last flex w-full flex-col gap-1 border-t border-zinc-200 pt-3 pb-3 md:hidden">
+            {!isOnline ? (
+              <div className="rounded-lg px-3 py-2 text-sm font-medium text-amber-600 bg-amber-50 text-center">
+                Navigation disabled in offline mode
+              </div>
+            ) : (
+              links.map((link) => {
+                const active = pathname === link.href || pathname.startsWith(link.href + "/");
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMenuOpen(false)}
+                    className={`rounded-lg px-3 py-2 text-sm font-medium ${
+                      active ? "text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    }`}
+                    style={active ? { backgroundColor: "var(--brand-color)" } : undefined}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })
+            )}
             {branchSwitcher && <div className="px-1 pt-2">{branchSwitcher}</div>}
             {storeSwitcher && <div className="px-1 pt-2">{storeSwitcher}</div>}
             <div className="mt-2 flex flex-col gap-3 border-t border-zinc-200 px-1 pt-3 pb-2">
