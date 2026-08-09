@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import { ProductJSON } from "@/lib/types";
 
@@ -6,6 +7,11 @@ export function usePosOfflineSync(branchId: string | null) {
   const [isOnline, setIsOnline] = useState(true);
   const [syncStatus, setSyncStatus] = useState<string>("Initializing...");
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+
+  const pendingSales = useLiveQuery(
+    () => db.pendingSales.where("synced").anyOf(0, 2, false as any).toArray(),
+    []
+  ) || [];
 
   useEffect(() => {
     setIsOnline(navigator.onLine);
@@ -135,5 +141,5 @@ export function usePosOfflineSync(branchId: string | null) {
     }
   }
 
-  return { isOnline, syncStatus, lastSyncedAt, syncCatalog, syncPendingSales };
+  return { isOnline, syncStatus, lastSyncedAt, syncCatalog, syncPendingSales, pendingSales };
 }
