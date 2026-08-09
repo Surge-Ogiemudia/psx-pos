@@ -12,7 +12,7 @@ export function usePosOfflineSync(branchId: string | null) {
   const pendingSales = useLiveQuery(
     () => {
       if (!isBrowser) return [];
-      return db.pendingSales.where("synced").anyOf(0, 2, false as any).toArray();
+      return db.pendingSales.filter(sale => sale.synced === 0 || sale.synced === 2 || sale.synced === false as any).toArray();
     },
     [isBrowser]
   ) || [];
@@ -97,9 +97,7 @@ export function usePosOfflineSync(branchId: string | null) {
 
   async function syncPendingSales() {
     try {
-      const pending0 = await db.pendingSales.where("synced").equals(0).toArray();
-      const pendingFalse = await db.pendingSales.where("synced").equals(false as any).toArray();
-      const pending = [...pending0, ...pendingFalse];
+      const pending = await db.pendingSales.filter(sale => sale.synced === 0 || sale.synced === false as any).toArray();
       
       if (pending.length === 0) return;
 
@@ -135,8 +133,11 @@ export function usePosOfflineSync(branchId: string | null) {
       }
 
       // Cleanup fully synced ones
-      await db.pendingSales.where("synced").equals(1).delete();
-      await db.pendingSales.where("synced").equals(true as any).delete();
+      const syncedSales = await db.pendingSales.filter(sale => sale.synced === 1 || sale.synced === true as any).toArray();
+      const syncedIds = syncedSales.map(s => s.id!).filter(Boolean);
+      if (syncedIds.length > 0) {
+        await db.pendingSales.bulkDelete(syncedIds);
+      }
       setSyncStatus("Fully synced");
 
     } catch (err) {
