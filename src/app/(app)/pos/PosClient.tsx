@@ -102,7 +102,8 @@ export default function PosClient({
   branchAddress?: string; 
   staffName?: string; 
 }) {
-  const { isOnline, syncStatus, lastSyncedAt } = usePosOfflineSync(branchId);
+  const { isOnline, syncStatus, lastSyncedAt, pendingSales, syncPendingSales } = usePosOfflineSync(branchId);
+  const [showOfflineTray, setShowOfflineTray] = useState(false);
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -796,6 +797,64 @@ export default function PosClient({
           branchAddress={branchAddress}
         />
       )}
+      {/* Offline Sync Tray */}
+      {showOfflineTray && (
+        <>
+          <div 
+            className="fixed inset-0 z-40 bg-zinc-900/20 backdrop-blur-sm"
+            onClick={() => setShowOfflineTray(false)}
+          />
+          <div className="fixed inset-y-0 right-0 z-50 w-full max-w-sm border-l border-zinc-200 bg-zinc-50 shadow-2xl overflow-y-auto transform transition-transform duration-300">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white/90 p-4 backdrop-blur-sm">
+              <h2 className="text-lg font-semibold text-zinc-900">Offline Queue</h2>
+              <button
+                onClick={() => setShowOfflineTray(false)}
+                className="rounded p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              {pendingSales.length === 0 ? (
+                <p className="text-sm text-zinc-500 text-center py-8">No pending sales.</p>
+              ) : (
+                pendingSales.map((sale) => (
+                  <div key={sale.id} className={`rounded-xl border p-3 ${sale.synced === 2 ? 'border-red-200 bg-red-50' : 'border-zinc-200 bg-white shadow-sm'}`}>
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-semibold text-zinc-900 text-sm">{sale.offlineReceiptNumber}</p>
+                        <p className="text-xs text-zinc-500">{new Date(sale.timestamp).toLocaleTimeString()}</p>
+                      </div>
+                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${sale.synced === 2 ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'}`}>
+                        {sale.synced === 2 ? 'Failed' : 'Queued'}
+                      </span>
+                    </div>
+                    <div className="text-sm text-zinc-700">
+                      <p>{sale.items.length} items • ₦{sale.totalAmount.toLocaleString()}</p>
+                    </div>
+                    {sale.synced === 2 && (
+                      <div className="mt-3 pt-3 border-t border-red-200/60">
+                        <p className="text-[11px] leading-tight text-red-700 font-medium mb-3">Sync failed: Server rejected the sale. Check stock or catalog changes.</p>
+                        <div className="flex gap-2">
+                           <button onClick={async () => {
+                             await db.pendingSales.update(sale.id!, { synced: 0 });
+                             if (isOnline) syncPendingSales();
+                           }} className="text-xs bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1.5 rounded-lg font-semibold transition-colors">Retry</button>
+                           <button onClick={async () => {
+                             if (confirm("Are you sure you want to discard this offline sale? This cannot be undone.")) {
+                               await db.pendingSales.delete(sale.id!);
+                             }
+                           }} className="text-xs bg-white border border-red-200 hover:bg-red-50 text-red-700 px-3 py-1.5 rounded-lg font-semibold transition-colors">Discard</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
       <div className="lg:col-span-2">
         <div className="sticky top-16 z-20 border-b border-zinc-100 bg-white pb-3 pt-1 md:top-[6.5rem]">
           <div className="mb-2 flex items-center justify-between">
@@ -806,6 +865,15 @@ export default function PosClient({
                 <span>{isOnline ? "Online" : "Offline Mode"}</span>
               </span>
               <span className="text-zinc-500">{syncStatus}</span>
+              {pendingSales.length > 0 && (
+                <button
+                  onClick={() => setShowOfflineTray(true)}
+                  className="flex items-center space-x-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-amber-800 hover:bg-amber-200 transition-colors shadow-sm"
+                >
+                  <span className="font-semibold">{pendingSales.length}</span>
+                  <span>pending</span>
+                </button>
+              )}
             </div>
           </div>
           <input
