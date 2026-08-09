@@ -432,10 +432,14 @@ export default function PosClient({
         );
         setProducts(filtered.slice(0, 50) as unknown as ProductJSON[]);
       } else {
-        const res = await fetch(`/api/products?${productParams()}`, { signal: controller.signal });
-        if (res.ok) {
-          const data = await res.json();
-          setProducts(data.products);
+        try {
+          const res = await fetch(`/api/products?${productParams()}`, { signal: controller.signal });
+          if (res.ok) {
+            const data = await res.json();
+            setProducts(data.products);
+          }
+        } catch (e: any) {
+          if (e.name !== "AbortError") console.error("Search fetch error", e);
         }
       }
     }, 200);
@@ -551,8 +555,12 @@ export default function PosClient({
     const timeout = setTimeout(async () => {
       const params = new URLSearchParams({ search: customForm.itemName.trim() });
       if (branchId) params.set("branchId", branchId);
-      const res = await fetch(`/api/products?${params}`, { signal: controller.signal });
-      if (res.ok) setCustomMatches((await res.json()).products.slice(0, 5));
+      try {
+        const res = await fetch(`/api/products?${params}`, { signal: controller.signal });
+        if (res.ok) setCustomMatches((await res.json()).products.slice(0, 5));
+      } catch (e: any) {
+        if (e.name !== "AbortError") console.error("Custom search error", e);
+      }
     }, 250);
     return () => {
       clearTimeout(timeout);
