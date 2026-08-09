@@ -8,9 +8,13 @@ export function usePosOfflineSync(branchId: string | null) {
   const [syncStatus, setSyncStatus] = useState<string>("Initializing...");
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
+  const isBrowser = typeof window !== "undefined";
   const pendingSales = useLiveQuery(
-    () => db.pendingSales.where("synced").anyOf(0, 2, false as any).toArray(),
-    []
+    () => {
+      if (!isBrowser) return [];
+      return db.pendingSales.where("synced").anyOf(0, 2, false as any).toArray();
+    },
+    [isBrowser]
   ) || [];
 
   useEffect(() => {

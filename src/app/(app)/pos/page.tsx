@@ -1,8 +1,6 @@
 import { requireRetailPageSession } from "@/lib/session";
-import dynamic from "next/dynamic";
 import { resolveActiveBranch } from "@/lib/branchScope";
-
-const PosClient = dynamic(() => import("./PosClient"), { ssr: false });
+import PosClient from "./PosClient";
 import { dbConnect } from "@/lib/mongodb";
 import Pharmacy from "@/models/Pharmacy";
 import Branch from "@/models/Branch";
