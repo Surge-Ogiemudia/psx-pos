@@ -606,6 +606,31 @@ export default function PosClient({
     scrollToCart();
   }
 
+  function handleAddTreatment() {
+    const priceStr = window.prompt("Enter price for Treatment (₦):");
+    if (priceStr === null) return; // User cancelled
+    const price = parseNumeric(priceStr);
+    if (!Number.isFinite(price) || price <= 0) {
+      alert("Invalid price entered.");
+      return;
+    }
+    setCart((prev) => [
+      ...prev,
+      {
+        kind: "custom",
+        key: `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        itemName: "Treatment",
+        brand: "Clinic",
+        size: "Standard",
+        category: "non-medicine",
+        unitPrice: price,
+        unitCost: 0,
+        quantity: 1,
+      },
+    ]);
+    scrollToCart();
+  }
+
   // Fast path: keep the single payment line synced to the cart total until the staff
   // actually edits it, so completing a normal single-method sale stays a one-click action.
   useEffect(() => {
@@ -987,6 +1012,21 @@ export default function PosClient({
           </div>
           <div className="relative">
             <div ref={productListRef} className="grid max-h-96 grid-cols-1 gap-2 overflow-y-auto pb-1 sm:grid-cols-2">
+              {/* Hardcoded Treatment Item */}
+              <button
+                onClick={handleAddTreatment}
+                className="flex flex-col rounded-lg border border-teal-200 bg-teal-50 p-3 text-left shadow-sm hover:border-teal-600 transition-colors"
+              >
+                <span className="text-sm font-semibold text-teal-900">Treatment</span>
+                <span className="mt-1 text-xs text-teal-700">Non-medicine</span>
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="rounded bg-teal-200/50 px-2 py-0.5 text-xs font-bold text-teal-800">
+                    Dynamic Price
+                  </span>
+                  <span className="text-xs text-teal-600 font-medium">Click to bill →</span>
+                </div>
+              </button>
+
               {products.map((product) => {
                 const expiryStatus = getExpiryStatus(product.expiryDate);
                 return (
