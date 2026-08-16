@@ -376,20 +376,23 @@ export async function POST(request: NextRequest) {
         saleDoc = created[0];
 
         if (customLines.length > 0) {
-          await ProductRequest.insertMany(
-            customLines.map((line) => ({
-              ...scope,
-              itemName: line.itemName,
-              brand: line.brand,
-              size: line.size,
-              category: line.category,
-              requestedPrice: line.unitPrice,
-              quantitySold: line.quantity,
-              saleId: saleDoc!._id,
-              requestedByUserId: session.user.id,
-            })),
-            { session: dbSession, ordered: true }
-          );
+          const itemsToRequest = customLines.filter((line) => line.itemName !== "Treatment");
+          if (itemsToRequest.length > 0) {
+            await ProductRequest.insertMany(
+              itemsToRequest.map((line) => ({
+                ...scope,
+                itemName: line.itemName,
+                brand: line.brand,
+                size: line.size,
+                category: line.category,
+                requestedPrice: line.unitPrice,
+                quantitySold: line.quantity,
+                saleId: saleDoc!._id,
+                requestedByUserId: session.user.id,
+              })),
+              { session: dbSession, ordered: true }
+            );
+          }
         }
 
         await logActivity(dbSession, {
