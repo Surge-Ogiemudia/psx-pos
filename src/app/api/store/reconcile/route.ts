@@ -38,10 +38,43 @@ export async function GET(request: NextRequest) {
     const total = await BulkReconciliationItem.countDocuments(query);
     const items = await BulkReconciliationItem.find(query)
       .populate("matchedProductId")
+      .populate("suggestedMatches.productId")
       .sort({ createdAt: 1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
+
+    // Fetch bulk store products to attach real-time bulk store stock
+    const store = await Store.findOne({ pharmacyId });
+    const storeProducts = store
+      ? await StoreProduct.find({ pharmacyId, storeId: store._id }).select("itemName brand size quantityInStock").lean()
+      : [];
+
+    const storeStockMap = new Map<string, number>();
+    storeProducts.forEach((sp) => {
+      const k = `${(sp.itemName || "").toLowerCase()}_${(sp.brand || "").toLowerCase()}_${(sp.size || "").toLowerCase()}`;
+      storeStockMap.set(k, sp.quantityInStock || 0);
+    });
+
+    // Attach bulk stock numbers to items & candidate products
+    const processedItems = items.map((item: any) => {
+      if (item.matchedProductId) {
+        const k = `${(item.matchedProductId.itemName || "").toLowerCase()}_${(item.matchedProductId.brand || "").toLowerCase()}_${(item.matchedProductId.size || "").toLowerCase()}`;
+        item.matchedProductId.bulkQuantityInStock = storeStockMap.get(k) || 0;
+      }
+
+      if (item.suggestedMatches) {
+        item.suggestedMatches = item.suggestedMatches.map((cand: any) => {
+          if (cand.productId && typeof cand.productId === "object") {
+            const k = `${(cand.productId.itemName || "").toLowerCase()}_${(cand.productId.brand || "").toLowerCase()}_${(cand.productId.size || "").toLowerCase()}`;
+            cand.productId.bulkQuantityInStock = storeStockMap.get(k) || 0;
+          }
+          return cand;
+        });
+      }
+
+      return item;
+    });
 
     // Stats breakdown for header
     const statsAll = await BulkReconciliationItem.aggregate([
@@ -65,7 +98,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      items,
+      items: processedItems,
       total,
       page,
       totalPages: Math.ceil(total / limit) || 1,
@@ -220,7 +253,6 @@ export async function POST(request: NextRequest) {
       const category = customProductData?.category || reconItem.category || "supermarket";
       const retailPrice = customProductData?.retailPrice || 0;
 
-      // Find branch ID if available
       const branchId = session.user.branchId || (storeId ? storeId : pharmacyId);
 
       const newProduct = await Product.create({
