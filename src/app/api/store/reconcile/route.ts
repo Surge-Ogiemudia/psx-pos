@@ -1,29 +1,25 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import dbConnect from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
+import { dbConnect } from "@/lib/mongodb";
 import BulkReconciliationItem from "@/models/BulkReconciliationItem";
 import Product from "@/models/Product";
-import { resolveScope } from "@/lib/scope";
-import { logActivity } from "@/lib/activityLogger";
+import StoreProduct from "@/models/StoreProduct";
+import Store from "@/models/Store";
+import { requireApiSession, getBranchScope } from "@/lib/session";
+import { logActivity } from "@/lib/activityLog";
 
-export async function GET(req: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+    const session = await requireApiSession();
     await dbConnect();
-    const scope = await resolveScope(req, session);
 
-    const { searchParams } = new URL(req.url);
-    const status = searchParams.get("status") || "all";
-    const search = searchParams.get("search") || "";
-    const page = parseInt(searchParams.get("page") || "1", 10);
-    const limit = parseInt(searchParams.get("limit") || "50", 10);
+    const scope = getBranchScope(session);
 
-    const query: any = { pharmacyId: scope.pharmacyId };
+    const status = request.nextUrl.searchParams.get("status") || "all";
+    const search = request.nextUrl.searchParams.get("search") || "";
+    const page = parseInt(request.nextUrl.searchParams.get("page") || "1", 10);
+    const limit = parseInt(request.nextUrl.searchParams.get("limit") || "50", 10);
+
+    const query: Record<string, unknown> = { pharmacyId: scope.pharmacyId };
 
     if (status !== "all") {
       query.status = status;
@@ -75,16 +71,13 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+    const session = await requireApiSession();
     await dbConnect();
-    const scope = await resolveScope(req, session);
-    const body = await req.json();
+
+    const scope = getBranchScope(session);
+    const body = await request.json();
 
     const { action, itemId, targetProductId, customProductData } = body;
 
@@ -101,6 +94,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Reconciliation item not found" }, { status: 404 });
     }
 
+    // Resolve store for bulk store stock updates
+    const store = await Store.findOne({ pharmacyId: scope.pharmacyId });
+    const storeId = store?._id;
+
     // 1. MATCH ACTION
     if (action === "match") {
       if (!targetProductId) {
@@ -116,9 +113,31 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Target catalog product not found" }, { status: 404 });
       }
 
-      // Overwrite bulk store stock on matched product
-      product.bulkQuantityInStock = reconItem.totalQuantity;
-      await product.save();
+      // Overwrite Bulk Store Product stock
+      if (storeId) {
+        let storeProduct = await StoreProduct.findOne({
+          pharmacyId: scope.pharmacyId,
+          storeId,
+          itemName: product.itemName,
+          brand: product.brand,
+          size: product.size,
+        });
+
+        if (storeProduct) {
+          storeProduct.quantityInStock = reconItem.totalQuantity;
+          await storeProduct.save();
+        } else {
+          await StoreProduct.create({
+            pharmacyId: scope.pharmacyId,
+            storeId,
+            itemName: product.itemName,
+            brand: product.brand,
+            size: product.size,
+            category: product.category,
+            quantityInStock: reconItem.totalQuantity,
+          });
+        }
+      }
 
       reconItem.matchedProductId = product._id as any;
       reconItem.status = "matched";
@@ -126,13 +145,14 @@ export async function POST(req: Request) {
       reconItem.matchedByUserId = session.user.id as any;
       await reconItem.save();
 
-      await logActivity(null, {
+      await logActivity(null as any, {
         pharmacyId: scope.pharmacyId,
-        scope: "global",
+        scope: "store",
+        storeId: storeId ? storeId.toString() : null,
         actorUserId: session.user.id,
         actorName: session.user.name ?? "User",
-        action: "RECONCILE_MATCH_BULK_STOCK",
-        description: `Matched Excel item '${reconItem.excelItemName}' to DB product '${product.itemName}' setting bulk stock to ${reconItem.totalQuantity}`,
+        action: "stock_adjustment",
+        summary: `Reconciled Bulk Store match for '${reconItem.excelItemName}' to DB product '${product.itemName}' (Qty: ${reconItem.totalQuantity})`,
       });
 
       return NextResponse.json({ success: true, item: reconItem, product });
@@ -140,16 +160,25 @@ export async function POST(req: Request) {
 
     // 2. UNMATCH / REVERT ACTION
     if (action === "unmatch") {
-      if (reconItem.matchedProductId) {
+      if (reconItem.matchedProductId && storeId) {
         const product = await Product.findOne({
           _id: reconItem.matchedProductId,
           pharmacyId: scope.pharmacyId,
         });
 
         if (product) {
-          // Revert bulk store stock to 0
-          product.bulkQuantityInStock = 0;
-          await product.save();
+          const storeProduct = await StoreProduct.findOne({
+            pharmacyId: scope.pharmacyId,
+            storeId,
+            itemName: product.itemName,
+            brand: product.brand,
+            size: product.size,
+          });
+
+          if (storeProduct) {
+            storeProduct.quantityInStock = 0;
+            await storeProduct.save();
+          }
         }
       }
 
@@ -159,13 +188,14 @@ export async function POST(req: Request) {
       reconItem.matchedByUserId = null;
       await reconItem.save();
 
-      await logActivity(null, {
+      await logActivity(null as any, {
         pharmacyId: scope.pharmacyId,
-        scope: "global",
+        scope: "store",
+        storeId: storeId ? storeId.toString() : null,
         actorUserId: session.user.id,
         actorName: session.user.name ?? "User",
-        action: "RECONCILE_UNMATCH_BULK_STOCK",
-        description: `Unmatched Excel item '${reconItem.excelItemName}' and reverted bulk stock`,
+        action: "stock_adjustment",
+        summary: `Reverted Bulk Store match for '${reconItem.excelItemName}'`,
       });
 
       return NextResponse.json({ success: true, item: reconItem });
@@ -187,9 +217,22 @@ export async function POST(req: Request) {
         size,
         category,
         retailPrice,
+        wholesalePrice: retailPrice,
+        distributorPrice: retailPrice,
         quantityInStock: 0, // Branch stock remains 0
-        bulkQuantityInStock: reconItem.totalQuantity, // Bulk stock set to Excel count
       });
+
+      if (storeId) {
+        await StoreProduct.create({
+          pharmacyId: scope.pharmacyId,
+          storeId,
+          itemName: name,
+          brand,
+          size,
+          category,
+          quantityInStock: reconItem.totalQuantity,
+        });
+      }
 
       reconItem.matchedProductId = newProduct._id as any;
       reconItem.status = "created_as_new";
@@ -197,13 +240,14 @@ export async function POST(req: Request) {
       reconItem.matchedByUserId = session.user.id as any;
       await reconItem.save();
 
-      await logActivity(null, {
+      await logActivity(null as any, {
         pharmacyId: scope.pharmacyId,
-        scope: "global",
+        scope: "store",
+        storeId: storeId ? storeId.toString() : null,
         actorUserId: session.user.id,
         actorName: session.user.name ?? "User",
-        action: "RECONCILE_CREATE_NEW_PRODUCT",
-        description: `Created new product '${name}' from Excel item with bulk stock ${reconItem.totalQuantity}`,
+        action: "product_create",
+        summary: `Created new product '${name}' from Excel reconciliation with Bulk Store Qty ${reconItem.totalQuantity}`,
       });
 
       return NextResponse.json({ success: true, item: reconItem, product: newProduct });
