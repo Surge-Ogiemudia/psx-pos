@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import BulkReconciliationItem from "@/models/BulkReconciliationItem";
 import Product from "@/models/Product";
 import StoreProduct from "@/models/StoreProduct";
 import Store from "@/models/Store";
-import { requireApiSession, getBranchScope } from "@/lib/session";
+import { requireApiSession } from "@/lib/session";
 import { logActivity } from "@/lib/activityLog";
 
 export async function GET(request: NextRequest) {
@@ -12,14 +13,19 @@ export async function GET(request: NextRequest) {
     const session = await requireApiSession();
     await dbConnect();
 
-    const scope = getBranchScope(session);
+    const pharmacyIdStr = session.user.pharmacyId;
+    if (!pharmacyIdStr) {
+      return NextResponse.json({ error: "No pharmacy ID in session" }, { status: 400 });
+    }
+
+    const pharmacyId = new mongoose.Types.ObjectId(pharmacyIdStr);
 
     const status = request.nextUrl.searchParams.get("status") || "all";
     const search = request.nextUrl.searchParams.get("search") || "";
     const page = parseInt(request.nextUrl.searchParams.get("page") || "1", 10);
     const limit = parseInt(request.nextUrl.searchParams.get("limit") || "50", 10);
 
-    const query: Record<string, unknown> = { pharmacyId: scope.pharmacyId };
+    const query: Record<string, unknown> = { pharmacyId };
 
     if (status !== "all") {
       query.status = status;
@@ -39,7 +45,7 @@ export async function GET(request: NextRequest) {
 
     // Stats breakdown for header
     const statsAll = await BulkReconciliationItem.aggregate([
-      { $match: { pharmacyId: scope.pharmacyId } },
+      { $match: { pharmacyId } },
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]);
 
@@ -62,7 +68,7 @@ export async function GET(request: NextRequest) {
       items,
       total,
       page,
-      totalPages: Math.ceil(total / limit),
+      totalPages: Math.ceil(total / limit) || 1,
       stats,
     });
   } catch (err: any) {
@@ -76,7 +82,12 @@ export async function POST(request: NextRequest) {
     const session = await requireApiSession();
     await dbConnect();
 
-    const scope = getBranchScope(session);
+    const pharmacyIdStr = session.user.pharmacyId;
+    if (!pharmacyIdStr) {
+      return NextResponse.json({ error: "No pharmacy ID in session" }, { status: 400 });
+    }
+
+    const pharmacyId = new mongoose.Types.ObjectId(pharmacyIdStr);
     const body = await request.json();
 
     const { action, itemId, targetProductId, customProductData } = body;
@@ -87,7 +98,7 @@ export async function POST(request: NextRequest) {
 
     const reconItem = await BulkReconciliationItem.findOne({
       _id: itemId,
-      pharmacyId: scope.pharmacyId,
+      pharmacyId,
     });
 
     if (!reconItem) {
@@ -95,7 +106,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Resolve store for bulk store stock updates
-    const store = await Store.findOne({ pharmacyId: scope.pharmacyId });
+    const store = await Store.findOne({ pharmacyId });
     const storeId = store?._id;
 
     // 1. MATCH ACTION
@@ -106,7 +117,7 @@ export async function POST(request: NextRequest) {
 
       const product = await Product.findOne({
         _id: targetProductId,
-        pharmacyId: scope.pharmacyId,
+        pharmacyId,
       });
 
       if (!product) {
@@ -116,7 +127,7 @@ export async function POST(request: NextRequest) {
       // Overwrite Bulk Store Product stock
       if (storeId) {
         let storeProduct = await StoreProduct.findOne({
-          pharmacyId: scope.pharmacyId,
+          pharmacyId,
           storeId,
           itemName: product.itemName,
           brand: product.brand,
@@ -128,7 +139,7 @@ export async function POST(request: NextRequest) {
           await storeProduct.save();
         } else {
           await StoreProduct.create({
-            pharmacyId: scope.pharmacyId,
+            pharmacyId,
             storeId,
             itemName: product.itemName,
             brand: product.brand,
@@ -146,7 +157,7 @@ export async function POST(request: NextRequest) {
       await reconItem.save();
 
       await logActivity(null as any, {
-        pharmacyId: scope.pharmacyId,
+        pharmacyId: pharmacyIdStr,
         scope: "store",
         storeId: storeId ? storeId.toString() : null,
         actorUserId: session.user.id,
@@ -163,12 +174,12 @@ export async function POST(request: NextRequest) {
       if (reconItem.matchedProductId && storeId) {
         const product = await Product.findOne({
           _id: reconItem.matchedProductId,
-          pharmacyId: scope.pharmacyId,
+          pharmacyId,
         });
 
         if (product) {
           const storeProduct = await StoreProduct.findOne({
-            pharmacyId: scope.pharmacyId,
+            pharmacyId,
             storeId,
             itemName: product.itemName,
             brand: product.brand,
@@ -189,7 +200,7 @@ export async function POST(request: NextRequest) {
       await reconItem.save();
 
       await logActivity(null as any, {
-        pharmacyId: scope.pharmacyId,
+        pharmacyId: pharmacyIdStr,
         scope: "store",
         storeId: storeId ? storeId.toString() : null,
         actorUserId: session.user.id,
@@ -209,9 +220,12 @@ export async function POST(request: NextRequest) {
       const category = customProductData?.category || reconItem.category || "supermarket";
       const retailPrice = customProductData?.retailPrice || 0;
 
+      // Find branch ID if available
+      const branchId = session.user.branchId || (storeId ? storeId : pharmacyId);
+
       const newProduct = await Product.create({
-        pharmacyId: scope.pharmacyId,
-        branchId: scope.branchId,
+        pharmacyId,
+        branchId,
         itemName: name,
         brand,
         size,
@@ -219,12 +233,12 @@ export async function POST(request: NextRequest) {
         retailPrice,
         wholesalePrice: retailPrice,
         distributorPrice: retailPrice,
-        quantityInStock: 0, // Branch stock remains 0
+        quantityInStock: 0,
       });
 
       if (storeId) {
         await StoreProduct.create({
-          pharmacyId: scope.pharmacyId,
+          pharmacyId,
           storeId,
           itemName: name,
           brand,
@@ -241,7 +255,7 @@ export async function POST(request: NextRequest) {
       await reconItem.save();
 
       await logActivity(null as any, {
-        pharmacyId: scope.pharmacyId,
+        pharmacyId: pharmacyIdStr,
         scope: "store",
         storeId: storeId ? storeId.toString() : null,
         actorUserId: session.user.id,
