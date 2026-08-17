@@ -3,8 +3,18 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
+interface PopulatedProduct {
+  _id: string;
+  itemName: string;
+  brand: string;
+  size: string;
+  category: string;
+  bulkQuantityInStock?: number;
+  retailPrice?: number;
+}
+
 interface SuggestedCandidate {
-  productId: string;
+  productId: PopulatedProduct | string;
   productName: string;
   score: number;
 }
@@ -18,26 +28,9 @@ interface ReconciliationItem {
   totalQuantity: number;
   expiryDate: string | null;
   status: "pending" | "matched" | "created_as_new" | "ignored";
-  matchedProductId: {
-    _id: string;
-    itemName: string;
-    brand: string;
-    size: string;
-    bulkQuantityInStock?: number;
-    retailPrice?: number;
-  } | null;
+  matchedProductId: PopulatedProduct | null;
   suggestedMatches: SuggestedCandidate[];
   matchedAt: string | null;
-}
-
-interface DBProduct {
-  _id: string;
-  itemName: string;
-  brand: string;
-  size: string;
-  category?: string;
-  bulkQuantityInStock?: number;
-  retailPrice?: number;
 }
 
 interface Stats {
@@ -59,11 +52,11 @@ export default function ReconcileClient() {
 
   // Selected item state for side-by-side workspace
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [selectedDbProduct, setSelectedDbProduct] = useState<DBProduct | null>(null);
+  const [selectedDbProduct, setSelectedDbProduct] = useState<PopulatedProduct | null>(null);
 
   // Manual catalog search state
   const [catalogSearch, setCatalogSearch] = useState("");
-  const [catalogSearchResults, setCatalogSearchResults] = useState<DBProduct[]>([]);
+  const [catalogSearchResults, setCatalogSearchResults] = useState<PopulatedProduct[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
 
   // Action status
@@ -113,13 +106,17 @@ export default function ReconcileClient() {
         setSelectedDbProduct(selectedItem.matchedProductId);
       } else if (selectedItem.suggestedMatches && selectedItem.suggestedMatches.length > 0) {
         const top = selectedItem.suggestedMatches[0];
-        setSelectedDbProduct({
-          _id: top.productId,
-          itemName: top.productName,
-          brand: "",
-          size: "",
-          category: "",
-        });
+        if (top.productId && typeof top.productId === "object") {
+          setSelectedDbProduct(top.productId);
+        } else {
+          setSelectedDbProduct({
+            _id: top.productId as string,
+            itemName: top.productName,
+            brand: "—",
+            size: "—",
+            category: "supermarket",
+          });
+        }
       } else {
         setSelectedDbProduct(null);
       }
@@ -485,16 +482,16 @@ export default function ReconcileClient() {
                       <h3 className="text-sm font-bold text-white mb-2 pr-16">{selectedDbProduct.itemName}</h3>
                       <div className="space-y-1.5 text-xs">
                         <div className="flex justify-between border-b border-slate-900 pb-1">
-                          <span className="text-slate-400">Target DB Product ID:</span>
-                          <span className="font-mono text-[10px] text-slate-400">{selectedDbProduct._id.substring(0, 10)}...</span>
-                        </div>
-                        <div className="flex justify-between border-b border-slate-900 pb-1">
                           <span className="text-slate-400">Brand:</span>
                           <span className="text-slate-200">{selectedDbProduct.brand || "—"}</span>
                         </div>
                         <div className="flex justify-between border-b border-slate-900 pb-1">
                           <span className="text-slate-400">Size:</span>
                           <span className="text-slate-200">{selectedDbProduct.size || "—"}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-slate-900 pb-1">
+                          <span className="text-slate-400">Category:</span>
+                          <span className="text-slate-200">{selectedDbProduct.category || "supermarket"}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-400">Current Bulk Stock:</span>
@@ -559,27 +556,43 @@ export default function ReconcileClient() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {selectedItem.suggestedMatches.map((cand) => {
-                      const isCandidateSelected = selectedDbProduct?._id === cand.productId;
+                    {selectedItem.suggestedMatches.map((cand, idx) => {
+                      const candidateObj = typeof cand.productId === "object" && cand.productId !== null ? cand.productId : null;
+                      const candId = candidateObj ? candidateObj._id : (cand.productId as string);
+                      const candName = candidateObj ? candidateObj.itemName : cand.productName;
+                      const candBrand = candidateObj ? candidateObj.brand : "";
+                      const candSize = candidateObj ? candidateObj.size : "";
+                      const isCandidateSelected = selectedDbProduct?._id === candId;
+
                       return (
                         <div
-                          key={cand.productId}
-                          onClick={() =>
-                            setSelectedDbProduct({
-                              _id: cand.productId,
-                              itemName: cand.productName,
-                              brand: "",
-                              size: "",
-                              category: "",
-                            })
-                          }
+                          key={candId || idx}
+                          onClick={() => {
+                            if (candidateObj) {
+                              setSelectedDbProduct(candidateObj);
+                            } else {
+                              setSelectedDbProduct({
+                                _id: candId,
+                                itemName: candName,
+                                brand: candBrand,
+                                size: candSize,
+                                category: "supermarket",
+                              });
+                            }
+                          }}
                           className={`p-3 rounded-lg border cursor-pointer transition flex items-center justify-between ${
                             isCandidateSelected
                               ? "bg-blue-950/40 border-blue-500 ring-1 ring-blue-500"
                               : "bg-slate-950 border-slate-800 hover:border-slate-700"
                           }`}
                         >
-                          <div className="text-xs font-medium text-slate-100">{cand.productName}</div>
+                          <div>
+                            <div className="text-xs font-medium text-slate-100">{candName}</div>
+                            {candBrand && (
+                              <div className="text-[10px] text-slate-400">Brand: {candBrand} | Size: {candSize}</div>
+                            )}
+                          </div>
+
                           <span
                             className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
                               cand.score >= 75
