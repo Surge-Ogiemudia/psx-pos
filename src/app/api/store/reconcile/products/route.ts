@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
-import { requireApiSession, getBranchScope } from "@/lib/session";
+import { requireApiSession } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
   try {
     const session = await requireApiSession();
     await dbConnect();
 
-    const scope = getBranchScope(session);
+    const pharmacyIdStr = session.user.pharmacyId;
+    if (!pharmacyIdStr) {
+      return NextResponse.json({ error: "No pharmacy ID in session" }, { status: 400 });
+    }
+
+    const pharmacyId = new mongoose.Types.ObjectId(pharmacyIdStr);
     const query = request.nextUrl.searchParams.get("query") || "";
 
     if (!query || query.trim().length < 2) {
@@ -16,7 +22,7 @@ export async function GET(request: NextRequest) {
     }
 
     const products = await Product.find({
-      pharmacyId: scope.pharmacyId,
+      pharmacyId,
       $or: [
         { itemName: { $regex: query, $options: "i" } },
         { brand: { $regex: query, $options: "i" } },
