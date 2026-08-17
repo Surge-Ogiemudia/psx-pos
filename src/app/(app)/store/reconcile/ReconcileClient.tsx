@@ -35,7 +35,7 @@ interface DBProduct {
   itemName: string;
   brand: string;
   size: string;
-  category: string;
+  category?: string;
   bulkQuantityInStock?: number;
   retailPrice?: number;
 }

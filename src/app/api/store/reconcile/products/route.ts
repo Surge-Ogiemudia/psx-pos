@@ -1,22 +1,15 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import dbConnect from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
+import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
-import { resolveScope } from "@/lib/scope";
+import { requireApiSession, getBranchScope } from "@/lib/session";
 
-export async function GET(req: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+    const session = await requireApiSession();
     await dbConnect();
-    const scope = await resolveScope(req, session);
 
-    const { searchParams } = new URL(req.url);
-    const query = searchParams.get("query") || "";
+    const scope = getBranchScope(session);
+    const query = request.nextUrl.searchParams.get("query") || "";
 
     if (!query || query.trim().length < 2) {
       return NextResponse.json({ products: [] });
