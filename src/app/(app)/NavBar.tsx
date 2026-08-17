@@ -18,7 +18,10 @@ const ADMIN_LINKS = [
   { href: "/staff", label: "Staff" },
   { href: "/locations", label: "Locations" },
 ];
-const STORE_LINKS = [{ href: "/store", label: "Bulk Store" }];
+const STORE_LINKS = [
+  { href: "/store", label: "Bulk Store" },
+  { href: "/store/reconcile", label: "Physical Stock Reconciler" },
+];
 
 interface Pending {
   kind: "branch" | "store";
