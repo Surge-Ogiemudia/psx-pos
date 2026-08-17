@@ -15,6 +15,7 @@ const BulkReconciliationItemSchema = new Schema(
       default: "pending",
       index: true,
     },
+    topMatchScore: { type: Number, default: 0, index: true },
     matchedProductId: { type: Schema.Types.ObjectId, ref: "Product", default: null },
     suggestedMatches: [
       {
@@ -29,7 +30,7 @@ const BulkReconciliationItemSchema = new Schema(
   { timestamps: true }
 );
 
-BulkReconciliationItemSchema.index({ pharmacyId: 1, status: 1, createdAt: -1 });
+BulkReconciliationItemSchema.index({ pharmacyId: 1, status: 1, topMatchScore: -1, createdAt: -1 });
 
 export type BulkReconciliationItemDoc = InferSchemaType<typeof BulkReconciliationItemSchema>;
 

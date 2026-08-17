@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     const items = await BulkReconciliationItem.find(query)
       .populate("matchedProductId")
       .populate("suggestedMatches.productId")
-      .sort({ createdAt: 1 })
+      .sort({ topMatchScore: -1, createdAt: 1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
