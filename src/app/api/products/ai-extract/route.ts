@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
 Extract the product details from the packaging image. Be accurate. If a field is not visible in this image (because it might be on the back or side), leave it empty and include its name in the missingFields array.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: [
         { role: "user", parts: [
             { text: prompt },
