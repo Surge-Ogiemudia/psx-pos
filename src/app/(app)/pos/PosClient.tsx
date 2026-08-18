@@ -119,6 +119,7 @@ export default function PosClient({
   const [showPrintPrompt, setShowPrintPrompt] = useState(false);
   const [enablePrintListener, setEnablePrintListener] = useState(false);
   const [lastSale, setLastSale] = useState<ReceiptSale | null>(null);
+  const [enlargedImage, setEnlargedImage] = useState<{ url: string; name: string } | null>(null);
   
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -1042,7 +1043,15 @@ export default function PosClient({
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         {product.imageUrl ? (
-                          <img src={product.imageUrl} alt={product.itemName} className="h-8 w-8 shrink-0 rounded object-cover" />
+                          <img
+                            src={product.imageUrl}
+                            alt={product.itemName}
+                            className="h-8 w-8 shrink-0 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEnlargedImage({ url: product.imageUrl!, name: product.itemName });
+                            }}
+                          />
                         ) : (
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-zinc-100 text-zinc-400">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1243,7 +1252,15 @@ export default function PosClient({
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
                         {line.product.imageUrl ? (
-                          <img src={line.product.imageUrl} alt={line.product.itemName} className="h-6 w-6 shrink-0 rounded object-cover" />
+                          <img
+                            src={line.product.imageUrl}
+                            alt={line.product.itemName}
+                            className="h-6 w-6 shrink-0 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEnlargedImage({ url: line.product.imageUrl!, name: line.product.itemName });
+                            }}
+                          />
                         ) : (
                           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-zinc-100 text-zinc-400">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1604,6 +1621,31 @@ export default function PosClient({
                 No Receipt Needed
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {enlargedImage && (
+        <div 
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setEnlargedImage(null)}
+        >
+          <div className="relative max-h-full max-w-2xl w-full flex flex-col items-center gap-3">
+            <button 
+              onClick={() => setEnlargedImage(null)}
+              className="absolute -top-10 right-0 rounded-full bg-white/20 p-2 text-white hover:bg-white/40"
+            >
+              ✕
+            </button>
+            <img 
+              src={enlargedImage.url} 
+              alt={enlargedImage.name} 
+              className="max-h-[80vh] rounded-lg object-contain shadow-2xl" 
+              onClick={(e) => e.stopPropagation()}
+            />
+            <span className="text-white font-medium text-lg bg-black/50 px-4 py-1.5 rounded-full backdrop-blur-md">
+              {enlargedImage.name}
+            </span>
           </div>
         </div>
       )}
