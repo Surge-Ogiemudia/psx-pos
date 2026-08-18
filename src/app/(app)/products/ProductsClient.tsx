@@ -16,7 +16,7 @@ import { parseCsv } from "@/lib/csv";
 import IncomingBanner from "@/components/IncomingBanner";
 import AlertFilterButton from "@/components/AlertFilterButton";
 import UnitNameInput from "@/components/UnitNameInput";
-
+import AiProductAssistant from "./AiProductAssistant";
 const emptyForm = {
   itemName: "",
   brand: "",
@@ -148,6 +148,7 @@ export default function ProductsClient({
   // masking a brand-new alert next time something goes wrong.
   const [alertsHidden, setAlertsHidden] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1063,6 +1064,15 @@ export default function ProductsClient({
                     className="block w-full px-3 py-1.5 text-left text-zinc-700 hover:bg-zinc-50"
                   >
                     Bulk import
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAiAssistant(true);
+                      setAddMenuOpen(false);
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-zinc-700 hover:bg-teal-50 text-teal-700 font-medium border-t border-zinc-100"
+                  >
+                    ✨ AI Add Product
                   </button>
                 </div>
               )}
@@ -2504,6 +2514,29 @@ export default function ProductsClient({
             </div>
           </div>
         </div>
+      )}
+
+      {showAiAssistant && (
+        <AiProductAssistant
+          onClose={() => setShowAiAssistant(false)}
+          onSave={async (newProduct) => {
+            try {
+              const res = await fetch("/api/products", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(newProduct),
+              });
+              if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || "Failed to add product");
+              }
+              setShowAiAssistant(false);
+              loadProducts();
+            } catch (err: any) {
+              alert(err.message);
+            }
+          }}
+        />
       )}
     </div>
   );
