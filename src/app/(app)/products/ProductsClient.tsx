@@ -2524,7 +2524,7 @@ export default function ProductsClient({
               const res = await fetch("/api/products", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newProduct),
+                body: JSON.stringify({ ...newProduct, branchId }),
               });
               if (!res.ok) {
                 const data = await res.json();
