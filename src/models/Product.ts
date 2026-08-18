@@ -21,6 +21,7 @@ const ProductSchema = new Schema(
     // "Standard" rather than being left blank, so absence is never ambiguous with an unset field.
     size: { type: String, required: true, trim: true, minlength: 1 },
     category: { type: String, enum: ["medicine", "non-medicine", "supermarket"], required: true, default: "supermarket" },
+    imageUrl: { type: String, default: null },
     quantityInStock: { type: Number, required: true, default: 0, min: 0 },
     // Defaults to ~20% of initial stock at creation (see products/route.ts) so a reorder-point
     // alert works out of the box without every product needing manual configuration — still

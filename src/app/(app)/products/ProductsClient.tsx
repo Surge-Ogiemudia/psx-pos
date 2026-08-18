@@ -31,6 +31,7 @@ const emptyForm = {
   batchNumber: "",
   expiryDate: "",
   barcode: "",
+  imageUrl: "",
 };
 
 interface LevelForm {
@@ -264,6 +265,30 @@ export default function ProductsClient({
   const [matchSearch, setMatchSearch] = useState("");
   const [matchResults, setMatchResults] = useState<ProductJSON[]>([]);
   const [requestError, setRequestError] = useState<string | null>(null);
+
+  const [imageUploading, setImageUploading] = useState(false);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/products/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      if (isEdit) {
+        setEditForm((prev) => ({ ...prev, imageUrl: data.url }));
+      } else {
+        setForm((prev) => ({ ...prev, imageUrl: data.url }));
+      }
+    } catch (err: any) {
+      alert(err.message || "Upload failed");
+    } finally {
+      setImageUploading(false);
+    }
+  };
 
   function addLevel() {
     // Purely sequential: each new field is smaller than the one before it, so it always
@@ -1463,6 +1488,19 @@ export default function ProductsClient({
             onChange={(e) => setForm({ ...form, barcode: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-zinc-500">Product Image (optional)</label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => handleImageUpload(e, false)}
+              className="text-sm file:mr-4 file:rounded-full file:border-0 file:bg-blue-50 file:px-4 file:py-1 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
+            />
+            {imageUploading && <span className="text-xs text-blue-600">Uploading...</span>}
+            {form.imageUrl && (
+              <img src={form.imageUrl} alt="Preview" className="mt-2 h-16 w-16 rounded object-cover" />
+            )}
+          </div>
 
           {/* Unit hierarchy (packaging form) builder */}
           <div className="sm:col-span-2 lg:col-span-4">
@@ -2025,6 +2063,19 @@ export default function ProductsClient({
                           onChange={(e) => setEditForm({ ...editForm, expiryDate: e.target.value })}
                           className="rounded border border-zinc-300 px-1.5 py-1"
                         />
+                        <div className="flex flex-col gap-1 p-3">
+                          <label className="text-xs font-semibold text-zinc-600">Product Image (optional)</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleImageUpload(e, true)}
+                            className="text-sm file:mr-4 file:rounded-full file:border-0 file:bg-blue-50 file:px-4 file:py-1 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
+                          />
+                          {imageUploading && <span className="text-xs text-blue-600">Uploading...</span>}
+                          {typeof editForm.imageUrl === "string" && (
+                            <img src={editForm.imageUrl} alt="Preview" className="mt-2 h-16 w-16 rounded object-cover" />
+                          )}
+                        </div>
                       </td>
                       <td className="flex gap-2 px-3 py-2">
                         <button
@@ -2040,7 +2091,18 @@ export default function ProductsClient({
                     </>
                   ) : (
                     <>
-                      <td className="px-3 py-2 font-medium text-zinc-900 sticky left-0 z-10 bg-white border-r border-zinc-100 shadow-[1px_0_0_0_#f4f4f5]">{product.itemName}</td>
+                      <td className="px-3 py-2 font-medium text-zinc-900 sticky left-0 z-10 bg-white border-r border-zinc-100 shadow-[1px_0_0_0_#f4f4f5]">
+                        <div className="flex items-center gap-2">
+                          {product.imageUrl ? (
+                            <img src={product.imageUrl} alt={product.itemName} className="h-8 w-8 rounded object-cover" />
+                          ) : (
+                            <div className="flex h-8 w-8 items-center justify-center rounded bg-zinc-100 text-xs font-bold text-zinc-500">
+                              {product.itemName.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          {product.itemName}
+                        </div>
+                      </td>
                       <td className="px-3 py-2 text-zinc-600">{product.brand}</td>
                       <td className="px-3 py-2 text-zinc-600">{product.size}</td>
                       <td className="px-3 py-2 text-zinc-600">{product.category}</td>

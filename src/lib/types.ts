@@ -21,6 +21,7 @@ export interface ProductJSON {
   batchNumber?: string;
   expiryDate?: string | null;
   barcode?: string;
+  imageUrl?: string | null;
   costPrice: number;
 }
 
@@ -214,6 +215,7 @@ export interface StoreProductJSON {
   brand: string;
   size: string;
   category: ProductCategory;
+  imageUrl?: string | null;
   baseUnitName: string;
   quantityInStock: number;
   displayUnitHierarchy?: UnitLevelJSON[] | null;
