@@ -1044,8 +1044,12 @@ export default function PosClient({
                         {product.imageUrl ? (
                           <img src={product.imageUrl} alt={product.itemName} className="h-8 w-8 shrink-0 rounded object-cover" />
                         ) : (
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-zinc-100 text-xs font-bold text-zinc-500">
-                            {product.itemName.charAt(0).toUpperCase()}
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-zinc-100 text-zinc-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                            </svg>
                           </div>
                         )}
                         <span className="font-medium text-zinc-900">{formatProductLabel(product)}</span>
@@ -1241,8 +1245,12 @@ export default function PosClient({
                         {line.product.imageUrl ? (
                           <img src={line.product.imageUrl} alt={line.product.itemName} className="h-6 w-6 shrink-0 rounded object-cover" />
                         ) : (
-                          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-zinc-100 text-[10px] font-bold text-zinc-500">
-                            {line.product.itemName.charAt(0).toUpperCase()}
+                          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-zinc-100 text-zinc-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                            </svg>
                           </div>
                         )}
                         <span className="text-sm font-medium text-zinc-900">{formatProductLabel(line.product)}</span>
