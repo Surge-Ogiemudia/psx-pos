@@ -60,7 +60,7 @@ Extract the product details from the packaging image. Be accurate. If a field is
     } catch (apiErr: any) {
       console.warn("Primary model failed, attempting fallback...", apiErr?.message);
       if (apiErr?.status === 503 || apiErr?.message?.includes("503") || apiErr?.message?.includes("UNAVAILABLE")) {
-        response = await ai.models.generateContent({ model: "gemini-1.5-flash", ...aiConfig });
+        response = await ai.models.generateContent({ model: "gemini-3.5-flash", ...aiConfig });
       } else {
         throw apiErr;
       }
