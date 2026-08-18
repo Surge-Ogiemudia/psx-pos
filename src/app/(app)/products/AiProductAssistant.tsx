@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 interface AiProductAssistantProps {
   onClose: () => void;
@@ -32,6 +32,25 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
 
   const [missing, setMissing] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  
+  const [progress, setProgress] = useState(0);
+  const progressInterval = useRef<NodeJS.Timeout | null>(null);
+
+  const startProgress = () => {
+    setProgress(0);
+    progressInterval.current = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 95) return 95;
+        const inc = prev < 50 ? 8 : prev < 80 ? 3 : 1;
+        return prev + inc;
+      });
+    }, 200);
+  };
+
+  const stopProgress = () => {
+    if (progressInterval.current) clearInterval(progressInterval.current);
+    setProgress(100);
+  };
 
   const handleUploadImage = async (file: File): Promise<string> => {
     const formData = new FormData();
@@ -48,6 +67,7 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
 
     setLoading(true);
     setErrorMsg(null);
+    startProgress();
     try {
       const uploadedUrl = await handleUploadImage(file);
       
@@ -106,7 +126,8 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to process image.");
     } finally {
-      setLoading(false);
+      stopProgress();
+      setTimeout(() => setLoading(false), 300);
     }
   };
 
@@ -118,6 +139,7 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
     setInput("");
     setLoading(true);
     setErrorMsg(null);
+    startProgress();
 
     try {
       if (step === "hierarchy") {
@@ -164,7 +186,8 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to parse text.");
     } finally {
-      setLoading(false);
+      stopProgress();
+      setTimeout(() => setLoading(false), 300);
     }
   };
 
@@ -250,8 +273,11 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
               <p className="text-zinc-500 mb-6 text-sm px-4">
                 Let's get started. Please take a clear picture of the front of the product showing the Name, Brand, and Size.
               </p>
-              <label className={`inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-teal-600 py-3.5 text-sm font-bold text-white shadow hover:bg-teal-700 transition-colors ${loading ? "opacity-50 pointer-events-none" : ""}`}>
-                {loading ? "Analyzing image..." : "📷 Open Camera"}
+              <label className={`relative inline-flex w-full cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-xl bg-teal-600 py-3.5 text-sm font-bold text-white shadow hover:bg-teal-700 transition-colors ${loading ? "pointer-events-none opacity-90" : ""}`}>
+                {loading && <div className="absolute inset-y-0 left-0 bg-teal-800 transition-all duration-200 ease-out" style={{ width: `${progress}%` }} />}
+                <span className="relative z-10 flex items-center justify-center gap-2">
+                  {loading ? `Analyzing image... ${progress}%` : "📷 Open Camera"}
+                </span>
                 <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageCapture} disabled={loading} />
               </label>
             </div>
@@ -266,8 +292,11 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
               <p className="text-zinc-500 mb-6 text-sm px-4">
                 We couldn't clearly see the following details: <strong className="text-zinc-800">{missing.join(", ")}</strong>. Please scan the side or back of the packaging to capture them.
               </p>
-              <label className={`inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-teal-600 py-3.5 text-sm font-bold text-white shadow hover:bg-teal-700 transition-colors ${loading ? "opacity-50 pointer-events-none" : ""}`}>
-                {loading ? "Analyzing image..." : "📷 Scan Again"}
+              <label className={`relative inline-flex w-full cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-xl bg-teal-600 py-3.5 text-sm font-bold text-white shadow hover:bg-teal-700 transition-colors ${loading ? "pointer-events-none opacity-90" : ""}`}>
+                {loading && <div className="absolute inset-y-0 left-0 bg-teal-800 transition-all duration-200 ease-out" style={{ width: `${progress}%` }} />}
+                <span className="relative z-10 flex items-center justify-center gap-2">
+                  {loading ? `Analyzing image... ${progress}%` : "📷 Scan Again"}
+                </span>
                 <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageCapture} disabled={loading} />
               </label>
             </div>
@@ -292,9 +321,12 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
                 <button 
                   type="submit" 
                   disabled={loading || !input.trim()}
-                  className="w-full rounded-xl bg-teal-600 py-3 text-sm font-bold text-white shadow hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  className="relative w-full overflow-hidden rounded-xl bg-teal-600 py-3 text-sm font-bold text-white shadow hover:bg-teal-700 disabled:opacity-90 transition-colors"
                 >
-                  {loading ? "Processing..." : "Continue"}
+                  {loading && <div className="absolute inset-y-0 left-0 bg-teal-800 transition-all duration-200 ease-out" style={{ width: `${progress}%` }} />}
+                  <span className="relative z-10">
+                    {loading ? `Processing... ${progress}%` : "Continue"}
+                  </span>
                 </button>
               </form>
             </div>
@@ -319,9 +351,12 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
                 <button 
                   type="submit" 
                   disabled={loading || !input.trim()}
-                  className="w-full rounded-xl bg-teal-600 py-3 text-sm font-bold text-white shadow hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  className="relative w-full overflow-hidden rounded-xl bg-teal-600 py-3 text-sm font-bold text-white shadow hover:bg-teal-700 disabled:opacity-90 transition-colors"
                 >
-                  {loading ? "Processing..." : "Continue"}
+                  {loading && <div className="absolute inset-y-0 left-0 bg-teal-800 transition-all duration-200 ease-out" style={{ width: `${progress}%` }} />}
+                  <span className="relative z-10">
+                    {loading ? `Processing... ${progress}%` : "Continue"}
+                  </span>
                 </button>
               </form>
             </div>
@@ -346,9 +381,12 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
                 <button 
                   type="submit" 
                   disabled={loading || !input.trim()}
-                  className="w-full rounded-xl bg-teal-600 py-3 text-sm font-bold text-white shadow hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  className="relative w-full overflow-hidden rounded-xl bg-teal-600 py-3 text-sm font-bold text-white shadow hover:bg-teal-700 disabled:opacity-90 transition-colors"
                 >
-                  {loading ? "Processing..." : "Continue"}
+                  {loading && <div className="absolute inset-y-0 left-0 bg-teal-800 transition-all duration-200 ease-out" style={{ width: `${progress}%` }} />}
+                  <span className="relative z-10">
+                    {loading ? `Processing... ${progress}%` : "Continue"}
+                  </span>
                 </button>
               </form>
             </div>
