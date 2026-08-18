@@ -40,8 +40,8 @@ export async function POST(req: NextRequest) {
     const prompt = `You are a product data extraction assistant for a pharmacy/supermarket POS.
 Extract the product details from the packaging image. Be accurate. If a field is not visible in this image (because it might be on the back or side), leave it empty and include its name in the missingFields array.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+    let response;
+    const aiConfig: any = {
       contents: [
         { role: "user", parts: [
             { text: prompt },
@@ -53,7 +53,18 @@ Extract the product details from the packaging image. Be accurate. If a field is
         responseSchema: responseSchema,
         temperature: 0.1
       }
-    });
+    };
+
+    try {
+      response = await ai.models.generateContent({ model: "gemini-3.6-flash", ...aiConfig });
+    } catch (apiErr: any) {
+      console.warn("Primary model failed, attempting fallback...", apiErr?.message);
+      if (apiErr?.status === 503 || apiErr?.message?.includes("503") || apiErr?.message?.includes("UNAVAILABLE")) {
+        response = await ai.models.generateContent({ model: "gemini-1.5-flash", ...aiConfig });
+      } else {
+        throw apiErr;
+      }
+    }
 
     const text = response.text;
     if (!text) throw new Error("Empty response from AI");
