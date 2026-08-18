@@ -1040,7 +1040,16 @@ export default function PosClient({
                     className="flex flex-col rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-sm hover:border-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-zinc-900">{formatProductLabel(product)}</span>
+                      <div className="flex items-center gap-2">
+                        {product.imageUrl ? (
+                          <img src={product.imageUrl} alt={product.itemName} className="h-8 w-8 shrink-0 rounded object-cover" />
+                        ) : (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-zinc-100 text-xs font-bold text-zinc-500">
+                            {product.itemName.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <span className="font-medium text-zinc-900">{formatProductLabel(product)}</span>
+                      </div>
                       {expiryStatus.label && (
                         <span
                           className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${EXPIRY_BADGE_CLASS[expiryStatus.level]}`}
@@ -1228,7 +1237,16 @@ export default function PosClient({
                 <div key={line.key} className="border-b border-zinc-100 pb-3 last:border-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium text-zinc-900">{formatProductLabel(line.product)}</span>
+                      <div className="flex items-center gap-2">
+                        {line.product.imageUrl ? (
+                          <img src={line.product.imageUrl} alt={line.product.itemName} className="h-6 w-6 shrink-0 rounded object-cover" />
+                        ) : (
+                          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-zinc-100 text-[10px] font-bold text-zinc-500">
+                            {line.product.itemName.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <span className="text-sm font-medium text-zinc-900">{formatProductLabel(line.product)}</span>
+                      </div>
                       {line.instruction && <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-max mt-0.5">{line.instruction}</span>}
                     </div>
                     <button

@@ -94,6 +94,7 @@ export async function POST(request: NextRequest) {
       expiryDate,
       unitHierarchy,
       barcode,
+      imageUrl,
     } = body;
 
     const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice", "costPrice", "alertQuantity", "quantityInStock"]);
@@ -188,6 +189,7 @@ export async function POST(request: NextRequest) {
               brand: trimmed(brand),
               size: trimmed(size),
               category,
+              imageUrl: imageUrl || null,
               quantityInStock: initialQuantity,
               alertQuantity: initialAlertQuantity,
               retailPrice: retail,

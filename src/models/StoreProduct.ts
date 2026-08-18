@@ -8,6 +8,7 @@ const StoreProductSchema = new Schema(
     brand: { type: String, required: true, trim: true, minlength: 1 },
     size: { type: String, required: true, trim: true, minlength: 1 },
     category: { type: String, enum: ["medicine", "non-medicine", "supermarket"], default: "supermarket" },
+    imageUrl: { type: String, default: null },
     baseUnitName: { type: String, required: true, default: "piece", trim: true },
     quantityInStock: { type: Number, required: true, default: 0, min: 0 },
   },
