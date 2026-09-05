@@ -115,8 +115,9 @@ export default function PosClient({
   const [iframeHeight, setIframeHeight] = useState(42);
   const [loadingPrescription, setLoadingPrescription] = useState(false);
   const [currentCustomer, setCurrentCustomer] = useState<{ id: string | null; name: string | null; encounterId: string | null }>({ id: null, name: null, encounterId: null });
-  const [ailment, setAilment] = useState("");
+  const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [ailment, setAilment] = useState("");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showPrintPrompt, setShowPrintPrompt] = useState(false);
   const [enablePrintListener, setEnablePrintListener] = useState(false);
@@ -540,8 +541,9 @@ export default function PosClient({
     if (!confirm("Clear all items from the current sale?")) return;
     setCart([]);
     setCurrentCustomer({ id: null, name: null, encounterId: null });
-    setAilment("");
+    setCustomerName("");
     setCustomerPhone("");
+    setAilment("");
     setPayments([{ method: "cash", amount: "" }]);
     setPaymentsTouched(false);
     setChangeFee("0");
@@ -709,10 +711,12 @@ export default function PosClient({
           }
     );
 
+    const effectiveCustomerName = currentCustomer.name || customerName.trim() || undefined;
+
     const payload = {
       branchId,
       customerId: currentCustomer.id,
-      customerName: currentCustomer.name,
+      customerName: effectiveCustomerName,
       customerPhone: customerPhone.trim() || undefined,
       ailment: ailment.trim() || undefined,
       payments: payments.map((p) => ({ method: p.method, amount: parseNumeric(p.amount) })),
@@ -724,7 +728,7 @@ export default function PosClient({
       const offlineReceiptNumber = `OFF-${Date.now().toString().slice(-6)}-${Math.floor(Math.random()*1000)}`;
       await db.pendingSales.add({
         offlineReceiptNumber,
-        customerName: currentCustomer.name || undefined,
+        customerName: effectiveCustomerName,
         userName: staffName,
         items: payloadItems,
         totalAmount: total,
@@ -756,6 +760,7 @@ export default function PosClient({
 
       setCart([]);
       setCurrentCustomer({ id: null, name: null, encounterId: null });
+      setCustomerName("");
       setAilment("");
       setCustomerPhone("");
       setPayments([{ method: "cash", amount: "" }]);
@@ -796,6 +801,7 @@ export default function PosClient({
 
     setCart([]);
     setCurrentCustomer({ id: null, name: null, encounterId: null });
+    setCustomerName("");
     setAilment("");
     setCustomerPhone("");
     setPayments([{ method: "cash", amount: "" }]);
@@ -1460,13 +1466,26 @@ export default function PosClient({
                     </button>
                   ))}
                 </div>
-                {!currentCustomer.name && (
+                {currentCustomer.name ? (
+                  <div className="mt-2 pt-2 border-t border-teal-200/50 flex items-center justify-between text-xs">
+                    <span className="text-teal-900 font-medium truncate">
+                      Linked: <strong className="text-teal-950">{currentCustomer.name}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentCustomer({ id: null, name: null, encounterId: null })}
+                      className="text-red-500 hover:text-red-700 text-[11px] font-semibold shrink-0"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : (
                   <div className="mt-2 pt-2 border-t border-teal-200/50 grid grid-cols-2 gap-2">
                     <input
                       type="text"
                       placeholder="Customer name (opt.)"
-                      value={currentCustomer.name || ""}
-                      onChange={(e) => setCurrentCustomer((prev) => ({ ...prev, name: e.target.value }))}
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
                       className="rounded border border-teal-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-teal-600"
                     />
                     <input
@@ -1517,14 +1536,15 @@ export default function PosClient({
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              {currentCustomer.name && (
+              {(currentCustomer.name || customerName) && (
                 <div className="rounded-lg border border-teal-200 bg-teal-50/60 p-3 flex items-center gap-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-white font-bold text-xs">
                     EMR
                   </div>
                   <div>
                     <span className="text-xs font-semibold text-teal-800 uppercase tracking-wider block">Customer / Patient</span>
-                    <span className="text-sm font-bold text-teal-950">{currentCustomer.name}</span>
+                    <span className="text-sm font-bold text-teal-950">{currentCustomer.name || customerName}</span>
+                    {customerPhone && <span className="text-xs text-zinc-500 block">{customerPhone}</span>}
                   </div>
                 </div>
               )}
