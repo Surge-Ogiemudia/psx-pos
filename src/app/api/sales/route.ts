@@ -434,6 +434,43 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Fire-and-forget: create EMR Quick Dispense encounter if complaint/ailment was provided
+      if (saleDoc && body.ailment && String(body.ailment).trim()) {
+        (async () => {
+          try {
+            const slug = await getPharmacySlug(session.user.pharmacyId);
+            if (slug) {
+              const emrBaseUrl = process.env.EMR_BASE_URL || "https://emr.psx.ng";
+              const webhookSecret = process.env.EMR_WEBHOOK_SECRET || "psx-emr-webhook-secret-2026";
+
+              const emrMedicines = (saleDoc.items || []).map((it: any) => ({
+                name: it.productName || it.itemName || "Medicine",
+                qty: it.quantity || 1,
+                price: it.unitPrice || 0,
+              }));
+
+              await fetch(`${emrBaseUrl}/api/encounters/quick-webhook`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-webhook-secret": webhookSecret,
+                },
+                body: JSON.stringify({
+                  pharmacySlug: slug,
+                  staffName: session.user.name,
+                  patientName: body.customerName || undefined,
+                  patientPhone: body.customerPhone || undefined,
+                  ailments: [String(body.ailment).trim()],
+                  medicines: emrMedicines,
+                }),
+              });
+            }
+          } catch (err) {
+            console.error("Failed to sync sale to EMR Quick Dispense:", err);
+          }
+        })();
+      }
+
       return NextResponse.json({ sale: saleDoc }, { status: 201 });
     } finally {
       await dbSession.endSession();

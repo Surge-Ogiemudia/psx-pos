@@ -115,6 +115,8 @@ export default function PosClient({
   const [iframeHeight, setIframeHeight] = useState(42);
   const [loadingPrescription, setLoadingPrescription] = useState(false);
   const [currentCustomer, setCurrentCustomer] = useState<{ id: string | null; name: string | null; encounterId: string | null }>({ id: null, name: null, encounterId: null });
+  const [ailment, setAilment] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showPrintPrompt, setShowPrintPrompt] = useState(false);
   const [enablePrintListener, setEnablePrintListener] = useState(false);
@@ -538,6 +540,8 @@ export default function PosClient({
     if (!confirm("Clear all items from the current sale?")) return;
     setCart([]);
     setCurrentCustomer({ id: null, name: null, encounterId: null });
+    setAilment("");
+    setCustomerPhone("");
     setPayments([{ method: "cash", amount: "" }]);
     setPaymentsTouched(false);
     setChangeFee("0");
@@ -709,6 +713,8 @@ export default function PosClient({
       branchId,
       customerId: currentCustomer.id,
       customerName: currentCustomer.name,
+      customerPhone: customerPhone.trim() || undefined,
+      ailment: ailment.trim() || undefined,
       payments: payments.map((p) => ({ method: p.method, amount: parseNumeric(p.amount) })),
       changeFee: changeFeeValue,
       items: payloadItems,
@@ -750,6 +756,8 @@ export default function PosClient({
 
       setCart([]);
       setCurrentCustomer({ id: null, name: null, encounterId: null });
+      setAilment("");
+      setCustomerPhone("");
       setPayments([{ method: "cash", amount: "" }]);
       setPaymentsTouched(false);
       setChangeFee("0");
@@ -788,6 +796,8 @@ export default function PosClient({
 
     setCart([]);
     setCurrentCustomer({ id: null, name: null, encounterId: null });
+    setAilment("");
+    setCustomerPhone("");
     setPayments([{ method: "cash", amount: "" }]);
     setPaymentsTouched(false);
     setChangeFee("0");
@@ -1417,6 +1427,59 @@ export default function PosClient({
                 </div>
               )}
 
+              {/* Optional EMR Clinical Condition/Complaint */}
+              <div className="mt-4 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-bold uppercase tracking-wider text-teal-900 flex items-center gap-1.5">
+                    <span>🩺</span> Complaint / Ailment
+                  </span>
+                  <span className="text-[10px] font-semibold text-teal-700 bg-teal-100/80 px-1.5 py-0.5 rounded">
+                    EMR Quick Record
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. Malaria, Headache, Cough (Optional)"
+                  value={ailment}
+                  onChange={(e) => setAilment(e.target.value)}
+                  className="w-full rounded-lg border border-teal-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
+                />
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {["Malaria", "Headache", "Cough & Catarrh", "Body Pain", "Stomach Ache", "Fever"].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setAilment(ailment === preset ? "" : preset)}
+                      className={`text-[10px] font-medium px-2 py-0.5 rounded-full border transition-colors ${
+                        ailment === preset
+                          ? "bg-teal-700 text-white border-teal-700 font-bold"
+                          : "bg-white text-zinc-600 border-teal-200 hover:bg-teal-50"
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+                {!currentCustomer.name && (
+                  <div className="mt-2 pt-2 border-t border-teal-200/50 grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Customer name (opt.)"
+                      value={currentCustomer.name || ""}
+                      onChange={(e) => setCurrentCustomer((prev) => ({ ...prev, name: e.target.value }))}
+                      className="rounded border border-teal-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-teal-600"
+                    />
+                    <input
+                      type="tel"
+                      placeholder="Phone (opt.)"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      className="rounded border border-teal-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-teal-600"
+                    />
+                  </div>
+                )}
+              </div>
+
               <button
                 onClick={openConfirmModal}
                 disabled={submitting || !canCompleteSale}
@@ -1463,6 +1526,19 @@ export default function PosClient({
                     <span className="text-xs font-semibold text-teal-800 uppercase tracking-wider block">Customer / Patient</span>
                     <span className="text-sm font-bold text-teal-950">{currentCustomer.name}</span>
                   </div>
+                </div>
+              )}
+
+              {ailment && (
+                <div className="rounded-lg border border-teal-200 bg-teal-50/60 p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-base">🩺</span>
+                    <div>
+                      <span className="text-xs font-semibold text-teal-800 uppercase tracking-wider block">EMR Quick Dispense Condition</span>
+                      <span className="text-sm font-bold text-teal-950">{ailment}</span>
+                    </div>
+                  </div>
+                  <span className="text-xs text-teal-700 font-medium bg-teal-100/60 px-2 py-0.5 rounded">Auto-saves to EMR</span>
                 </div>
               )}
 
