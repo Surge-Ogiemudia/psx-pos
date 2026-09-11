@@ -107,7 +107,7 @@ Extract the product details from the packaging images provided. Be accurate. If 
         distributorPrice: draft.retailPrice || 0,
         costPrice: 0,
         alertQuantity: Math.max(1, Math.floor(draft.quantityInStock * 0.2)),
-        unitHierarchy: [{ unitName: "Piece", conversionRatio: 1 }],
+        unitHierarchy: [{ unitName: "Piece", unitsPerParent: 1 }],
         barcode: extracted.barcode || "",
         expiryDate: extracted.expiryDate ? new Date(extracted.expiryDate) : null,
       });
