@@ -30,16 +30,18 @@ async function fetchImageAsBase64(url: string) {
   return { mimeType, base64Data };
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireApiSession();
     if (!session?.user?.pharmacyId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
     await dbConnect();
+    
+    const resolvedParams = await params;
 
     // 1. Fetch Draft
-    const draft = await AiDraftProduct.findOne({ _id: params.id, pharmacyId: session.user.pharmacyId });
+    const draft = await AiDraftProduct.findOne({ _id: resolvedParams.id, pharmacyId: session.user.pharmacyId });
     if (!draft) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
     if (draft.status === "completed") return NextResponse.json({ error: "Already completed" }, { status: 400 });
 
