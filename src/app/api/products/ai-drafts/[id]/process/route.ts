@@ -78,18 +78,24 @@ Extract the product details from the packaging images provided. Be accurate. If 
         }
       };
 
-      try {
-        response = await ai.models.generateContent({ model: "gemini-3.6-flash", ...aiConfig });
-      } catch (apiErr: any) {
-        if (apiErr?.status === 503 || apiErr?.message?.includes("503") || apiErr?.message?.includes("UNAVAILABLE")) {
-          response = await ai.models.generateContent({ model: "gemini-3.5-flash", ...aiConfig });
-        } else {
-          throw apiErr;
+      const candidateModels = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"];
+      let lastErr: any = null;
+
+      for (const candidateModel of candidateModels) {
+        try {
+          response = await ai.models.generateContent({ model: candidateModel, ...aiConfig });
+          if (response?.text) break;
+        } catch (apiErr: any) {
+          lastErr = apiErr;
+          console.warn(`Model ${candidateModel} failed:`, apiErr?.message);
         }
       }
 
+      if (!response?.text) {
+        throw lastErr || new Error("Failed to extract product details from all available AI models.");
+      }
+
       const text = response.text;
-      if (!text) throw new Error("Empty response from AI");
       const extracted = JSON.parse(text);
 
       // 5. Create Real Product
@@ -103,8 +109,8 @@ Extract the product details from the packaging images provided. Be accurate. If 
         imageUrl: draft.frontImageUrl,
         quantityInStock: draft.quantityInStock,
         retailPrice: draft.retailPrice || 0,
-        wholesalePrice: draft.retailPrice || 0,
-        distributorPrice: draft.retailPrice || 0,
+        wholesalePrice: 0,
+        distributorPrice: 0,
         costPrice: 0,
         alertQuantity: Math.max(1, Math.floor(draft.quantityInStock * 0.2)),
         unitHierarchy: [{ unitName: "Piece", unitsPerParent: 1 }],
