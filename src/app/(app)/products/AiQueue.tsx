@@ -13,6 +13,7 @@ export default function AiQueue({ branchId }: AiQueueProps) {
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const fetchDrafts = async () => {
     try {
@@ -79,6 +80,28 @@ export default function AiQueue({ branchId }: AiQueueProps) {
 
   return (
     <div className="p-6">
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div className="relative max-w-5xl w-full max-h-[90vh] flex items-center justify-center">
+            <button 
+              onClick={() => setSelectedImage(null)}
+              className="absolute -top-12 right-0 text-white hover:text-zinc-300 transition-colors bg-black/50 rounded-full p-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            <img 
+              src={selectedImage} 
+              alt="Enlarged view" 
+              className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" 
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
+      
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">AI Processing Queue</h1>
@@ -124,7 +147,10 @@ export default function AiQueue({ branchId }: AiQueueProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {drafts.map((draft) => (
             <div key={draft._id} className="bg-white border border-zinc-200 rounded-xl p-4 shadow-sm flex gap-4">
-              <div className="relative h-24 w-24 rounded-lg overflow-hidden bg-zinc-100 shrink-0">
+              <div 
+                className="relative h-24 w-24 rounded-lg overflow-hidden bg-zinc-100 shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => setSelectedImage(draft.frontImageUrl)}
+              >
                 <img src={draft.frontImageUrl} alt="Product" className="object-cover w-full h-full" />
                 {draft.status === "completed" && (
                   <div className="absolute inset-0 bg-teal-500/20 flex items-center justify-center backdrop-blur-[1px]">
@@ -133,6 +159,9 @@ export default function AiQueue({ branchId }: AiQueueProps) {
                     </div>
                   </div>
                 )}
+                <div className="absolute bottom-1 right-1 bg-black/60 rounded-full p-1 opacity-0 hover:opacity-100 transition-opacity group-hover:opacity-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                </div>
               </div>
               
               <div className="flex-1 flex flex-col justify-center">
