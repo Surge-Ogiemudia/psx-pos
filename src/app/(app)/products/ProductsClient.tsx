@@ -16,7 +16,8 @@ import { parseCsv } from "@/lib/csv";
 import IncomingBanner from "@/components/IncomingBanner";
 import AlertFilterButton from "@/components/AlertFilterButton";
 import UnitNameInput from "@/components/UnitNameInput";
-import AiProductAssistant from "./AiProductAssistant";
+import AiFastEntry from "./AiFastEntry";
+import AiQueue from "./AiQueue";
 const emptyForm = {
   itemName: "",
   brand: "",
@@ -149,6 +150,7 @@ export default function ProductsClient({
   const [alertsHidden, setAlertsHidden] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [showAiAssistant, setShowAiAssistant] = useState(false);
+  const [showQueue, setShowQueue] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1070,9 +1072,18 @@ export default function ProductsClient({
                       setShowAiAssistant(true);
                       setAddMenuOpen(false);
                     }}
-                    className="block w-full px-3 py-1.5 text-left text-zinc-700 hover:bg-teal-50 text-teal-700 font-medium border-t border-zinc-100"
+                    className="block w-full px-3 py-1.5 text-left text-teal-700 hover:bg-teal-50 font-medium border-t border-zinc-100"
                   >
-                    ✨ AI Add Product
+                    ⚡ Fast Mobile Entry
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowQueue(true);
+                      setAddMenuOpen(false);
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-blue-700 hover:bg-blue-50 font-medium"
+                  >
+                    🤖 Processing Queue
                   </button>
                 </div>
               )}
@@ -2517,26 +2528,21 @@ export default function ProductsClient({
       )}
 
       {showAiAssistant && (
-        <AiProductAssistant
+        <AiFastEntry
+          branchId={branchId}
           onClose={() => setShowAiAssistant(false)}
-          onSave={async (newProduct) => {
-            try {
-              const res = await fetch("/api/products", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...newProduct, branchId }),
-              });
-              if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.error || "Failed to add product");
-              }
-              setShowAiAssistant(false);
-              loadProducts();
-            } catch (err: any) {
-              alert(err.message);
-            }
-          }}
         />
+      )}
+
+      {showQueue && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-50 p-4 overflow-y-auto">
+          <div className="w-full max-w-6xl h-full bg-white shadow-2xl rounded-2xl flex flex-col relative overflow-hidden">
+            <button onClick={() => setShowQueue(false)} className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-600 p-2 z-10 bg-white rounded-full shadow">✕ Close</button>
+            <div className="flex-1 overflow-y-auto">
+              <AiQueue branchId={branchId} />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
