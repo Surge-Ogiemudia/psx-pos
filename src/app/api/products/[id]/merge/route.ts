@@ -56,8 +56,8 @@ export async function POST(
 
     if (mode === "merge") {
       const incomingRetail = missing(body.retailPrice) ? existing.retailPrice : parseNumeric(body.retailPrice);
-      const incomingWholesale = missing(body.wholesalePrice) ? incomingRetail : parseNumeric(body.wholesalePrice);
-      const incomingDistributor = missing(body.distributorPrice) ? incomingRetail : parseNumeric(body.distributorPrice);
+      const incomingWholesale = missing(body.wholesalePrice) ? 0 : parseNumeric(body.wholesalePrice);
+      const incomingDistributor = missing(body.distributorPrice) ? 0 : parseNumeric(body.distributorPrice);
       if ([incomingRetail, incomingWholesale, incomingDistributor].some((n) => Number.isNaN(n) || n < 0)) {
         return NextResponse.json({ error: "Prices must be non-negative numbers" }, { status: 400 });
       }

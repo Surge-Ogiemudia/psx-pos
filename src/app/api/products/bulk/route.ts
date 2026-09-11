@@ -147,10 +147,10 @@ async function analyzeRows(rows: BulkRow[], scope: Record<string, unknown>) {
       return;
     }
     const retailPrice = parseNumeric(row.retailPrice);
-    // Wholesale/distributor default to the retail price when left blank — a quick
+    // Wholesale/distributor default to 0 when left blank — a quick
     // stock-take only needs item, qty, and selling price.
-    const wholesalePrice = isMissing(row.wholesalePrice) ? retailPrice : parseNumeric(row.wholesalePrice);
-    const distributorPrice = isMissing(row.distributorPrice) ? retailPrice : parseNumeric(row.distributorPrice);
+    const wholesalePrice = isMissing(row.wholesalePrice) ? 0 : parseNumeric(row.wholesalePrice);
+    const distributorPrice = isMissing(row.distributorPrice) ? 0 : parseNumeric(row.distributorPrice);
     if ([retailPrice, wholesalePrice, distributorPrice].some((n) => Number.isNaN(n) || n < 0)) {
       errors.push({ row: rowNumber, type: "invalid_price", error: `${label}: prices must be non-negative numbers` });
       return;
