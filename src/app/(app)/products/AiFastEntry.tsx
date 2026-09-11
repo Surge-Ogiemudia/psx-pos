@@ -8,7 +8,9 @@ interface AiFastEntryProps {
 }
 
 export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
-  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [uploadingFront, setUploadingFront] = useState(false);
+  const [uploadingBack, setUploadingBack] = useState(false);
   const [successToast, setSuccessToast] = useState(false);
   
   const [form, setForm] = useState({
@@ -16,6 +18,11 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
     backImageUrl: "",
     quantityInStock: "",
     retailPrice: ""
+  });
+  
+  const [previews, setPreviews] = useState({
+    front: "",
+    back: ""
   });
   
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -33,22 +40,32 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setLoading(true);
+    // Immediately show local preview
+    const objectUrl = URL.createObjectURL(file);
+    setPreviews(prev => ({ ...prev, [side]: objectUrl }));
+
+    // Upload in background
     setErrorMsg(null);
+    if (side === "front") setUploadingFront(true);
+    else setUploadingBack(true);
+
     try {
       const uploadedUrl = await handleUploadImage(file);
       setForm(prev => ({ ...prev, [side === "front" ? "frontImageUrl" : "backImageUrl"]: uploadedUrl }));
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to upload image.");
+      // Clear preview if it failed
+      setPreviews(prev => ({ ...prev, [side]: "" }));
     } finally {
-      setLoading(false);
+      if (side === "front") setUploadingFront(false);
+      else setUploadingBack(false);
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.frontImageUrl) {
-      setErrorMsg("Front image is required.");
+      setErrorMsg("Front image is still uploading or missing.");
       return;
     }
     if (!form.quantityInStock) {
@@ -56,7 +73,7 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
       return;
     }
 
-    setLoading(true);
+    setSaving(true);
     setErrorMsg(null);
 
     try {
@@ -85,14 +102,20 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
         quantityInStock: "",
         retailPrice: ""
       });
+      setPreviews({
+        front: "",
+        back: ""
+      });
       
       setTimeout(() => setSuccessToast(false), 1500);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to save draft.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
+
+  const isUploading = uploadingFront || uploadingBack;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto">
@@ -128,32 +151,46 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-zinc-600 mb-2">1. Front Photo *</label>
-                {form.frontImageUrl ? (
+                {previews.front ? (
                   <div className="relative rounded-xl border-2 border-teal-500 overflow-hidden aspect-square group">
-                    <img src={form.frontImageUrl} alt="Front" className="w-full h-full object-cover" />
-                    <button type="button" onClick={() => setForm(p => ({...p, frontImageUrl: ""}))} className="absolute inset-0 bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center font-semibold text-sm">Retake</button>
+                    <img src={previews.front} alt="Front" className="w-full h-full object-cover" />
+                    {uploadingFront && (
+                      <div className="absolute inset-0 bg-white/60 flex items-center justify-center backdrop-blur-[2px]">
+                        <div className="animate-spin h-6 w-6 border-2 border-teal-600 border-t-transparent rounded-full"></div>
+                      </div>
+                    )}
+                    {!uploadingFront && (
+                      <button type="button" onClick={() => { setForm(p => ({...p, frontImageUrl: ""})); setPreviews(p => ({...p, front: ""})); }} className="absolute inset-0 bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center font-semibold text-sm">Retake</button>
+                    )}
                   </div>
                 ) : (
-                  <label className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 hover:bg-zinc-100 transition-colors aspect-square cursor-pointer ${loading ? "opacity-50 pointer-events-none" : ""}`}>
+                  <label className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 hover:bg-zinc-100 transition-colors aspect-square cursor-pointer ${saving ? "opacity-50 pointer-events-none" : ""}`}>
                     <span className="text-2xl mb-1">📷</span>
                     <span className="text-xs font-medium text-zinc-500">Tap to Snap</span>
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleImageCapture(e, "front")} disabled={loading} />
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleImageCapture(e, "front")} disabled={saving} />
                   </label>
                 )}
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-zinc-600 mb-2">2. Expiry/Back Photo</label>
-                {form.backImageUrl ? (
+                {previews.back ? (
                   <div className="relative rounded-xl border-2 border-teal-500 overflow-hidden aspect-square group">
-                    <img src={form.backImageUrl} alt="Back" className="w-full h-full object-cover" />
-                    <button type="button" onClick={() => setForm(p => ({...p, backImageUrl: ""}))} className="absolute inset-0 bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center font-semibold text-sm">Retake</button>
+                    <img src={previews.back} alt="Back" className="w-full h-full object-cover" />
+                    {uploadingBack && (
+                      <div className="absolute inset-0 bg-white/60 flex items-center justify-center backdrop-blur-[2px]">
+                        <div className="animate-spin h-6 w-6 border-2 border-teal-600 border-t-transparent rounded-full"></div>
+                      </div>
+                    )}
+                    {!uploadingBack && (
+                      <button type="button" onClick={() => { setForm(p => ({...p, backImageUrl: ""})); setPreviews(p => ({...p, back: ""})); }} className="absolute inset-0 bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center font-semibold text-sm">Retake</button>
+                    )}
                   </div>
                 ) : (
-                  <label className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 hover:bg-zinc-100 transition-colors aspect-square cursor-pointer ${loading ? "opacity-50 pointer-events-none" : ""}`}>
+                  <label className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 hover:bg-zinc-100 transition-colors aspect-square cursor-pointer ${saving ? "opacity-50 pointer-events-none" : ""}`}>
                     <span className="text-2xl mb-1">📷</span>
                     <span className="text-xs font-medium text-zinc-500">Optional</span>
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleImageCapture(e, "back")} disabled={loading} />
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleImageCapture(e, "back")} disabled={saving} />
                   </label>
                 )}
               </div>
@@ -168,7 +205,7 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
                   value={form.quantityInStock} 
                   onChange={e => setForm(p => ({...p, quantityInStock: e.target.value}))} 
                   required
-                  disabled={loading}
+                  disabled={saving}
                   className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-lg font-bold outline-none focus:border-teal-500 focus:bg-white transition-colors" 
                   placeholder="0"
                 />
@@ -179,7 +216,7 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
                   type="number" 
                   value={form.retailPrice} 
                   onChange={e => setForm(p => ({...p, retailPrice: e.target.value}))} 
-                  disabled={loading}
+                  disabled={saving}
                   className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-lg font-bold outline-none focus:border-teal-500 focus:bg-white transition-colors" 
                   placeholder="Optional"
                 />
@@ -188,10 +225,10 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
 
             <button 
               type="submit" 
-              disabled={loading || !form.frontImageUrl || !form.quantityInStock}
+              disabled={saving || isUploading || !form.frontImageUrl || !form.quantityInStock}
               className="w-full rounded-xl bg-teal-600 py-4 text-lg font-bold text-white shadow-lg hover:bg-teal-700 disabled:opacity-50 disabled:shadow-none transition-all active:scale-[0.98]"
             >
-              {loading ? "Uploading..." : "Save & Queue"}
+              {saving ? "Saving..." : isUploading ? "Wait for Upload..." : "Save & Queue"}
             </button>
             
           </form>
