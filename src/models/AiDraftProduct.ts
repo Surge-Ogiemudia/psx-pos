@@ -10,6 +10,11 @@ const AiDraftProductSchema = new Schema(
     backImageUrl: { type: String, default: null },
     quantityInStock: { type: Number, required: true, default: 0, min: 0 },
     retailPrice: { type: Number, default: null, min: 0 },
+    category: { 
+      type: String, 
+      enum: ["medicine", "non-medicine", "supermarket"], 
+      default: "medicine" 
+    },
     
     // Processing State
     status: { 

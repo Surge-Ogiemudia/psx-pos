@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     await dbConnect();
     const body = await req.json();
 
-    const { branchId, frontImageUrl, backImageUrl, quantityInStock, retailPrice } = body;
+    const { branchId, frontImageUrl, backImageUrl, quantityInStock, retailPrice, category } = body;
     if (!branchId || !frontImageUrl) {
       return NextResponse.json({ error: "branchId and frontImageUrl are required" }, { status: 400 });
     }
@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
       backImageUrl,
       quantityInStock: quantityInStock || 0,
       retailPrice: retailPrice || null,
+      category: ["medicine", "non-medicine", "supermarket"].includes(category) ? category : "medicine",
       status: "pending"
     });
 
