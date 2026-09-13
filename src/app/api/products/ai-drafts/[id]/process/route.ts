@@ -11,11 +11,11 @@ const ai = new GoogleGenAI({ apiKey: apiKey || "dummy-key" });
 const responseSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    itemName: { type: Type.STRING, description: "The core product name (e.g. Paracetamol, Coca Cola). Leave empty if not found." },
-    brand: { type: Type.STRING, description: "The manufacturer or brand. Leave empty if not found." },
-    size: { type: Type.STRING, description: "The strength or size (e.g. 500mg, 50cl). Leave empty if not found." },
+    itemName: { type: Type.STRING, description: "The product or medicine name (e.g. Paracetamol, Augmentin, Coca Cola). Include dosage form if visible (e.g. Tablets, Suspension, Syrup). Leave empty if not found." },
+    brand: { type: Type.STRING, description: "The manufacturer, pharmaceutical company, or brand (e.g. Emzor, GSK, Pfizer). Leave empty if not found." },
+    size: { type: Type.STRING, description: "The dosage strength or package size (e.g. 500mg, 250mg/5ml, 1g, 20/120mg, 100ml, 50cl). For medicines, prioritize the active strength. Leave empty if not found." },
     expiryDate: { type: Type.STRING, description: "The expiry date in YYYY-MM-DD format. Leave empty if not found." },
-    barcode: { type: Type.STRING, description: "The barcode or UPC. Leave empty if not found." }
+    barcode: { type: Type.STRING, description: "The barcode or UPC/EAN. Leave empty if not found." }
   },
   required: ["itemName", "brand", "size", "expiryDate", "barcode"]
 };
@@ -52,8 +52,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     try {
       // 3. Prepare images for Gemini
       const parts: any[] = [];
-      const prompt = `You are a product data extraction assistant for a pharmacy/supermarket POS.
-Extract the product details from the packaging images provided. Be accurate. If a field is not visible in the images, leave it empty.`;
+      const prompt = `You are an expert product and medicine data extraction assistant for a pharmacy and supermarket POS.
+Extract the product details from the packaging images provided.
+For pharmaceuticals and medicines:
+- Identify the product or generic name, and include the dosage form (e.g., Tablets, Capsules, Syrup, Suspension) if visible.
+- Look closely for the dosage strength (e.g., 500mg, 250mg/5ml, 1g, 20/120mg, 100ml) on the front or back and extract it into the 'size' field.
+- Extract the pharmaceutical manufacturer or brand into the 'brand' field.
+- If barcode or expiry date is visible, extract them accurately.
+Be accurate. If a field is not visible in the images, leave it empty.`;
       
       parts.push({ text: prompt });
 
@@ -105,7 +111,7 @@ Extract the product details from the packaging images provided. Be accurate. If 
         itemName: extracted.itemName || "Unnamed Product",
         brand: extracted.brand || "Unknown Brand",
         size: extracted.size || "Standard",
-        category: "supermarket", // Default, user can change later if needed
+        category: draft.category || "supermarket",
         imageUrl: draft.frontImageUrl,
         quantityInStock: draft.quantityInStock,
         retailPrice: draft.retailPrice || 0,

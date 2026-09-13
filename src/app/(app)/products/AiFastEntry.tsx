@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 interface AiFastEntryProps {
   onClose: () => void;
@@ -12,6 +12,20 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
   const [uploadingFront, setUploadingFront] = useState(false);
   const [uploadingBack, setUploadingBack] = useState(false);
   const [successToast, setSuccessToast] = useState(false);
+  
+  const [category, setCategory] = useState<"medicine" | "supermarket" | "non-medicine">("medicine");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("psx_fast_entry_category");
+    if (saved === "medicine" || saved === "supermarket" || saved === "non-medicine") {
+      setCategory(saved);
+    }
+  }, []);
+
+  const handleSelectCategory = (cat: "medicine" | "supermarket" | "non-medicine") => {
+    setCategory(cat);
+    localStorage.setItem("psx_fast_entry_category", cat);
+  };
   
   const [form, setForm] = useState({
     frontImageUrl: "",
@@ -83,6 +97,7 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
         backImageUrl: form.backImageUrl || null,
         quantityInStock: Number(form.quantityInStock),
         retailPrice: form.retailPrice ? Number(form.retailPrice) : null,
+        category,
       };
 
       const res = await fetch("/api/products/ai-drafts", {
@@ -145,7 +160,50 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
             </div>
           )}
 
-          <form onSubmit={handleSave} className="space-y-6">
+          <form onSubmit={handleSave} className="space-y-5">
+            
+            {/* Category Selector (Sticky) */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-zinc-600">Category (Saved for Next Snaps)</label>
+                <span className="text-[11px] font-medium text-teal-600 capitalize">Active: {category}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 p-1 bg-zinc-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => handleSelectCategory("medicine")}
+                  className={`py-2 px-1 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    category === "medicine"
+                      ? "bg-teal-600 text-white shadow-sm"
+                      : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  <span>💊</span> Medicine
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectCategory("supermarket")}
+                  className={`py-2 px-1 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    category === "supermarket"
+                      ? "bg-teal-600 text-white shadow-sm"
+                      : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  <span>🛒</span> Supermarket
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectCategory("non-medicine")}
+                  className={`py-2 px-1 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    category === "non-medicine"
+                      ? "bg-teal-600 text-white shadow-sm"
+                      : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  <span>📦</span> General
+                </button>
+              </div>
+            </div>
             
             {/* Photos Section */}
             <div className="grid grid-cols-2 gap-4">
@@ -171,9 +229,8 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
                   </label>
                 )}
               </div>
-
               <div>
-                <label className="block text-xs font-semibold text-zinc-600 mb-2">2. Expiry/Back Photo</label>
+                <label className="block text-xs font-semibold text-zinc-600 mb-2">2. Back / Details / Expiry</label>
                 {previews.back ? (
                   <div className="relative rounded-xl border-2 border-teal-500 overflow-hidden aspect-square group">
                     <img src={previews.back} alt="Back" className="w-full h-full object-cover" />
@@ -187,9 +244,10 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
                     )}
                   </div>
                 ) : (
-                  <label className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 hover:bg-zinc-100 transition-colors aspect-square cursor-pointer ${saving ? "opacity-50 pointer-events-none" : ""}`}>
+                  <label className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 hover:bg-zinc-100 transition-colors aspect-square cursor-pointer text-center p-2 ${saving ? "opacity-50 pointer-events-none" : ""}`}>
                     <span className="text-2xl mb-1">📷</span>
-                    <span className="text-xs font-medium text-zinc-500">Optional</span>
+                    <span className="text-xs font-medium text-zinc-500">Back / Details</span>
+                    <span className="text-[10px] text-zinc-400 mt-0.5">Optional</span>
                     <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleImageCapture(e, "back")} disabled={saving} />
                   </label>
                 )}
