@@ -25,6 +25,11 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
   const [editingDrafts, setEditingDrafts] = useState<Record<string, any>>({});
   const [editingGroups, setEditingGroups] = useState<Record<string, any>>({});
 
+  // Ready to Publish sub-tabs, search and pagination
+  const [readySubTab, setReadySubTab] = useState<"all" | "withExpiry" | "noExpiry">("all");
+  const [readySearch, setReadySearch] = useState<string>("");
+  const [readyLimit, setReadyLimit] = useState<number>(50);
+
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -161,6 +166,33 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
     }
   };
 
+  // Update Expiry Date directly from Ready to Publish table
+  const handleUpdateReadyExpiry = async (draftId: string, newDateStr: string) => {
+    try {
+      setActionLoading(`expiry-${draftId}`);
+      const res = await fetch(`/api/products/ai-drafts/resolve/${draftId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ extractedExpiryDate: newDateStr || null })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update expiry date");
+
+      setReadyToPublish(prev =>
+        prev.map(p =>
+          p._id === draftId
+            ? { ...p, extractedExpiryDate: newDateStr ? new Date(newDateStr).toISOString() : null }
+            : p
+        )
+      );
+      showSuccess("Expiry date updated!");
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to update expiry date");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // 3. Publish All Clean Items to POS
   const handlePublishAllClean = async () => {
     if (readyToPublish.length === 0) return;
@@ -191,6 +223,25 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
       setActionLoading(null);
     }
   };
+
+  // Ready To Publish calculations
+  const readyWithExpiry = readyToPublish.filter(p => !!p.extractedExpiryDate);
+  const readyNoExpiry = readyToPublish.filter(p => !p.extractedExpiryDate);
+
+  const filteredReady = readyToPublish.filter(p => {
+    if (readySubTab === "withExpiry" && !p.extractedExpiryDate) return false;
+    if (readySubTab === "noExpiry" && p.extractedExpiryDate) return false;
+    if (readySearch.trim()) {
+      const q = readySearch.toLowerCase();
+      const name = (p.extractedItemName || "").toLowerCase();
+      const brand = (p.extractedBrand || "").toLowerCase();
+      const barcode = (p.extractedBarcode || "").toLowerCase();
+      if (!name.includes(q) && !brand.includes(q) && !barcode.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const displayedReady = filteredReady.slice(0, readyLimit);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -787,50 +838,163 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                     </button>
                   </div>
 
+                  {/* Ready To Publish Sub-tabs & Search Controls */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
+                    {/* Sub-tabs for Expiry Date filtering */}
+                    <div className="flex items-center gap-1.5 bg-zinc-100 p-1.5 rounded-2xl border border-zinc-200 overflow-x-auto">
+                      <button
+                        onClick={() => setReadySubTab("all")}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                          readySubTab === "all"
+                            ? "bg-white text-zinc-900 shadow-sm"
+                            : "text-zinc-600 hover:text-zinc-900"
+                        }`}
+                      >
+                        <span>All Products</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-zinc-200 text-zinc-700 font-bold">
+                          {readyToPublish.length}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => setReadySubTab("withExpiry")}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                          readySubTab === "withExpiry"
+                            ? "bg-white text-teal-800 shadow-sm"
+                            : "text-zinc-600 hover:text-zinc-900"
+                        }`}
+                      >
+                        <span>📅 Has Expiry Date</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-teal-100 text-teal-800 font-bold">
+                          {readyWithExpiry.length}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => setReadySubTab("noExpiry")}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                          readySubTab === "noExpiry"
+                            ? "bg-white text-amber-800 shadow-sm"
+                            : "text-zinc-600 hover:text-zinc-900"
+                        }`}
+                      >
+                        <span>⏳ No Expiry Date</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800 font-bold">
+                          {readyNoExpiry.length}
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Search & Limit Controls */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Search name, brand, barcode..."
+                        value={readySearch}
+                        onChange={e => setReadySearch(e.target.value)}
+                        className="bg-white border border-zinc-200 rounded-xl px-3 py-1.5 text-xs text-zinc-800 placeholder-zinc-400 outline-none focus:border-teal-500 w-full sm:w-56 shadow-sm"
+                      />
+                      <select
+                        value={readyLimit}
+                        onChange={e => setReadyLimit(Number(e.target.value))}
+                        className="bg-white border border-zinc-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-zinc-700 outline-none focus:border-teal-500 shadow-sm"
+                      >
+                        <option value={50}>50 rows</option>
+                        <option value={100}>100 rows</option>
+                        <option value={250}>250 rows</option>
+                        <option value={1000}>All rows</option>
+                      </select>
+                    </div>
+                  </div>
+
                   {/* Products Table */}
                   <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-zinc-50 border-b border-zinc-200 text-xs font-bold text-zinc-500 uppercase tracking-wider">
-                        <tr>
-                          <th className="px-4 py-3">Photo</th>
-                          <th className="px-4 py-3">Product Name</th>
-                          <th className="px-4 py-3">Brand</th>
-                          <th className="px-4 py-3">Size / Strength</th>
-                          <th className="px-4 py-3">Category</th>
-                          <th className="px-4 py-3">Qty</th>
-                          <th className="px-4 py-3">Retail Price</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-100">
-                        {readyToPublish.slice(0, 50).map((p) => (
-                          <tr key={p._id} className="hover:bg-zinc-50/80 transition-colors">
-                            <td className="px-4 py-2">
-                              <img
-                                src={p.frontImageUrl}
-                                alt={p.extractedItemName}
-                                onClick={() => setSelectedImage(p.frontImageUrl)}
-                                className="h-10 w-10 object-cover rounded-lg border border-zinc-200 cursor-pointer hover:opacity-80"
-                              />
-                            </td>
-                            <td className="px-4 py-2 font-semibold text-zinc-900">{p.extractedItemName}</td>
-                            <td className="px-4 py-2 text-zinc-600">{p.extractedBrand || "—"}</td>
-                            <td className="px-4 py-2 text-zinc-600">{p.extractedSize || "—"}</td>
-                            <td className="px-4 py-2">
-                              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-zinc-100 text-zinc-700 capitalize">
-                                {p.category || "medicine"}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2 font-bold text-zinc-900">{p.quantityInStock}</td>
-                            <td className="px-4 py-2 font-bold text-emerald-700">₦{p.retailPrice?.toLocaleString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-
-                    {readyToPublish.length > 50 && (
-                      <div className="p-4 text-center bg-zinc-50 border-t border-zinc-200 text-xs text-zinc-500 font-medium">
-                        Showing first 50 of {readyToPublish.length} clean items. Tap <em>Publish All Now</em> above to launch all of them.
+                    {filteredReady.length === 0 ? (
+                      <div className="p-8 text-center text-zinc-500 text-sm">
+                        No products match your search or filter.
                       </div>
+                    ) : (
+                      <>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-sm">
+                            <thead className="bg-zinc-50 border-b border-zinc-200 text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                              <tr>
+                                <th className="px-4 py-3">Photo</th>
+                                <th className="px-4 py-3">Product Name</th>
+                                <th className="px-4 py-3">Brand</th>
+                                <th className="px-4 py-3">Size / Strength</th>
+                                <th className="px-4 py-3">Category</th>
+                                <th className="px-4 py-3">Qty</th>
+                                <th className="px-4 py-3">Retail Price</th>
+                                <th className="px-4 py-3 min-w-[160px]">📅 Expiry Date</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-100">
+                              {displayedReady.map((p) => (
+                                <tr key={p._id} className="hover:bg-zinc-50/80 transition-colors">
+                                  <td className="px-4 py-2">
+                                    <img
+                                      src={p.frontImageUrl}
+                                      alt={p.extractedItemName}
+                                      onClick={() => setSelectedImage(p.frontImageUrl)}
+                                      className="h-10 w-10 object-cover rounded-lg border border-zinc-200 cursor-pointer hover:opacity-80"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-2 font-semibold text-zinc-900">{p.extractedItemName}</td>
+                                  <td className="px-4 py-2 text-zinc-600">{p.extractedBrand || "—"}</td>
+                                  <td className="px-4 py-2 text-zinc-600">{p.extractedSize || "—"}</td>
+                                  <td className="px-4 py-2">
+                                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-zinc-100 text-zinc-700 capitalize">
+                                      {p.category || "medicine"}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-2 font-bold text-zinc-900">{p.quantityInStock}</td>
+                                  <td className="px-4 py-2 font-bold text-emerald-700">₦{p.retailPrice?.toLocaleString()}</td>
+                                  <td className="px-4 py-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <input
+                                        type="date"
+                                        defaultValue={p.extractedExpiryDate ? new Date(p.extractedExpiryDate).toISOString().split('T')[0] : ""}
+                                        onBlur={(e) => {
+                                          const val = e.target.value;
+                                          const current = p.extractedExpiryDate ? new Date(p.extractedExpiryDate).toISOString().split('T')[0] : "";
+                                          if (val !== current) {
+                                            handleUpdateReadyExpiry(p._id, val);
+                                          }
+                                        }}
+                                        className={`text-xs px-2 py-1 rounded-lg border outline-none transition-all ${
+                                          p.extractedExpiryDate
+                                            ? "border-teal-300 bg-teal-50/50 text-teal-900 font-medium focus:border-teal-500 focus:bg-white"
+                                            : "border-zinc-200 bg-zinc-50 text-zinc-400 hover:border-zinc-300 focus:border-teal-500 focus:bg-white"
+                                        }`}
+                                      />
+                                      {actionLoading === `expiry-${p._id}` && (
+                                        <span className="text-[10px] text-teal-600 animate-spin">⏳</span>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {filteredReady.length > readyLimit && (
+                          <div className="p-4 text-center bg-zinc-50 border-t border-zinc-200 text-xs text-zinc-500 font-medium flex items-center justify-center gap-3">
+                            <span>Showing first {readyLimit} of {filteredReady.length} items.</span>
+                            <button
+                              onClick={() => setReadyLimit(prev => prev + 100)}
+                              className="px-3 py-1 bg-white border border-zinc-200 hover:bg-zinc-100 rounded-lg font-bold text-zinc-700 shadow-sm"
+                            >
+                              Load 100 more
+                            </button>
+                            <button
+                              onClick={() => setReadyLimit(filteredReady.length)}
+                              className="px-3 py-1 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-lg font-bold text-teal-800 shadow-sm"
+                            >
+                              Show All ({filteredReady.length})
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
