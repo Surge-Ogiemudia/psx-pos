@@ -29,12 +29,18 @@ const responseSchema = {
 };
 
 async function fetchImageAsBase64(url) {
-  const imgRes = await fetch(url);
-  if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.statusText}`);
-  const arrayBuffer = await imgRes.arrayBuffer();
-  const base64Data = Buffer.from(arrayBuffer).toString("base64");
-  const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
-  return { mimeType, base64Data };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const imgRes = await fetch(url, { signal: controller.signal });
+    if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.statusText}`);
+    const arrayBuffer = await imgRes.arrayBuffer();
+    const base64Data = Buffer.from(arrayBuffer).toString("base64");
+    const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
+    return { mimeType, base64Data };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function extractWithGemini(frontUrl, backUrl) {
@@ -74,18 +80,23 @@ Be accurate. If a field is not visible in the images, leave it empty.`;
   const candidateModels = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"];
   let lastErr = null;
 
-  for (const candidateModel of candidateModels) {
-    try {
-      const response = await ai.models.generateContent({ model: candidateModel, ...aiConfig });
-      if (response && response.text) {
-        return JSON.parse(response.text);
-      }
-    } catch (err) {
-      lastErr = err;
-      if (err.status === 429) {
-        await new Promise(r => setTimeout(r, 2500));
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    for (const candidateModel of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({ model: candidateModel, ...aiConfig });
+        if (response && response.text) {
+          const raw = response.text.trim();
+          const cleaned = raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+          return JSON.parse(cleaned);
+        }
+      } catch (err) {
+        lastErr = err;
+        if (err.status === 429) {
+          await new Promise(r => setTimeout(r, 2000 * attempt));
+        }
       }
     }
+    await new Promise(r => setTimeout(r, 1500 * attempt));
   }
 
   throw lastErr || new Error("Failed extraction with all models");
