@@ -19,12 +19,20 @@ const AiDraftProductSchema = new Schema(
     // Processing State
     status: { 
       type: String, 
-      enum: ["pending", "processing", "completed", "error"], 
+      enum: ["pending", "processing", "extracted", "completed", "error"], 
       default: "pending",
       index: true
     },
     errorMsg: { type: String, default: null },
     
+    // AI Staged Extraction Results
+    extractedItemName: { type: String, default: null },
+    extractedBrand: { type: String, default: null },
+    extractedSize: { type: String, default: null },
+    extractedBarcode: { type: String, default: null },
+    extractedExpiryDate: { type: Date, default: null },
+    needsReviewReason: { type: [String], default: [] },
+
     // Final product reference once created
     productId: { type: Schema.Types.ObjectId, ref: "Product", default: null }
   },
