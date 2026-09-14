@@ -40,6 +40,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     
     const resolvedParams = await params;
 
+    const { searchParams } = new URL(req.url);
+    const stageOnly = searchParams.get("stageOnly") === "true";
+
     // 1. Fetch Draft
     const draft = await AiDraftProduct.findOne({ _id: resolvedParams.id, pharmacyId: session.user.pharmacyId });
     if (!draft) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
@@ -84,7 +87,7 @@ Be accurate. If a field is not visible in the images, leave it empty.`;
         }
       };
 
-      const candidateModels = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"];
+      const candidateModels = ["gemini-2.5-flash", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"];
       let lastErr: any = null;
 
       for (const candidateModel of candidateModels) {
@@ -104,13 +107,37 @@ Be accurate. If a field is not visible in the images, leave it empty.`;
       const text = response.text;
       const extracted = JSON.parse(text);
 
-      // 5. Create Real Product
+      // Save extracted values on draft
+      draft.extractedItemName = extracted.itemName || "Unnamed Product";
+      draft.extractedBrand = extracted.brand || "Unknown Brand";
+      draft.extractedSize = extracted.size || "Standard";
+      draft.extractedBarcode = extracted.barcode || "";
+      draft.extractedExpiryDate = extracted.expiryDate ? new Date(extracted.expiryDate) : null;
+
+      const reasons: string[] = [];
+      if (!draft.retailPrice || draft.retailPrice <= 0) reasons.push("zero_price");
+      if (!extracted.itemName || extracted.itemName.toLowerCase().includes("unnamed") || extracted.itemName.length < 3) {
+        reasons.push("missing_name");
+      }
+      if (draft.retailPrice && draft.retailPrice > 100000) reasons.push("outlier_price");
+      if (draft.quantityInStock && draft.quantityInStock > 500) reasons.push("outlier_qty");
+      draft.needsReviewReason = reasons;
+
+      // If stageOnly requested, finish at extracted stage
+      if (stageOnly) {
+        draft.status = "extracted";
+        draft.errorMsg = null;
+        await draft.save();
+        return NextResponse.json({ success: true, draft });
+      }
+
+      // 5. Create Real Product (Direct Mode)
       const newProduct = await Product.create({
         pharmacyId: draft.pharmacyId,
         branchId: draft.branchId,
-        itemName: extracted.itemName || "Unnamed Product",
-        brand: extracted.brand || "Unknown Brand",
-        size: extracted.size || "Standard",
+        itemName: draft.extractedItemName,
+        brand: draft.extractedBrand,
+        size: draft.extractedSize,
         category: draft.category || "supermarket",
         imageUrl: draft.frontImageUrl,
         quantityInStock: draft.quantityInStock,
@@ -120,8 +147,8 @@ Be accurate. If a field is not visible in the images, leave it empty.`;
         costPrice: 0,
         alertQuantity: Math.max(1, Math.floor(draft.quantityInStock * 0.2)),
         unitHierarchy: [{ unitName: "Piece", unitsPerParent: 1 }],
-        barcode: extracted.barcode || "",
-        expiryDate: extracted.expiryDate ? new Date(extracted.expiryDate) : null,
+        barcode: draft.extractedBarcode,
+        expiryDate: draft.extractedExpiryDate,
       });
 
       // 6. Mark Draft Complete
@@ -130,7 +157,7 @@ Be accurate. If a field is not visible in the images, leave it empty.`;
       draft.errorMsg = null;
       await draft.save();
 
-      return NextResponse.json({ success: true, product: newProduct });
+      return NextResponse.json({ success: true, product: newProduct, draft });
 
     } catch (processError: any) {
       draft.status = "error";

@@ -18,6 +18,7 @@ import AlertFilterButton from "@/components/AlertFilterButton";
 import UnitNameInput from "@/components/UnitNameInput";
 import AiFastEntry from "./AiFastEntry";
 import AiQueue from "./AiQueue";
+import ResolveClient from "./resolve/ResolveClient";
 const emptyForm = {
   itemName: "",
   brand: "",
@@ -151,6 +152,7 @@ export default function ProductsClient({
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
+  const [showResolveStudio, setShowResolveStudio] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1084,6 +1086,15 @@ export default function ProductsClient({
                     className="block w-full px-3 py-1.5 text-left text-blue-700 hover:bg-blue-50 font-medium"
                   >
                     🤖 Processing Queue
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowResolveStudio(true);
+                      setAddMenuOpen(false);
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-purple-700 hover:bg-purple-50 font-medium border-t border-zinc-100"
+                  >
+                    ✨ Resolve & Audit Studio
                   </button>
                 </div>
               )}
@@ -2540,6 +2551,16 @@ export default function ProductsClient({
             <button onClick={() => setShowQueue(false)} className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-600 p-2 z-10 bg-white rounded-full shadow">✕ Close</button>
             <div className="flex-1 overflow-y-auto">
               <AiQueue branchId={branchId} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showResolveStudio && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/60 p-4 overflow-y-auto backdrop-blur-sm">
+          <div className="w-full max-w-7xl h-full bg-white shadow-2xl rounded-2xl flex flex-col relative overflow-hidden">
+            <div className="flex-1 overflow-y-auto">
+              <ResolveClient branchId={branchId} onClose={() => setShowResolveStudio(false)} />
             </div>
           </div>
         </div>
