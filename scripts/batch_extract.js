@@ -137,12 +137,46 @@ async function run() {
       const expiryDate = extracted.expiryDate ? new Date(extracted.expiryDate) : null;
 
       const reasons = [];
-      if (!draft.retailPrice || draft.retailPrice <= 0) reasons.push("zero_price");
-      if (!extracted.itemName || extracted.itemName.toLowerCase().includes("unnamed") || extracted.itemName.length < 3) {
+      const price = Number(draft.retailPrice || 0);
+      const qty = Number(draft.quantityInStock || 0);
+      const cat = draft.category || "medicine";
+      const fullName = `${itemName} ${brand} ${size}`.toLowerCase();
+
+      // 1. Price checks
+      if (price <= 0) reasons.push("zero_price");
+      else if (price < 50) reasons.push("unlikely_low_price");
+      else if (price > 50000) reasons.push("high_price_check");
+
+      // 2. Quantity checks
+      if (qty <= 0) reasons.push("zero_qty");
+      else if (qty > 100) reasons.push("high_qty_check");
+
+      // 3. Name checks
+      if (!itemName || itemName.toLowerCase().includes("unnamed") || itemName.length < 3) {
         reasons.push("missing_name");
       }
-      if (draft.retailPrice && draft.retailPrice > 100000) reasons.push("outlier_price");
-      if (draft.quantityInStock && draft.quantityInStock > 500) reasons.push("outlier_qty");
+
+      // 4. Expiry checks
+      if (expiryDate) {
+        if (expiryDate < new Date()) reasons.push("past_expiry");
+        const year = expiryDate.getFullYear();
+        if (year > 2040 || year < 2020) reasons.push("unlikely_expiry_year");
+      } else if (cat === "medicine") {
+        reasons.push("missing_expiry");
+      }
+
+      // 5. Category mismatch check
+      const pharmaKeywords = ["mg", "tablet", "tablets", "capsule", "capsules", "syrup", "suspension", "injection", "infusion", "ointment", "antibiotic", "paracetamol", "amoxicillin", "ampicillin", "metronidazole", "artemether", "lumefantrine", "ciprofloxacin", "ibuprofen", "diclofenac", "inhaler", "suppository"];
+      const supermarketKeywords = ["biscuit", "biscuits", "wafer", "wafers", "drink", "drinks", "coca cola", "fanta", "sprite", "pepsi", "malt", "water", "detergent", "bleach", "soap", "toothpaste", "toilet roll", "tissue", "sponge", "cleaner", "deodorant", "perfume", "diaper", "diapers", "milk", "tea", "coffee", "sugar"];
+
+      const hasPharma = pharmaKeywords.some(k => fullName.includes(k));
+      const hasSuper = supermarketKeywords.some(k => fullName.includes(k));
+
+      if (cat !== "medicine" && hasPharma) {
+        reasons.push("looks_like_medicine");
+      } else if (cat === "medicine" && hasSuper && !hasPharma) {
+        reasons.push("looks_like_supermarket");
+      }
 
       await draftsCollection.updateOne(
         { _id: draft._id },

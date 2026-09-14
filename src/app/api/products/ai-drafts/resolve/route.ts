@@ -76,13 +76,61 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    // 2. Filter Needs Attention (excluding items already in duplicate groups)
+function computeReviewFlags(draft: any): string[] {
+  const flags = new Set<string>(draft.needsReviewReason || []);
+  const name = (draft.extractedItemName || "").toLowerCase();
+  const brand = (draft.extractedBrand || "").toLowerCase();
+  const size = (draft.extractedSize || "").toLowerCase();
+  const price = Number(draft.retailPrice || 0);
+  const qty = Number(draft.quantityInStock || 0);
+  const cat = draft.category || "medicine";
+  const fullName = `${name} ${brand} ${size}`;
+
+  // 1. Price checks
+  if (price <= 0) flags.add("zero_price");
+  else if (price < 50) flags.add("unlikely_low_price");
+  else if (price > 50000) flags.add("high_price_check");
+
+  // 2. Quantity checks
+  if (qty <= 0) flags.add("zero_qty");
+  else if (qty > 100) flags.add("high_qty_check");
+
+  // 3. Name checks
+  if (!name || name.includes("unnamed") || name.length < 3) flags.add("missing_name");
+
+  // 4. Expiry checks
+  if (draft.extractedExpiryDate) {
+    const exp = new Date(draft.extractedExpiryDate);
+    const now = new Date();
+    if (exp < now) flags.add("past_expiry");
+    const year = exp.getFullYear();
+    if (year > 2040 || year < 2020) flags.add("unlikely_expiry_year");
+  } else if (cat === "medicine") {
+    flags.add("missing_expiry");
+  }
+
+  // 5. Category mismatch check
+  const pharmaKeywords = ["mg", "tablet", "tablets", "capsule", "capsules", "syrup", "suspension", "injection", "infusion", "ointment", "antibiotic", "paracetamol", "amoxicillin", "ampicillin", "metronidazole", "artemether", "lumefantrine", "ciprofloxacin", "ibuprofen", "diclofenac", "inhaler", "suppository"];
+  const supermarketKeywords = ["biscuit", "biscuits", "wafer", "wafers", "drink", "drinks", "coca cola", "fanta", "sprite", "pepsi", "malt", "water", "detergent", "bleach", "soap", "toothpaste", "toilet roll", "tissue", "sponge", "cleaner", "deodorant", "perfume", "diaper", "diapers", "milk", "tea", "coffee", "sugar"];
+
+  const hasPharma = pharmaKeywords.some(k => fullName.includes(k));
+  const hasSuper = supermarketKeywords.some(k => fullName.includes(k));
+
+  if (cat !== "medicine" && hasPharma) {
+    flags.add("looks_like_medicine");
+  } else if (cat === "medicine" && hasSuper && !hasPharma) {
+    flags.add("looks_like_supermarket");
+  }
+
+  return Array.from(flags);
+}
+
+    // 2. Filter Needs Attention (evaluating all anomaly flags)
     const needsAttentionDrafts = extractedDrafts.filter(draft => {
       if (duplicateDraftIds.has(String(draft._id))) return false;
-      const reasons = draft.needsReviewReason || [];
-      const hasZeroPrice = !draft.retailPrice || draft.retailPrice <= 0;
-      const isUnnamed = !draft.extractedItemName || draft.extractedItemName.toLowerCase().includes("unnamed") || draft.extractedItemName.length < 3;
-      return reasons.length > 0 || hasZeroPrice || isUnnamed;
+      const flags = computeReviewFlags(draft);
+      draft.needsReviewReason = flags;
+      return flags.length > 0;
     });
 
     // 3. Ready to Publish (Clean items not in duplicate groups and not needing attention)
