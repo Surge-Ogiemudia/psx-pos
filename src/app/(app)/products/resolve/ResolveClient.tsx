@@ -539,7 +539,32 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                 <div className="flex flex-wrap gap-1 mb-1.5">
                                   {isZeroPrice && (
                                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
-                                      🚩 Price is ₦0
+                                      🚩 ₦0 Price
+                                    </span>
+                                  )}
+                                  {reasons.includes("unlikely_low_price") && (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                      ⚠️ Low Price: ₦{form.retailPrice}
+                                    </span>
+                                  )}
+                                  {reasons.includes("high_price_check") && (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
+                                      ⚠️ High Price: ₦{Number(form.retailPrice).toLocaleString()}
+                                    </span>
+                                  )}
+                                  {reasons.includes("high_qty_check") && (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
+                                      ⚠️ High Qty: {form.quantityInStock}
+                                    </span>
+                                  )}
+                                  {reasons.includes("past_expiry") && (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
+                                      🔴 Past Expiry
+                                    </span>
+                                  )}
+                                  {reasons.includes("missing_expiry") && (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                      ⚠️ Missing Expiry
                                     </span>
                                   )}
                                   {reasons.includes("missing_name") && (
@@ -547,10 +572,25 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                       🏷️ Needs Name
                                     </span>
                                   )}
-                                  {reasons.includes("outlier_price") && (
-                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800">
-                                      ⚠️ Check Price
-                                    </span>
+                                  {reasons.includes("looks_like_medicine") && (
+                                    <button 
+                                      type="button"
+                                      onClick={() => setEditingDrafts(prev => ({ ...prev, [draft._id]: { ...prev[draft._id], category: "medicine" } }))}
+                                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors flex items-center gap-1"
+                                      title="Click to switch to Medicine"
+                                    >
+                                      💊 Switch to Medicine ↗
+                                    </button>
+                                  )}
+                                  {reasons.includes("looks_like_supermarket") && (
+                                    <button 
+                                      type="button"
+                                      onClick={() => setEditingDrafts(prev => ({ ...prev, [draft._id]: { ...prev[draft._id], category: "supermarket" } }))}
+                                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors flex items-center gap-1"
+                                      title="Click to switch to Supermarket"
+                                    >
+                                      🛒 Switch to Supermarket ↗
+                                    </button>
                                   )}
                                 </div>
                                 <div className="text-xs text-zinc-400">Draft ID: {draft._id}</div>
@@ -630,6 +670,69 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                       ...prev,
                                       [draft._id]: { ...prev[draft._id], extractedSize: e.target.value }
                                     }))}
+                                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Category Pills */}
+                              <div>
+                                <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Category</label>
+                                <div className="grid grid-cols-3 gap-1.5 p-1 bg-zinc-100 rounded-lg">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "medicine" } }))}
+                                    className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
+                                      form.category === "medicine" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                                    }`}
+                                  >
+                                    💊 Medicine
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "supermarket" } }))}
+                                    className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
+                                      form.category === "supermarket" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                                    }`}
+                                  >
+                                    🛒 Supermarket
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "non-medicine" } }))}
+                                    className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
+                                      form.category === "non-medicine" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                                    }`}
+                                  >
+                                    📦 General
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Expiry Date & Barcode */}
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[11px] font-bold text-zinc-500 uppercase">Expiry Date</label>
+                                  <input
+                                    type="date"
+                                    value={form.extractedExpiryDate ? new Date(form.extractedExpiryDate).toISOString().split('T')[0] : ""}
+                                    onChange={e => setEditingDrafts(prev => ({
+                                      ...prev,
+                                      [draft._id]: { ...prev[draft._id], extractedExpiryDate: e.target.value }
+                                    }))}
+                                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[11px] font-bold text-zinc-500 uppercase">Barcode</label>
+                                  <input
+                                    type="text"
+                                    value={form.extractedBarcode || ""}
+                                    onChange={e => setEditingDrafts(prev => ({
+                                      ...prev,
+                                      [draft._id]: { ...prev[draft._id], extractedBarcode: e.target.value }
+                                    }))}
+                                    placeholder="Optional"
                                     className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
                                   />
                                 </div>
