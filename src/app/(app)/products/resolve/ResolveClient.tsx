@@ -2,77 +2,24 @@
 
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
+import DuplicateGroupCard from "./components/DuplicateGroupCard";
+import ResilientThumb from "./components/ResilientThumb";
+import {
+  useBackgroundSync,
+  FloatingSyncIndicator,
+  buildMergeGroupSyncAction,
+  buildSaveDraftSyncAction,
+  buildApproveDraftSyncAction,
+  buildUpdateExpirySyncAction,
+} from "./lib/backgroundSync";
 
 interface ResolveClientProps {
   branchId: string | null;
   onClose?: () => void;
 }
 
-// Ultra-fast lazy-loaded thumbnail with WebP optimization & Front/Back badge
-function FastThumb({
-  src,
-  alt,
-  label,
-  className = "h-12 w-12",
-  onClick,
-}: {
-  src: string | null | undefined;
-  alt: string;
-  label?: "Front" | "Back";
-  className?: string;
-  onClick?: () => void;
-}) {
-  const [loaded, setLoaded] = useState(false);
-  const [hasError, setHasError] = useState(false);
-
-  if (!src) {
-    if (!label) return null;
-    return (
-      <div className={`${className} rounded-lg bg-zinc-100 border border-dashed border-zinc-300 flex flex-col items-center justify-center text-zinc-400 text-[9px] font-semibold select-none shrink-0`}>
-        <span>No</span>
-        <span>{label}</span>
-      </div>
-    );
-  }
-
-  // Next.js image optimization endpoint for instant ~15KB WebP rendering
-  const thumbUrl = `/_next/image?url=${encodeURIComponent(src)}&w=256&q=70`;
-
-  return (
-    <div
-      className={`relative ${className} rounded-lg overflow-hidden bg-zinc-100 border border-zinc-200 shrink-0 group cursor-pointer hover:ring-2 hover:ring-teal-500 transition-all`}
-      onClick={onClick}
-      title={label ? `${label} photo (Click to zoom)` : "Click to zoom"}
-    >
-      {!loaded && !hasError && (
-        <div className="absolute inset-0 bg-zinc-200/70 animate-pulse flex items-center justify-center text-zinc-400 text-[10px]">
-          📷
-        </div>
-      )}
-      <img
-        src={hasError ? src : thumbUrl}
-        alt={alt}
-        loading="lazy"
-        decoding="async"
-        onLoad={() => setLoaded(true)}
-        onError={() => {
-          if (!hasError) setHasError(true);
-        }}
-        className={`w-full h-full object-cover transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
-      />
-      {label && (
-        <span className={`absolute bottom-0.5 right-0.5 px-1 py-0.2 rounded text-[8px] font-black uppercase tracking-wider backdrop-blur-sm shadow-xs ${
-          label === "Front" ? "bg-black/75 text-white" : "bg-teal-900/80 text-teal-100"
-        }`}>
-          {label}
-        </span>
-      )}
-      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-        <span className="text-white text-xs drop-shadow">🔍</span>
-      </div>
-    </div>
-  );
-}
+// Ultra-resilient, persistent CacheStorage thumbnail for weak pharmacy networks
+const FastThumb = ResilientThumb;
 
 export default function ResolveClient({ branchId, onClose }: ResolveClientProps) {
   const [loading, setLoading] = useState(true);
@@ -86,6 +33,11 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Background optimistic synchronization queue (0ms user wait time)
+  const sync = useBackgroundSync({
+    onError: (err) => setErrorMsg(err.message),
+  });
 
   // Form states for items being edited inline
   const [editingDrafts, setEditingDrafts] = useState<Record<string, any>>({});
@@ -168,7 +120,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
     setTimeout(() => setSuccessToast(null), 3000);
   };
 
-  // 1. Merge Duplicate Group
+  // 1. Merge Duplicate Group (Optimistic 0ms UI with background sync)
   const handleMergeGroup = async (groupKey: string) => {
     const group = duplicateGroups.find(g => g.groupKey === groupKey);
     const form = editingGroups[groupKey];
@@ -179,88 +131,129 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
       return;
     }
 
-    try {
-      setActionLoading(groupKey);
-      setErrorMsg(null);
-
-      const res = await fetch("/api/products/ai-drafts/resolve/merge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          draftIds: group.items.map((i: any) => i._id),
-          productData: form
-        })
-      });
-
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to merge");
-
-      showSuccess(`Merged ${group.items.length} items into "${json.product.itemName}"!`);
-      fetchData();
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to merge");
-    } finally {
-      setActionLoading(null);
-    }
+    sync.enqueue(
+      buildMergeGroupSyncAction({
+        groupKey,
+        group,
+        form,
+        setDuplicateGroups,
+        setStats,
+        showSuccess,
+        setErrorMsg,
+      })
+    );
   };
 
-  // 2. Save Inline Edit for Needs Attention Item
+  // 1b. Approve Single Item Separated from Duplicate Group (Optimistic 0ms UI)
+  const handleApproveSingle = async (draftId: string, itemData: any) => {
+    const targetGroup = duplicateGroups.find(g => g.items.some((it: any) => it._id === draftId));
+    const targetItem = targetGroup?.items.find((it: any) => it._id === draftId);
+
+    sync.enqueue({
+      id: `single-${draftId}`,
+      type: "approve_single_item",
+      label: `Approved "${itemData.itemName}"`,
+      applyOptimistic: () => {
+        // Instantly remove item from duplicate group in UI (0ms latency!)
+        setDuplicateGroups(prev =>
+          prev
+            .map(g => {
+              if (g.groupKey !== targetGroup?.groupKey) return g;
+              const remaining = g.items.filter((it: any) => it._id !== draftId);
+              return {
+                ...g,
+                items: remaining,
+                count: remaining.length,
+                totalQty: remaining.reduce((sum: number, it: any) => sum + (it.quantityInStock || 0), 0),
+              };
+            })
+            .filter(g => g.items.length > 0)
+        );
+        if (setStats) {
+          setStats((prev: any) =>
+            prev
+              ? {
+                  ...prev,
+                  duplicateDraftsCount: Math.max(0, (prev.duplicateDraftsCount || 1) - 1),
+                }
+              : prev
+          );
+        }
+      },
+      run: async () => {
+        const res = await fetch("/api/products/ai-drafts/resolve/approve-single", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            draftId,
+            productData: itemData,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to approve item");
+        return json;
+      },
+      rollback: (err: Error) => {
+        // Restore item back to group on network error
+        if (targetGroup && targetItem) {
+          setDuplicateGroups(prev => {
+            const exists = prev.find(g => g.groupKey === targetGroup.groupKey);
+            if (exists) {
+              return prev.map(g =>
+                g.groupKey === targetGroup.groupKey
+                  ? { ...g, items: [...g.items, targetItem], count: g.items.length + 1 }
+                  : g
+              );
+            }
+            return [targetGroup, ...prev];
+          });
+        }
+        setErrorMsg(`Failed to approve "${itemData.itemName}": ${err.message}`);
+      },
+      onSuccess: (json: any) => {
+        showSuccess(`✓ Approved "${json.product?.itemName || itemData.itemName}" live to POS!`);
+      },
+    });
+  };
+
+  // 2. Save Inline Edit for Needs Attention Item (Optimistic 0ms UI)
   const handleSaveDraftEdit = async (draftId: string) => {
     const form = editingDrafts[draftId];
-    if (!form) return;
+    const draft = needsAttention.find(d => d._id === draftId);
+    if (!form || !draft) return;
 
     if (!form.extractedItemName || !form.retailPrice || Number(form.retailPrice) <= 0) {
       alert("Please provide a name and a retail price greater than ₦0.");
       return;
     }
 
-    try {
-      setActionLoading(draftId);
-      setErrorMsg(null);
-
-      const res = await fetch(`/api/products/ai-drafts/resolve/${draftId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form)
-      });
-
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to save edit");
-
-      showSuccess(`Updated "${json.draft.extractedItemName}"!`);
-      fetchData();
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to save draft");
-    } finally {
-      setActionLoading(null);
-    }
+    sync.enqueue(
+      buildSaveDraftSyncAction({
+        draftId,
+        originalDraft: draft,
+        form,
+        setNeedsAttention,
+        setReadyToPublish,
+        setStats,
+        showSuccess,
+        setErrorMsg,
+      })
+    );
   };
 
-  // Update Expiry Date directly from Ready to Publish table
+  // Update Expiry Date directly from Ready to Publish table (Optimistic 0ms UI)
   const handleUpdateReadyExpiry = async (draftId: string, newDateStr: string) => {
-    try {
-      setActionLoading(`expiry-${draftId}`);
-      const res = await fetch(`/api/products/ai-drafts/resolve/${draftId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ extractedExpiryDate: newDateStr || null })
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to update expiry date");
-
-      setReadyToPublish(prev =>
-        prev.map(p =>
-          p._id === draftId
-            ? { ...p, extractedExpiryDate: newDateStr ? new Date(newDateStr).toISOString() : null }
-            : p
-        )
-      );
-      showSuccess("Expiry date updated!");
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to update expiry date");
-    } finally {
-      setActionLoading(null);
-    }
+    const current = readyToPublish.find(p => p._id === draftId);
+    sync.enqueue(
+      buildUpdateExpirySyncAction({
+        draftId,
+        previousExpiryDate: current?.extractedExpiryDate || null,
+        newDateStr,
+        setReadyToPublish,
+        showSuccess,
+        setErrorMsg,
+      })
+    );
   };
 
   // Save full edits made in Ready to Publish Quick-Edit modal
@@ -529,169 +522,29 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                     const isSaving = actionLoading === group.groupKey;
 
                     return (
-                      <div key={group.groupKey} className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm">
-                        <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-100">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-800 text-xs font-bold uppercase tracking-wider">
-                              {group.count} Snaps Matched
-                            </span>
-                            <span className="text-sm font-bold text-zinc-700">
-                              Combined Total: {group.totalQty} Units
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => handleMergeGroup(group.groupKey)}
-                            disabled={isSaving}
-                            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow transition-colors disabled:opacity-50"
-                          >
-                            {isSaving ? "Merging..." : "⚡ Merge & Approve"}
-                          </button>
-                        </div>
-
-                        {/* Snapped Photos Grid */}
-                        <div className="mb-4">
-                          <div className="text-xs font-semibold text-zinc-500 mb-2">Original Snaps:</div>
-                          <div className="flex gap-4 overflow-x-auto pb-2">
-                            {group.items.map((item: any, idx: number) => (
-                              <div key={item._id} className="shrink-0 flex items-center gap-2.5 bg-zinc-50 border border-zinc-200 rounded-xl p-2.5 pr-4">
-                                <div className="flex items-center gap-1.5">
-                                  <FastThumb
-                                    src={item.frontImageUrl}
-                                    alt={`Snap #${idx + 1} Front`}
-                                    label="Front"
-                                    className="h-16 w-16"
-                                    onClick={() => setSelectedImage(item.frontImageUrl)}
-                                  />
-                                  <FastThumb
-                                    src={item.backImageUrl}
-                                    alt={`Snap #${idx + 1} Back`}
-                                    label="Back"
-                                    className="h-16 w-16"
-                                    onClick={() => setSelectedImage(item.backImageUrl)}
-                                  />
-                                </div>
-                                <div className="text-xs">
-                                  <div className="font-bold text-zinc-800">Snap #{idx + 1}</div>
-                                  <div className="text-zinc-500">Qty: {item.quantityInStock}</div>
-                                  <div className="text-zinc-500">Price: ₦{item.retailPrice || 0}</div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Target Merged Fields */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 bg-zinc-50 p-4 rounded-xl border border-zinc-200">
-                          <div className="md:col-span-2">
-                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Final Product Name</label>
-                            <input
-                              type="text"
-                              value={form.itemName || ""}
-                              onChange={e => setEditingGroups(prev => ({
-                                ...prev,
-                                [group.groupKey]: { ...prev[group.groupKey], itemName: e.target.value }
-                              }))}
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:border-indigo-500"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Brand</label>
-                            <input
-                              type="text"
-                              value={form.brand || ""}
-                              onChange={e => setEditingGroups(prev => ({
-                                ...prev,
-                                [group.groupKey]: { ...prev[group.groupKey], brand: e.target.value }
-                              }))}
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Size / Strength</label>
-                            <input
-                              type="text"
-                              value={form.size || ""}
-                              onChange={e => setEditingGroups(prev => ({
-                                ...prev,
-                                [group.groupKey]: { ...prev[group.groupKey], size: e.target.value }
-                              }))}
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Retail Price (₦)</label>
-                            <input
-                              type="number"
-                              value={form.retailPrice || ""}
-                              onChange={e => setEditingGroups(prev => ({
-                                ...prev,
-                                [group.groupKey]: { ...prev[group.groupKey], retailPrice: e.target.value }
-                              }))}
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-bold text-emerald-700 outline-none focus:border-indigo-500"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Total Stock</label>
-                            <input
-                              type="number"
-                              value={form.quantityInStock || 0}
-                              onChange={e => setEditingGroups(prev => ({
-                                ...prev,
-                                [group.groupKey]: { ...prev[group.groupKey], quantityInStock: e.target.value }
-                              }))}
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-indigo-500"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Category</label>
-                            <select
-                              value={form.category || "medicine"}
-                              onChange={e => setEditingGroups(prev => ({
-                                ...prev,
-                                [group.groupKey]: { ...prev[group.groupKey], category: e.target.value }
-                              }))}
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:border-indigo-500"
-                            >
-                              <option value="medicine">💊 Medicine</option>
-                              <option value="supermarket">🛒 Supermarket</option>
-                              <option value="non-medicine">📦 General</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Expiry Date</label>
-                            <input
-                              type="date"
-                              value={form.expiryDate || ""}
-                              onChange={e => setEditingGroups(prev => ({
-                                ...prev,
-                                [group.groupKey]: { ...prev[group.groupKey], expiryDate: e.target.value }
-                              }))}
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs outline-none focus:border-indigo-500"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Barcode</label>
-                            <input
-                              type="text"
-                              value={form.barcode || ""}
-                              onChange={e => setEditingGroups(prev => ({
-                                ...prev,
-                                [group.groupKey]: { ...prev[group.groupKey], barcode: e.target.value }
-                              }))}
-                              placeholder="Barcode"
-                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                        </div>
-
-                      </div>
+                      <DuplicateGroupCard
+                        key={group.groupKey}
+                        group={group}
+                        mergedForm={form}
+                        onMergedFormChange={(updated) => {
+                          setEditingGroups((prev) => ({
+                            ...prev,
+                            [group.groupKey]: {
+                              ...(prev[group.groupKey] || {}),
+                              ...updated,
+                            },
+                          }));
+                        }}
+                        onMergeGroup={handleMergeGroup}
+                        onApproveSingle={handleApproveSingle}
+                        onImageZoom={(url) => setSelectedImage(url)}
+                        isMerging={isSaving}
+                        isApprovingDraftId={
+                          actionLoading?.startsWith("single-")
+                            ? actionLoading.replace("single-", "")
+                            : null
+                        }
+                      />
                     );
                   })}
                 </div>
@@ -1442,6 +1295,9 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
           </div>
         </div>
       )}
+
+      {/* NON-BLOCKING FLOATING SYNC STATUS (0ms perceived latency) */}
+      <FloatingSyncIndicator sync={sync} />
 
     </div>
   );
