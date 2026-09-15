@@ -95,6 +95,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
   const [readySubTab, setReadySubTab] = useState<"all" | "withExpiry" | "noExpiry">("all");
   const [readySearch, setReadySearch] = useState<string>("");
   const [readyLimit, setReadyLimit] = useState<number>(50);
+  const [editingReadyDraft, setEditingReadyDraft] = useState<any | null>(null);
 
   const fetchData = async () => {
     try {
@@ -111,7 +112,8 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
       // Pre-fill editing states for duplicates
       const groupForms: Record<string, any> = {};
       (json.duplicateGroups || []).forEach((g: any) => {
-        const first = g.items[0];
+        const first = g.items[0] || {};
+        const bestExpiry = g.items.find((it: any) => it.extractedExpiryDate)?.extractedExpiryDate;
         groupForms[g.groupKey] = {
           itemName: first.extractedItemName || "",
           brand: first.extractedBrand || "",
@@ -120,6 +122,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
           quantityInStock: g.totalQty,
           barcode: g.suggestedBarcode || "",
           category: first.category || "medicine",
+          expiryDate: bestExpiry ? new Date(bestExpiry).toISOString().split('T')[0] : "",
         };
       });
       setEditingGroups(groupForms);
@@ -135,6 +138,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
           quantityInStock: d.quantityInStock || 0,
           extractedBarcode: d.extractedBarcode || "",
           category: d.category || "medicine",
+          extractedExpiryDate: d.extractedExpiryDate ? new Date(d.extractedExpiryDate).toISOString().split('T')[0] : "",
         };
       });
       setEditingDrafts(itemForms);
@@ -254,6 +258,47 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
       showSuccess("Expiry date updated!");
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to update expiry date");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Save full edits made in Ready to Publish Quick-Edit modal
+  const handleSaveReadyDraftModal = async () => {
+    if (!editingReadyDraft) return;
+
+    if (!editingReadyDraft.extractedItemName || !editingReadyDraft.retailPrice || Number(editingReadyDraft.retailPrice) <= 0) {
+      alert("Please provide a valid product name and retail price > ₦0.");
+      return;
+    }
+
+    try {
+      setActionLoading(`modal-save-${editingReadyDraft._id}`);
+      setErrorMsg(null);
+
+      const res = await fetch(`/api/products/ai-drafts/resolve/${editingReadyDraft._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          extractedItemName: editingReadyDraft.extractedItemName,
+          extractedBrand: editingReadyDraft.extractedBrand,
+          extractedSize: editingReadyDraft.extractedSize,
+          extractedBarcode: editingReadyDraft.extractedBarcode,
+          retailPrice: Number(editingReadyDraft.retailPrice),
+          quantityInStock: Number(editingReadyDraft.quantityInStock),
+          category: editingReadyDraft.category,
+          extractedExpiryDate: editingReadyDraft.extractedExpiryDate || null,
+        })
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to save edits");
+
+      showSuccess(`Saved edits for "${editingReadyDraft.extractedItemName}"!`);
+      setEditingReadyDraft(null);
+      fetchData();
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to save product edits");
     } finally {
       setActionLoading(null);
     }
@@ -599,6 +644,49 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                 [group.groupKey]: { ...prev[group.groupKey], quantityInStock: e.target.value }
                               }))}
                               className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-indigo-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Category</label>
+                            <select
+                              value={form.category || "medicine"}
+                              onChange={e => setEditingGroups(prev => ({
+                                ...prev,
+                                [group.groupKey]: { ...prev[group.groupKey], category: e.target.value }
+                              }))}
+                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:border-indigo-500"
+                            >
+                              <option value="medicine">💊 Medicine</option>
+                              <option value="supermarket">🛒 Supermarket</option>
+                              <option value="non-medicine">📦 General</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Expiry Date</label>
+                            <input
+                              type="date"
+                              value={form.expiryDate || ""}
+                              onChange={e => setEditingGroups(prev => ({
+                                ...prev,
+                                [group.groupKey]: { ...prev[group.groupKey], expiryDate: e.target.value }
+                              }))}
+                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs outline-none focus:border-indigo-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Barcode</label>
+                            <input
+                              type="text"
+                              value={form.barcode || ""}
+                              onChange={e => setEditingGroups(prev => ({
+                                ...prev,
+                                [group.groupKey]: { ...prev[group.groupKey], barcode: e.target.value }
+                              }))}
+                              placeholder="Barcode"
+                              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
                             />
                           </div>
                         </div>
@@ -993,6 +1081,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                 <th className="px-4 py-3">Qty</th>
                                 <th className="px-4 py-3">Retail Price</th>
                                 <th className="px-4 py-3 min-w-[170px]">📅 Expiry Date</th>
+                                <th className="px-4 py-3 text-right min-w-[90px]">Actions</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-100">
@@ -1056,6 +1145,24 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                       )}
                                     </div>
                                   </td>
+                                  <td className="px-4 py-2 text-right">
+                                    <button
+                                      onClick={() => setEditingReadyDraft({
+                                        ...p,
+                                        retailPrice: p.retailPrice || "",
+                                        quantityInStock: p.quantityInStock || 0,
+                                        extractedItemName: p.extractedItemName || "",
+                                        extractedBrand: p.extractedBrand || "",
+                                        extractedSize: p.extractedSize || "Standard",
+                                        category: p.category || "medicine",
+                                        extractedBarcode: p.extractedBarcode || "",
+                                        extractedExpiryDate: p.extractedExpiryDate ? new Date(p.extractedExpiryDate).toISOString().split('T')[0] : "",
+                                      })}
+                                      className="px-3 py-1.5 bg-zinc-100 hover:bg-teal-50 hover:text-teal-700 text-zinc-700 rounded-xl text-xs font-bold border border-zinc-200 transition-all inline-flex items-center gap-1 shadow-2xs hover:border-teal-300"
+                                    >
+                                      ✏️ Edit
+                                    </button>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1086,6 +1193,253 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* QUICK-EDIT MODAL FOR READY TO PUBLISH */}
+      {editingReadyDraft && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setEditingReadyDraft(null)}
+        >
+          <div 
+            className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-zinc-200 overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-150"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 bg-zinc-50/50">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 bg-teal-100 text-teal-700 rounded-xl text-base">✏️</span>
+                <div>
+                  <h3 className="font-bold text-zinc-900 text-base">Edit Product Details</h3>
+                  <p className="text-xs text-zinc-500">Update any details before sending to live POS catalog</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingReadyDraft(null)}
+                className="w-8 h-8 rounded-full bg-zinc-200 hover:bg-zinc-300 text-zinc-600 flex items-center justify-center font-bold text-sm transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Photo Previews */}
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1.5">Camera Snaps (Front & Back)</label>
+                <div className="flex items-center gap-3 bg-zinc-50 p-3 rounded-2xl border border-zinc-200">
+                  <FastThumb
+                    src={editingReadyDraft.frontImageUrl}
+                    alt="Front View"
+                    label="Front"
+                    className="h-20 w-20 shadow-xs"
+                    onClick={() => setSelectedImage(editingReadyDraft.frontImageUrl)}
+                  />
+                  <FastThumb
+                    src={editingReadyDraft.backImageUrl}
+                    alt="Back View"
+                    label="Back"
+                    className="h-20 w-20 shadow-xs"
+                    onClick={() => setSelectedImage(editingReadyDraft.backImageUrl)}
+                  />
+                  <div className="text-xs text-zinc-500">
+                    <p className="font-medium text-zinc-700">Click either photo to zoom.</p>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">Use the snaps to verify exact product naming, strength, and expiry date.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Product Name */}
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Product Name *</label>
+                <input
+                  type="text"
+                  value={editingReadyDraft.extractedItemName || ""}
+                  onChange={e => setEditingReadyDraft({ ...editingReadyDraft, extractedItemName: e.target.value })}
+                  placeholder="e.g. Paracetamol Tablets 500mg"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-zinc-900 outline-none focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+              </div>
+
+              {/* Brand & Size */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Brand / Manufacturer</label>
+                  <input
+                    type="text"
+                    value={editingReadyDraft.extractedBrand || ""}
+                    onChange={e => setEditingReadyDraft({ ...editingReadyDraft, extractedBrand: e.target.value })}
+                    placeholder="e.g. Emzor / GSK"
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-medium text-zinc-800 outline-none focus:bg-white focus:border-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Size / Strength / Pack</label>
+                  <input
+                    type="text"
+                    value={editingReadyDraft.extractedSize || ""}
+                    onChange={e => setEditingReadyDraft({ ...editingReadyDraft, extractedSize: e.target.value })}
+                    placeholder="e.g. 500mg x 100 or 100ml"
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-medium text-zinc-800 outline-none focus:bg-white focus:border-teal-500"
+                  />
+                </div>
+              </div>
+
+              {/* Category Pills */}
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Category</label>
+                <div className="grid grid-cols-3 gap-2 p-1 bg-zinc-100 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setEditingReadyDraft({ ...editingReadyDraft, category: "medicine" })}
+                    className={`py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+                      editingReadyDraft.category === "medicine" || !editingReadyDraft.category
+                        ? "bg-teal-600 text-white shadow-sm"
+                        : "text-zinc-600 hover:text-zinc-900"
+                    }`}
+                  >
+                    💊 Medicine
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingReadyDraft({ ...editingReadyDraft, category: "supermarket" })}
+                    className={`py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+                      editingReadyDraft.category === "supermarket"
+                        ? "bg-teal-600 text-white shadow-sm"
+                        : "text-zinc-600 hover:text-zinc-900"
+                    }`}
+                  >
+                    🛒 Supermarket
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingReadyDraft({ ...editingReadyDraft, category: "non-medicine" })}
+                    className={`py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+                      editingReadyDraft.category === "non-medicine"
+                        ? "bg-teal-600 text-white shadow-sm"
+                        : "text-zinc-600 hover:text-zinc-900"
+                    }`}
+                  >
+                    📦 General
+                  </button>
+                </div>
+              </div>
+
+              {/* Price & Quantity */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Retail Price (₦) *</label>
+                  <input
+                    type="number"
+                    value={editingReadyDraft.retailPrice || ""}
+                    onChange={e => setEditingReadyDraft({ ...editingReadyDraft, retailPrice: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3.5 py-2 text-sm font-black text-emerald-700 outline-none focus:bg-white focus:border-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Quantity in Stock</label>
+                  <input
+                    type="number"
+                    value={editingReadyDraft.quantityInStock !== undefined ? editingReadyDraft.quantityInStock : 0}
+                    onChange={e => setEditingReadyDraft({ ...editingReadyDraft, quantityInStock: e.target.value })}
+                    placeholder="0"
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3.5 py-2 text-sm font-bold text-zinc-900 outline-none focus:bg-white focus:border-teal-500"
+                  />
+                </div>
+              </div>
+
+              {/* Expiry Date & Barcode */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-zinc-500 uppercase">📅 Expiry Date</label>
+                    {editingReadyDraft.extractedExpiryDate && (
+                      <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200">
+                        {new Date(editingReadyDraft.extractedExpiryDate).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="date"
+                    value={editingReadyDraft.extractedExpiryDate || ""}
+                    onChange={e => setEditingReadyDraft({ ...editingReadyDraft, extractedExpiryDate: e.target.value })}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-medium text-zinc-800 outline-none focus:bg-white focus:border-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Barcode</label>
+                  <input
+                    type="text"
+                    value={editingReadyDraft.extractedBarcode || ""}
+                    onChange={e => setEditingReadyDraft({ ...editingReadyDraft, extractedBarcode: e.target.value })}
+                    placeholder="e.g. 615123456789"
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-mono text-zinc-800 outline-none focus:bg-white focus:border-teal-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-zinc-100 bg-zinc-50/50">
+              <button
+                type="button"
+                onClick={() => setEditingReadyDraft(null)}
+                className="px-4 py-2 text-zinc-600 hover:text-zinc-800 font-bold text-xs rounded-xl hover:bg-zinc-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveReadyDraftModal}
+                disabled={
+                  actionLoading === `modal-save-${editingReadyDraft._id}` ||
+                  !editingReadyDraft.extractedItemName ||
+                  !editingReadyDraft.retailPrice ||
+                  Number(editingReadyDraft.retailPrice) <= 0
+                }
+                className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-40 flex items-center gap-1.5"
+              >
+                {actionLoading === `modal-save-${editingReadyDraft._id}` ? (
+                  <>
+                    <span className="animate-spin">⏳</span>
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>✓ Save Changes</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FULLSCREEN IMAGE ZOOM MODAL */}
+      {selectedImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 cursor-zoom-out"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div 
+            className="relative max-w-4xl max-h-[90vh] bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl p-2 border border-zinc-700 cursor-default" 
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setSelectedImage(null)}
+              className="absolute top-4 right-4 bg-black/70 hover:bg-black text-white rounded-full w-9 h-9 flex items-center justify-center font-bold text-lg z-10 transition-colors shadow-lg"
+              title="Close zoom (Esc)"
+            >
+              ✕
+            </button>
+            <img
+              src={selectedImage}
+              alt="Enlarged photo view"
+              className="max-h-[85vh] w-auto mx-auto object-contain rounded-xl"
+            />
+          </div>
         </div>
       )}
 
