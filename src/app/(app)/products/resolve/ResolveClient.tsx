@@ -8,6 +8,72 @@ interface ResolveClientProps {
   onClose?: () => void;
 }
 
+// Ultra-fast lazy-loaded thumbnail with WebP optimization & Front/Back badge
+function FastThumb({
+  src,
+  alt,
+  label,
+  className = "h-12 w-12",
+  onClick,
+}: {
+  src: string | null | undefined;
+  alt: string;
+  label?: "Front" | "Back";
+  className?: string;
+  onClick?: () => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  if (!src) {
+    if (!label) return null;
+    return (
+      <div className={`${className} rounded-lg bg-zinc-100 border border-dashed border-zinc-300 flex flex-col items-center justify-center text-zinc-400 text-[9px] font-semibold select-none shrink-0`}>
+        <span>No</span>
+        <span>{label}</span>
+      </div>
+    );
+  }
+
+  // Next.js image optimization endpoint for instant ~15KB WebP rendering
+  const thumbUrl = `/_next/image?url=${encodeURIComponent(src)}&w=256&q=70`;
+
+  return (
+    <div
+      className={`relative ${className} rounded-lg overflow-hidden bg-zinc-100 border border-zinc-200 shrink-0 group cursor-pointer hover:ring-2 hover:ring-teal-500 transition-all`}
+      onClick={onClick}
+      title={label ? `${label} photo (Click to zoom)` : "Click to zoom"}
+    >
+      {!loaded && !hasError && (
+        <div className="absolute inset-0 bg-zinc-200/70 animate-pulse flex items-center justify-center text-zinc-400 text-[10px]">
+          📷
+        </div>
+      )}
+      <img
+        src={hasError ? src : thumbUrl}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        onError={() => {
+          if (!hasError) setHasError(true);
+        }}
+        className={`w-full h-full object-cover transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
+      />
+      {label && (
+        <span className={`absolute bottom-0.5 right-0.5 px-1 py-0.2 rounded text-[8px] font-black uppercase tracking-wider backdrop-blur-sm shadow-xs ${
+          label === "Front" ? "bg-black/75 text-white" : "bg-teal-900/80 text-teal-100"
+        }`}>
+          {label}
+        </span>
+      )}
+      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <span className="text-white text-xs drop-shadow">🔍</span>
+      </div>
+    </div>
+  );
+}
+
 export default function ResolveClient({ branchId, onClose }: ResolveClientProps) {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"duplicates" | "needsAttention" | "ready">("duplicates");
@@ -442,21 +508,23 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                           <div className="text-xs font-semibold text-zinc-500 mb-2">Original Snaps:</div>
                           <div className="flex gap-4 overflow-x-auto pb-2">
                             {group.items.map((item: any, idx: number) => (
-                              <div key={item._id} className="shrink-0 flex items-center gap-2 bg-zinc-50 border border-zinc-200 rounded-xl p-2 pr-4">
-                                <img
-                                  src={item.frontImageUrl}
-                                  alt="Front snap"
-                                  onClick={() => setSelectedImage(item.frontImageUrl)}
-                                  className="h-16 w-16 object-cover rounded-lg cursor-pointer hover:opacity-90 border border-zinc-200"
-                                />
-                                {item.backImageUrl && (
-                                  <img
-                                    src={item.backImageUrl}
-                                    alt="Back snap"
-                                    onClick={() => setSelectedImage(item.backImageUrl)}
-                                    className="h-16 w-16 object-cover rounded-lg cursor-pointer hover:opacity-90 border border-zinc-200"
+                              <div key={item._id} className="shrink-0 flex items-center gap-2.5 bg-zinc-50 border border-zinc-200 rounded-xl p-2.5 pr-4">
+                                <div className="flex items-center gap-1.5">
+                                  <FastThumb
+                                    src={item.frontImageUrl}
+                                    alt={`Snap #${idx + 1} Front`}
+                                    label="Front"
+                                    className="h-16 w-16"
+                                    onClick={() => setSelectedImage(item.frontImageUrl)}
                                   />
-                                )}
+                                  <FastThumb
+                                    src={item.backImageUrl}
+                                    alt={`Snap #${idx + 1} Back`}
+                                    label="Back"
+                                    className="h-16 w-16"
+                                    onClick={() => setSelectedImage(item.backImageUrl)}
+                                  />
+                                </div>
                                 <div className="text-xs">
                                   <div className="font-bold text-zinc-800">Snap #{idx + 1}</div>
                                   <div className="text-zinc-500">Qty: {item.quantityInStock}</div>
@@ -569,21 +637,21 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                         <div key={draft._id} className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
                           <div>
                             <div className="flex gap-3 mb-4">
-                              <div className="shrink-0 flex gap-1">
-                                <img
+                              <div className="shrink-0 flex gap-2">
+                                <FastThumb
                                   src={draft.frontImageUrl}
-                                  alt="Front"
+                                  alt="Front photo"
+                                  label="Front"
+                                  className="h-20 w-20"
                                   onClick={() => setSelectedImage(draft.frontImageUrl)}
-                                  className="h-20 w-20 object-cover rounded-xl border border-zinc-200 cursor-pointer hover:opacity-90"
                                 />
-                                {draft.backImageUrl && (
-                                  <img
-                                    src={draft.backImageUrl}
-                                    alt="Back"
-                                    onClick={() => setSelectedImage(draft.backImageUrl)}
-                                    className="h-20 w-20 object-cover rounded-xl border border-zinc-200 cursor-pointer hover:opacity-90"
-                                  />
-                                )}
+                                <FastThumb
+                                  src={draft.backImageUrl}
+                                  alt="Back photo"
+                                  label="Back"
+                                  className="h-20 w-20"
+                                  onClick={() => setSelectedImage(draft.backImageUrl)}
+                                />
                               </div>
 
                               <div className="flex-1">
@@ -917,26 +985,36 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                           <table className="w-full text-left text-sm">
                             <thead className="bg-zinc-50 border-b border-zinc-200 text-xs font-bold text-zinc-500 uppercase tracking-wider">
                               <tr>
-                                <th className="px-4 py-3">Photo</th>
+                                <th className="px-4 py-3 min-w-[130px]">Photos (Front & Back)</th>
                                 <th className="px-4 py-3">Product Name</th>
                                 <th className="px-4 py-3">Brand</th>
                                 <th className="px-4 py-3">Size / Strength</th>
                                 <th className="px-4 py-3">Category</th>
                                 <th className="px-4 py-3">Qty</th>
                                 <th className="px-4 py-3">Retail Price</th>
-                                <th className="px-4 py-3 min-w-[160px]">📅 Expiry Date</th>
+                                <th className="px-4 py-3 min-w-[170px]">📅 Expiry Date</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-100">
                               {displayedReady.map((p) => (
                                 <tr key={p._id} className="hover:bg-zinc-50/80 transition-colors">
                                   <td className="px-4 py-2">
-                                    <img
-                                      src={p.frontImageUrl}
-                                      alt={p.extractedItemName}
-                                      onClick={() => setSelectedImage(p.frontImageUrl)}
-                                      className="h-10 w-10 object-cover rounded-lg border border-zinc-200 cursor-pointer hover:opacity-80"
-                                    />
+                                    <div className="flex items-center gap-1.5">
+                                      <FastThumb
+                                        src={p.frontImageUrl}
+                                        alt={`${p.extractedItemName} Front`}
+                                        label="Front"
+                                        className="h-12 w-12"
+                                        onClick={() => setSelectedImage(p.frontImageUrl)}
+                                      />
+                                      <FastThumb
+                                        src={p.backImageUrl}
+                                        alt={`${p.extractedItemName} Back`}
+                                        label="Back"
+                                        className="h-12 w-12"
+                                        onClick={() => setSelectedImage(p.backImageUrl)}
+                                      />
+                                    </div>
                                   </td>
                                   <td className="px-4 py-2 font-semibold text-zinc-900">{p.extractedItemName}</td>
                                   <td className="px-4 py-2 text-zinc-600">{p.extractedBrand || "—"}</td>
@@ -949,25 +1027,32 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                   <td className="px-4 py-2 font-bold text-zinc-900">{p.quantityInStock}</td>
                                   <td className="px-4 py-2 font-bold text-emerald-700">₦{p.retailPrice?.toLocaleString()}</td>
                                   <td className="px-4 py-2">
-                                    <div className="flex items-center gap-1.5">
-                                      <input
-                                        type="date"
-                                        defaultValue={p.extractedExpiryDate ? new Date(p.extractedExpiryDate).toISOString().split('T')[0] : ""}
-                                        onBlur={(e) => {
-                                          const val = e.target.value;
-                                          const current = p.extractedExpiryDate ? new Date(p.extractedExpiryDate).toISOString().split('T')[0] : "";
-                                          if (val !== current) {
-                                            handleUpdateReadyExpiry(p._id, val);
-                                          }
-                                        }}
-                                        className={`text-xs px-2 py-1 rounded-lg border outline-none transition-all ${
-                                          p.extractedExpiryDate
-                                            ? "border-teal-300 bg-teal-50/50 text-teal-900 font-medium focus:border-teal-500 focus:bg-white"
-                                            : "border-zinc-200 bg-zinc-50 text-zinc-400 hover:border-zinc-300 focus:border-teal-500 focus:bg-white"
-                                        }`}
-                                      />
-                                      {actionLoading === `expiry-${p._id}` && (
-                                        <span className="text-[10px] text-teal-600 animate-spin">⏳</span>
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="date"
+                                          defaultValue={p.extractedExpiryDate ? new Date(p.extractedExpiryDate).toISOString().split('T')[0] : ""}
+                                          onBlur={(e) => {
+                                            const val = e.target.value;
+                                            const current = p.extractedExpiryDate ? new Date(p.extractedExpiryDate).toISOString().split('T')[0] : "";
+                                            if (val !== current) {
+                                              handleUpdateReadyExpiry(p._id, val);
+                                            }
+                                          }}
+                                          className={`text-xs px-2 py-1 rounded-lg border outline-none transition-all ${
+                                            p.extractedExpiryDate
+                                              ? "border-teal-300 bg-teal-50/50 text-teal-900 font-medium focus:border-teal-500 focus:bg-white"
+                                              : "border-zinc-200 bg-zinc-50 text-zinc-400 hover:border-zinc-300 focus:border-teal-500 focus:bg-white"
+                                          }`}
+                                        />
+                                        {actionLoading === `expiry-${p._id}` && (
+                                          <span className="text-[10px] text-teal-600 animate-spin">⏳</span>
+                                        )}
+                                      </div>
+                                      {p.extractedExpiryDate && (
+                                        <span className="text-[10px] font-bold text-teal-700">
+                                          {new Date(p.extractedExpiryDate).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                                        </span>
                                       )}
                                     </div>
                                   </td>
