@@ -9,6 +9,18 @@ const withSerwist = withSerwistInit({
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["canvas"],
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**.public.blob.vercel-storage.com",
+      },
+      {
+        protocol: "https",
+        hostname: "res.cloudinary.com",
+      },
+    ],
+  },
   webpack: (config) => {
     config.resolve.alias.canvas = false;
     return config;
