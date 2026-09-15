@@ -29,18 +29,25 @@ const responseSchema = {
 };
 
 async function fetchImageAsBase64(url) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
-  try {
-    const imgRes = await fetch(url, { signal: controller.signal });
-    if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.statusText}`);
-    const arrayBuffer = await imgRes.arrayBuffer();
-    const base64Data = Buffer.from(arrayBuffer).toString("base64");
-    const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
-    return { mimeType, base64Data };
-  } finally {
-    clearTimeout(timeoutId);
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
+    try {
+      const imgRes = await fetch(url, { signal: controller.signal });
+      if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.statusText}`);
+      const arrayBuffer = await imgRes.arrayBuffer();
+      const base64Data = Buffer.from(arrayBuffer).toString("base64");
+      const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
+      return { mimeType, base64Data };
+    } catch (err) {
+      lastErr = err;
+      if (attempt === 1) await new Promise(r => setTimeout(r, 1000));
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
+  throw lastErr || new Error(`Failed to fetch image from ${url}`);
 }
 
 async function extractWithGemini(frontUrl, backUrl) {
