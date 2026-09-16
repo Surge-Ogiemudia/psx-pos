@@ -24,7 +24,12 @@ export async function POST(req: NextRequest) {
 
     if (Array.isArray(draftIds) && draftIds.length > 0) {
       query._id = { $in: draftIds };
-    } else if (!publishAllClean) {
+    } else if (publishAllClean) {
+      query.$or = [
+        { needsReviewReason: { $size: 0 } },
+        { needsReviewReason: { $exists: false } }
+      ];
+    } else {
       return NextResponse.json({ error: "draftIds or publishAllClean required" }, { status: 400 });
     }
 
