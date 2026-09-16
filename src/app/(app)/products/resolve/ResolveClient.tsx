@@ -1036,7 +1036,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                   ) : (
                     <>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {displayedNeedsAttention.map((draft) => {
+                        {displayedNeedsAttention.map((draft, idx) => {
                           const form = editingDrafts[draft._id] || {};
                           const isSaving = actionLoading === `save-${draft._id}`;
                           const reasons = draft.needsReviewReason || [];
@@ -1052,6 +1052,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                       alt="Front photo"
                                       label="Front"
                                       className="h-20 w-20"
+                                      priority={idx < 4}
                                       onClick={() => setSelectedImage(draft.frontImageUrl)}
                                     />
                                     <FastThumb
@@ -1059,6 +1060,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                       alt="Back photo"
                                       label="Back"
                                       className="h-20 w-20"
+                                      priority={idx < 4}
                                       onClick={() => setSelectedImage(draft.backImageUrl)}
                                     />
                                   </div>
