@@ -31,6 +31,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (body.extractedExpiryDate !== undefined) {
       draft.extractedExpiryDate = body.extractedExpiryDate ? new Date(body.extractedExpiryDate) : null;
     }
+    if (body.categoryConfirmed !== undefined) {
+      draft.categoryConfirmed = Boolean(body.categoryConfirmed);
+    }
 
     // Dynamically re-evaluate needsReviewReason using central validator
     draft.needsReviewReason = computeReviewFlags(draft);
