@@ -33,6 +33,9 @@ export async function GET(req: NextRequest) {
     const duplicateMap = new Map<string, any[]>();
 
     extractedDrafts.forEach(draft => {
+      // If marked as split or uniquely separated by reviewer, do not group as duplicate
+      if (draft.isSplitUnique) return;
+
       const barcode = (draft.extractedBarcode || "").trim();
       const normName = (draft.extractedItemName || "").trim().toLowerCase();
       const normSize = (draft.extractedSize || "").trim().toLowerCase();

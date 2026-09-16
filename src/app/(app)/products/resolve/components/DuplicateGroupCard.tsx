@@ -131,8 +131,8 @@ export default function DuplicateGroupCard({
     const form = individualForms[item._id];
     if (!form) return;
 
-    if (!form.itemName || !form.retailPrice || Number(form.retailPrice) <= 0) {
-      alert("Please ensure product name is set and retail price is greater than ₦0.");
+    if (!form.itemName || !form.itemName.trim()) {
+      alert("Please ensure product name is set.");
       return;
     }
 
@@ -140,7 +140,7 @@ export default function DuplicateGroupCard({
       await onApproveSingle(item._id, form);
       setApprovedItems((prev) => ({ ...prev, [item._id]: true }));
     } catch (err) {
-      console.error("Error approving item:", err);
+      console.error("Error saving item:", err);
     }
   };
 
@@ -171,7 +171,7 @@ export default function DuplicateGroupCard({
                 type="button"
                 onClick={() => setViewMode("split")}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs active:scale-[0.98]"
-                title="These are distinct products (e.g. 500mg vs 1g) - edit and approve each individually"
+                title="These are distinct products (e.g. 500mg vs 1g) - edit each and move to Needs Attention for MD price entry"
               >
                 <span>🔀</span>
                 <span>Separate Items (Not Duplicates)</span>
@@ -182,9 +182,10 @@ export default function DuplicateGroupCard({
                 onClick={() => onMergeGroup(group.groupKey)}
                 disabled={isMerging}
                 className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors disabled:opacity-50 cursor-pointer active:scale-[0.98]"
+                title="Merges these duplicate snaps into 1 draft and sends it to Needs Attention for the MD to review and set prices"
               >
                 <span>⚡</span>
-                <span>{isMerging ? "Merging..." : `Merge & Approve All ${group.count} Items`}</span>
+                <span>{isMerging ? "Moving to Needs Attention..." : "Merge & Move to Needs Attention"}</span>
               </button>
             </>
           ) : (
@@ -249,7 +250,7 @@ export default function DuplicateGroupCard({
             <div className="text-xs font-bold text-zinc-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
               <span>📝 Combined Product Details</span>
               <span className="text-[11px] normal-case font-normal text-zinc-500">
-                (Will create 1 consolidated product in POS with {group.totalQty} total stock)
+                (Will consolidate {group.items.length} snaps and send to Needs Attention with {group.totalQty} total stock for MD price entry)
               </span>
             </div>
 
@@ -373,10 +374,10 @@ export default function DuplicateGroupCard({
           <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-xl text-amber-900 text-xs flex items-start gap-2.5">
             <span className="text-base leading-none">ℹ️</span>
             <div>
-              <strong className="font-bold">Separated Items Mode:</strong> These snaps are now
-              treated as distinct products rather than duplicates. Review and adjust each item's name,
-              size, or barcode, and click <strong>Approve This Item</strong> to publish each one
-              independently to your live POS catalog.
+              <strong className="font-bold">Separated Items Mode:</strong> These snaps are treated
+              as distinct products rather than duplicates. Adjust each item's name, dosage, or
+              barcode, and click <strong>Save & Move to Needs Attention</strong> so the items are
+              separated immediately and routed to the <em>Needs Attention</em> tab for the MD to review and set prices.
             </div>
           </div>
 
@@ -564,22 +565,22 @@ export default function DuplicateGroupCard({
                       </div>
                     </div>
 
-                    {/* Single Approve Action Button */}
+                    {/* Single Move Action Button */}
                     <div className="shrink-0 flex items-center lg:flex-col justify-end gap-2 pt-2 lg:pt-0">
                       {isApproved ? (
                         <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold">
                           <span>✓</span>
-                          <span>Approved & Live</span>
+                          <span>Moved to Needs Attention</span>
                         </div>
                       ) : (
                         <button
                           type="button"
                           onClick={() => handleApproveItem(item)}
                           disabled={isApproving}
-                          className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors disabled:opacity-50 cursor-pointer active:scale-[0.98]"
+                          className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors disabled:opacity-50 cursor-pointer active:scale-[0.98]"
                         >
                           <span>✓</span>
-                          <span>{isApproving ? "Approving..." : "Approve This Item"}</span>
+                          <span>{isApproving ? "Moving..." : "Save & Move to Needs Attention"}</span>
                         </button>
                       )}
                     </div>

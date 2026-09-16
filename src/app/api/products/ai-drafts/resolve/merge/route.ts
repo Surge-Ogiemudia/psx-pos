@@ -17,8 +17,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "draftIds must be a non-empty array" }, { status: 400 });
     }
 
-    if (!productData?.itemName || !productData?.retailPrice) {
-      return NextResponse.json({ error: "Item name and valid retail price are required" }, { status: 400 });
+    if (!productData?.itemName || !productData.itemName.trim()) {
+      return NextResponse.json({ error: "Item name is required" }, { status: 400 });
     }
 
     // Fetch the drafts to verify ownership
@@ -36,42 +36,56 @@ export async function POST(req: NextRequest) {
       ? Number(productData.quantityInStock)
       : drafts.reduce((sum, d) => sum + (d.quantityInStock || 0), 0);
 
-    // Create the unified Product
-    const newProduct = await Product.create({
-      pharmacyId: session.user.pharmacyId,
-      branchId: firstDraft.branchId,
-      itemName: productData.itemName.trim(),
-      brand: (productData.brand || firstDraft.extractedBrand || "Unknown Brand").trim(),
-      size: (productData.size || firstDraft.extractedSize || "Standard").trim(),
-      category: productData.category || firstDraft.category || "medicine",
-      imageUrl: productData.imageUrl || firstDraft.frontImageUrl,
-      quantityInStock: totalQty,
-      retailPrice: Number(productData.retailPrice),
-      wholesalePrice: 0,
-      distributorPrice: 0,
-      costPrice: 0,
-      alertQuantity: Math.max(1, Math.floor(totalQty * 0.2)),
-      unitHierarchy: [{ unitName: "Piece", unitsPerParent: 1 }],
-      barcode: (productData.barcode || firstDraft.extractedBarcode || "").trim(),
-      expiryDate: productData.expiryDate ? new Date(productData.expiryDate) : firstDraft.extractedExpiryDate,
-    });
+    const price = productData.retailPrice !== undefined && productData.retailPrice !== null
+      ? Math.max(0, Number(productData.retailPrice) || 0)
+      : (firstDraft.retailPrice || 0);
 
-    // Mark all merged drafts as completed
-    await AiDraftProduct.updateMany(
-      { _id: { $in: drafts.map(d => d._id) } },
-      { 
-        $set: { 
-          status: "completed", 
-          productId: newProduct._id,
-          errorMsg: null 
-        } 
-      }
-    );
+    // Update the unified primary draft
+    firstDraft.extractedItemName = productData.itemName.trim();
+    firstDraft.extractedBrand = (productData.brand || firstDraft.extractedBrand || "Unknown Brand").trim();
+    firstDraft.extractedSize = (productData.size || firstDraft.extractedSize || "Standard").trim();
+    firstDraft.category = productData.category || firstDraft.category || "medicine";
+    firstDraft.quantityInStock = totalQty;
+    firstDraft.retailPrice = price;
+    firstDraft.extractedBarcode = (productData.barcode !== undefined ? productData.barcode : (firstDraft.extractedBarcode || "")).trim();
+    if (productData.expiryDate) {
+      firstDraft.extractedExpiryDate = new Date(productData.expiryDate);
+    }
+    firstDraft.isSplitUnique = true;
+    firstDraft.status = "extracted";
+
+    // Recompute review flags: zero_price will direct it straight to "Needs Attention" for MD review
+    const reasons: string[] = [];
+    if (!firstDraft.retailPrice || firstDraft.retailPrice <= 0) reasons.push("zero_price");
+    if (!firstDraft.extractedItemName || firstDraft.extractedItemName.toLowerCase().includes("unnamed") || firstDraft.extractedItemName.length < 3) {
+      reasons.push("missing_name");
+    }
+    if (firstDraft.retailPrice && firstDraft.retailPrice > 50000) reasons.push("high_price_check");
+    if (firstDraft.quantityInStock && firstDraft.quantityInStock > 100) reasons.push("high_qty_check");
+    firstDraft.needsReviewReason = reasons;
+
+    await firstDraft.save();
+
+    // Mark sibling duplicate drafts as completed so they are retired from the review queue
+    const siblingDraftIds = drafts.slice(1).map(d => d._id);
+    if (siblingDraftIds.length > 0) {
+      await AiDraftProduct.updateMany(
+        { _id: { $in: siblingDraftIds } },
+        { 
+          $set: { 
+            status: "completed", 
+            errorMsg: `Merged into draft ${firstDraft._id}`,
+            needsReviewReason: []
+          } 
+        }
+      );
+    }
 
     return NextResponse.json({ 
       success: true, 
-      product: newProduct, 
-      mergedDraftsCount: drafts.length 
+      draft: firstDraft, 
+      mergedDraftsCount: drafts.length,
+      routedTo: reasons.length > 0 ? "needsAttention" : "ready"
     });
 
   } catch (error: any) {
