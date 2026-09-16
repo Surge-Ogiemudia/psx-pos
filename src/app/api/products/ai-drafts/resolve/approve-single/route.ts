@@ -23,10 +23,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Item name is required" }, { status: 400 });
     }
 
-    const price = productData.retailPrice !== undefined && productData.retailPrice !== null
-      ? Math.max(0, Number(productData.retailPrice) || 0)
-      : (draft.retailPrice || 0);
-
     // Fetch the draft to verify ownership and branch
     const draft = await AiDraftProduct.findOne({
       _id: draftId,
@@ -36,6 +32,10 @@ export async function POST(req: NextRequest) {
     if (!draft) {
       return NextResponse.json({ error: "Draft not found or unauthorized" }, { status: 404 });
     }
+
+    const price = productData.retailPrice !== undefined && productData.retailPrice !== null
+      ? Math.max(0, Number(productData.retailPrice) || 0)
+      : (draft.retailPrice || 0);
 
     const qty = productData.quantityInStock !== undefined 
       ? Math.max(0, Number(productData.quantityInStock))
