@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import DuplicateGroupCard from "./components/DuplicateGroupCard";
 import ResilientThumb from "./components/ResilientThumb";
@@ -48,6 +48,10 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
   const [readySearch, setReadySearch] = useState<string>("");
   const [readyLimit, setReadyLimit] = useState<number>(50);
   const [editingReadyDraft, setEditingReadyDraft] = useState<any | null>(null);
+
+  // Needs Attention filter radios and pagination
+  const [needsAttentionFilter, setNeedsAttentionFilter] = useState<string>("all");
+  const [needsLimit, setNeedsLimit] = useState<number>(40);
 
   const fetchData = async () => {
     try {
@@ -216,29 +220,101 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
     });
   };
 
-  // 2. Save Inline Edit for Needs Attention Item (Optimistic 0ms UI)
+  // 2. Save Inline Edit for Needs Attention Item (Immediate DB sync with dynamic flag clearing)
   const handleSaveDraftEdit = async (draftId: string) => {
-    const form = editingDrafts[draftId];
-    const draft = needsAttention.find(d => d._id === draftId);
-    if (!form || !draft) return;
+    const form = editingDrafts[draftId] || {};
+    const draft = needsAttention.find((d) => d._id === draftId);
+    if (!draft) return;
 
-    if (!form.extractedItemName || !form.retailPrice || Number(form.retailPrice) <= 0) {
-      alert("Please provide a name and a retail price greater than ₦0.");
+    const itemName = String(
+      form.extractedItemName !== undefined ? form.extractedItemName : (draft.extractedItemName || "")
+    ).trim();
+    if (!itemName) {
+      alert("Please provide a product name.");
       return;
     }
 
-    sync.enqueue(
-      buildSaveDraftSyncAction({
-        draftId,
-        originalDraft: draft,
-        form,
-        setNeedsAttention,
-        setReadyToPublish,
-        setStats,
-        showSuccess,
-        setErrorMsg,
-      })
-    );
+    const payload = {
+      extractedItemName: itemName,
+      extractedBrand: String(
+        form.extractedBrand !== undefined ? form.extractedBrand : (draft.extractedBrand || "Unknown Brand")
+      ).trim(),
+      extractedSize: String(
+        form.extractedSize !== undefined ? form.extractedSize : (draft.extractedSize || "Standard")
+      ).trim(),
+      extractedBarcode: String(
+        form.extractedBarcode !== undefined ? form.extractedBarcode : (draft.extractedBarcode || "")
+      ).trim(),
+      retailPrice:
+        form.retailPrice !== undefined && form.retailPrice !== ""
+          ? Number(form.retailPrice)
+          : (draft.retailPrice || 0),
+      quantityInStock:
+        form.quantityInStock !== undefined && form.quantityInStock !== ""
+          ? Number(form.quantityInStock)
+          : (draft.quantityInStock || 0),
+      category: form.category || draft.category || "medicine",
+      extractedExpiryDate:
+        form.extractedExpiryDate !== undefined
+          ? (form.extractedExpiryDate || null)
+          : (draft.extractedExpiryDate || null),
+    };
+
+    try {
+      setActionLoading(`save-${draftId}`);
+      setErrorMsg(null);
+
+      const res = await fetch(`/api/products/ai-drafts/resolve/${draftId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to save draft edits");
+
+      const updated = json.draft;
+      const reasons = updated.needsReviewReason || [];
+      const isFullyClean = reasons.length === 0 && Number(updated.retailPrice) > 0;
+
+      if (isFullyClean) {
+        // Fully resolved! Move cleanly to Ready to Publish
+        setNeedsAttention((prev) => prev.filter((d) => d._id !== draftId));
+        setReadyToPublish((prev) => [updated, ...prev]);
+        if (setStats) {
+          setStats((prev: any) =>
+            prev
+              ? {
+                  ...prev,
+                  needsAttentionCount: Math.max(0, (prev.needsAttentionCount || 1) - 1),
+                  readyToPublishCount: (prev.readyToPublishCount || 0) + 1,
+                }
+              : prev
+          );
+        }
+        showSuccess(`✓ "${updated.extractedItemName}" is complete and moved to Ready to Publish!`);
+      } else {
+        // Updated in Needs Attention: update draft attributes and newly recomputed flags in state
+        setNeedsAttention((prev) =>
+          prev.map((d) => (d._id === draftId ? { ...d, ...updated } : d))
+        );
+        setEditingDrafts((prev) => ({
+          ...prev,
+          [draftId]: {
+            ...prev[draftId],
+            ...updated,
+            extractedExpiryDate: updated.extractedExpiryDate
+              ? new Date(updated.extractedExpiryDate).toISOString().split("T")[0]
+              : "",
+          },
+        }));
+        showSuccess(`✓ Saved "${updated.extractedItemName}"! (Resolved flags updated)`);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to save item changes");
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   // Update Expiry Date directly from Ready to Publish table (Optimistic 0ms UI)
@@ -327,6 +403,68 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
       setActionLoading(null);
     }
   };
+
+  // Needs Attention calculations & dynamic issue counts
+  const filterCounts = useMemo(() => {
+    const counts = {
+      all: needsAttention.length,
+      zeroPrice: 0,
+      missingExpiry: 0,
+      pastExpiry: 0,
+      missingName: 0,
+      categoryCheck: 0,
+      other: 0,
+    };
+
+    needsAttention.forEach((draft) => {
+      const reasons = draft.needsReviewReason || [];
+      const isZeroPrice = !draft.retailPrice || draft.retailPrice <= 0 || reasons.includes("zero_price");
+      if (isZeroPrice) counts.zeroPrice++;
+      if (reasons.includes("missing_expiry")) counts.missingExpiry++;
+      if (reasons.includes("past_expiry")) counts.pastExpiry++;
+      if (reasons.includes("missing_name")) counts.missingName++;
+      if (reasons.includes("looks_like_supermarket") || reasons.includes("looks_like_medicine")) counts.categoryCheck++;
+      if (
+        reasons.some((r: string) =>
+          ["unlikely_low_price", "high_price_check", "high_qty_check", "unlikely_expiry_year"].includes(r)
+        )
+      ) {
+        counts.other++;
+      }
+    });
+
+    return counts;
+  }, [needsAttention]);
+
+  const filteredNeedsAttention = useMemo(() => {
+    return needsAttention.filter((draft) => {
+      const reasons = draft.needsReviewReason || [];
+      const isZeroPrice = !draft.retailPrice || draft.retailPrice <= 0 || reasons.includes("zero_price");
+
+      switch (needsAttentionFilter) {
+        case "zeroPrice":
+          return isZeroPrice;
+        case "missingExpiry":
+          return reasons.includes("missing_expiry");
+        case "pastExpiry":
+          return reasons.includes("past_expiry");
+        case "missingName":
+          return reasons.includes("missing_name");
+        case "categoryCheck":
+          return reasons.includes("looks_like_supermarket") || reasons.includes("looks_like_medicine");
+        case "other":
+          return reasons.some((r: string) =>
+            ["unlikely_low_price", "high_price_check", "high_qty_check", "unlikely_expiry_year"].includes(r)
+          );
+        default:
+          return true;
+      }
+    });
+  }, [needsAttention, needsAttentionFilter]);
+
+  const displayedNeedsAttention = useMemo(() => {
+    return filteredNeedsAttention.slice(0, needsLimit);
+  }, [filteredNeedsAttention, needsLimit]);
 
   // Ready To Publish calculations
   const readyWithExpiry = readyToPublish.filter(p => !!p.extractedExpiryDate);
@@ -563,257 +701,395 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-rose-900 text-sm">
-                    <strong>{needsAttention.length} items need your quick review.</strong> Fill in any ₦0 prices or missing names (e.g. sponges) and tap <em>Save & Ready</em>.
+                  {/* Top Notification Banner */}
+                  <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-rose-900 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <strong>{needsAttention.length} items currently in Needs Attention.</strong> Filter by specific issue below to resolve them step-by-step.
+                    </div>
+                    <div className="text-xs text-rose-700 font-semibold">
+                      Saving any attribute updates its flags immediately
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {needsAttention.map((draft) => {
-                      const form = editingDrafts[draft._id] || {};
-                      const isSaving = actionLoading === draft._id;
-                      const reasons = draft.needsReviewReason || [];
-                      const isZeroPrice = !draft.retailPrice || draft.retailPrice <= 0;
+                  {/* FILTER RADIOS BAR */}
+                  <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs">
+                    <div className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2.5 flex items-center justify-between">
+                      <span>Filter by Issue Category:</span>
+                      <span className="text-[11px] font-normal normal-case text-zinc-400">
+                        Select a filter to isolate drafts needing that specific fix
+                      </span>
+                    </div>
 
-                      return (
-                        <div key={draft._id} className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
-                          <div>
-                            <div className="flex gap-3 mb-4">
-                              <div className="shrink-0 flex gap-2">
-                                <FastThumb
-                                  src={draft.frontImageUrl}
-                                  alt="Front photo"
-                                  label="Front"
-                                  className="h-20 w-20"
-                                  onClick={() => setSelectedImage(draft.frontImageUrl)}
-                                />
-                                <FastThumb
-                                  src={draft.backImageUrl}
-                                  alt="Back photo"
-                                  label="Back"
-                                  className="h-20 w-20"
-                                  onClick={() => setSelectedImage(draft.backImageUrl)}
-                                />
-                              </div>
-
-                              <div className="flex-1">
-                                <div className="flex flex-wrap gap-1 mb-1.5">
-                                  {isZeroPrice && (
-                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
-                                      🚩 ₦0 Price
-                                    </span>
-                                  )}
-                                  {reasons.includes("unlikely_low_price") && (
-                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                                      ⚠️ Low Price: ₦{form.retailPrice}
-                                    </span>
-                                  )}
-                                  {reasons.includes("high_price_check") && (
-                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
-                                      ⚠️ High Price: ₦{Number(form.retailPrice).toLocaleString()}
-                                    </span>
-                                  )}
-                                  {reasons.includes("high_qty_check") && (
-                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
-                                      ⚠️ High Qty: {form.quantityInStock}
-                                    </span>
-                                  )}
-                                  {reasons.includes("past_expiry") && (
-                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
-                                      🔴 Past Expiry
-                                    </span>
-                                  )}
-                                  {reasons.includes("missing_expiry") && (
-                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                                      ⚠️ Missing Expiry
-                                    </span>
-                                  )}
-                                  {reasons.includes("missing_name") && (
-                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                                      🏷️ Needs Name
-                                    </span>
-                                  )}
-                                  {reasons.includes("looks_like_medicine") && (
-                                    <button 
-                                      type="button"
-                                      onClick={() => setEditingDrafts(prev => ({ ...prev, [draft._id]: { ...prev[draft._id], category: "medicine" } }))}
-                                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors flex items-center gap-1"
-                                      title="Click to switch to Medicine"
-                                    >
-                                      💊 Switch to Medicine ↗
-                                    </button>
-                                  )}
-                                  {reasons.includes("looks_like_supermarket") && (
-                                    <button 
-                                      type="button"
-                                      onClick={() => setEditingDrafts(prev => ({ ...prev, [draft._id]: { ...prev[draft._id], category: "supermarket" } }))}
-                                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors flex items-center gap-1"
-                                      title="Click to switch to Supermarket"
-                                    >
-                                      🛒 Switch to Supermarket ↗
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="text-xs text-zinc-400">Draft ID: {draft._id}</div>
-                                <div className="text-xs text-zinc-600 mt-1">Qty in snap: <strong>{draft.quantityInStock}</strong></div>
-                              </div>
-                            </div>
-
-                            {/* Editable Inputs */}
-                            <div className="space-y-2.5">
-                              <div>
-                                <label className="block text-[11px] font-bold text-zinc-500 uppercase">Product Name</label>
-                                <input
-                                  type="text"
-                                  value={form.extractedItemName || ""}
-                                  onChange={e => setEditingDrafts(prev => ({
-                                    ...prev,
-                                    [draft._id]: { ...prev[draft._id], extractedItemName: e.target.value }
-                                  }))}
-                                  placeholder="e.g. Bath Sponge / Paracetamol"
-                                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:bg-white focus:border-teal-500"
-                                />
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="block text-[11px] font-bold text-zinc-500 uppercase">Retail Price (₦) *</label>
-                                  <input
-                                    type="number"
-                                    value={form.retailPrice || ""}
-                                    onChange={e => setEditingDrafts(prev => ({
-                                      ...prev,
-                                      [draft._id]: { ...prev[draft._id], retailPrice: e.target.value }
-                                    }))}
-                                    placeholder="Enter price"
-                                    className={`w-full border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:bg-white ${
-                                      !form.retailPrice || Number(form.retailPrice) <= 0
-                                        ? "bg-rose-50 border-rose-300 text-rose-700"
-                                        : "bg-zinc-50 border-zinc-200 text-emerald-700 focus:border-teal-500"
-                                    }`}
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="block text-[11px] font-bold text-zinc-500 uppercase">Quantity</label>
-                                  <input
-                                    type="number"
-                                    value={form.quantityInStock || 0}
-                                    onChange={e => setEditingDrafts(prev => ({
-                                      ...prev,
-                                      [draft._id]: { ...prev[draft._id], quantityInStock: e.target.value }
-                                    }))}
-                                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:bg-white focus:border-teal-500"
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="block text-[11px] font-bold text-zinc-500 uppercase">Brand</label>
-                                  <input
-                                    type="text"
-                                    value={form.extractedBrand || ""}
-                                    onChange={e => setEditingDrafts(prev => ({
-                                      ...prev,
-                                      [draft._id]: { ...prev[draft._id], extractedBrand: e.target.value }
-                                    }))}
-                                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="block text-[11px] font-bold text-zinc-500 uppercase">Size / Strength</label>
-                                  <input
-                                    type="text"
-                                    value={form.extractedSize || ""}
-                                    onChange={e => setEditingDrafts(prev => ({
-                                      ...prev,
-                                      [draft._id]: { ...prev[draft._id], extractedSize: e.target.value }
-                                    }))}
-                                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Category Pills */}
-                              <div>
-                                <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Category</label>
-                                <div className="grid grid-cols-3 gap-1.5 p-1 bg-zinc-100 rounded-lg">
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "medicine" } }))}
-                                    className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
-                                      form.category === "medicine" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
-                                    }`}
-                                  >
-                                    💊 Medicine
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "supermarket" } }))}
-                                    className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
-                                      form.category === "supermarket" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
-                                    }`}
-                                  >
-                                    🛒 Supermarket
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "non-medicine" } }))}
-                                    className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
-                                      form.category === "non-medicine" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
-                                    }`}
-                                  >
-                                    📦 General
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* Expiry Date & Barcode */}
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="block text-[11px] font-bold text-zinc-500 uppercase">Expiry Date</label>
-                                  <input
-                                    type="date"
-                                    value={form.extractedExpiryDate ? new Date(form.extractedExpiryDate).toISOString().split('T')[0] : ""}
-                                    onChange={e => setEditingDrafts(prev => ({
-                                      ...prev,
-                                      [draft._id]: { ...prev[draft._id], extractedExpiryDate: e.target.value }
-                                    }))}
-                                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[11px] font-bold text-zinc-500 uppercase">Barcode</label>
-                                  <input
-                                    type="text"
-                                    value={form.extractedBarcode || ""}
-                                    onChange={e => setEditingDrafts(prev => ({
-                                      ...prev,
-                                      [draft._id]: { ...prev[draft._id], extractedBarcode: e.target.value }
-                                    }))}
-                                    placeholder="Optional"
-                                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 pt-3 border-t border-zinc-100 flex justify-end">
-                            <button
-                              onClick={() => handleSaveDraftEdit(draft._id)}
-                              disabled={isSaving || !form.retailPrice || Number(form.retailPrice) <= 0}
-                              className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow transition-all disabled:opacity-40"
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: "all", label: "All Needs Attention", count: filterCounts.all, icon: "📋", badge: "bg-zinc-200 text-zinc-800" },
+                        { id: "zeroPrice", label: "Missing Price (₦0)", count: filterCounts.zeroPrice, icon: "🚩", badge: "bg-rose-100 text-rose-800 border border-rose-200" },
+                        { id: "missingExpiry", label: "Missing Expiry", count: filterCounts.missingExpiry, icon: "⏳", badge: "bg-amber-100 text-amber-800 border border-amber-200" },
+                        { id: "pastExpiry", label: "Past Expiry", count: filterCounts.pastExpiry, icon: "🔴", badge: "bg-rose-100 text-rose-800 border border-rose-200" },
+                        { id: "missingName", label: "Needs Name", count: filterCounts.missingName, icon: "🏷️", badge: "bg-amber-100 text-amber-800 border border-amber-200" },
+                        { id: "categoryCheck", label: "Category Mismatch", count: filterCounts.categoryCheck, icon: "🛒", badge: "bg-blue-100 text-blue-800 border border-blue-200" },
+                        { id: "other", label: "Qty / Price Outliers", count: filterCounts.other, icon: "⚠️", badge: "bg-purple-100 text-purple-800 border border-purple-200" },
+                      ].map((opt) => {
+                        const isSelected = needsAttentionFilter === opt.id;
+                        return (
+                          <label
+                            key={opt.id}
+                            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all border select-none ${
+                              isSelected
+                                ? "bg-indigo-50 border-indigo-500 text-indigo-950 shadow-xs ring-1 ring-indigo-500/30"
+                                : "bg-zinc-50/80 border-zinc-200 text-zinc-700 hover:bg-zinc-100 hover:border-zinc-300"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="needsAttentionFilter"
+                              value={opt.id}
+                              checked={isSelected}
+                              onChange={() => {
+                                setNeedsAttentionFilter(opt.id);
+                                setNeedsLimit(40);
+                              }}
+                              className="accent-indigo-600 h-3.5 w-3.5 cursor-pointer"
+                            />
+                            <span className="text-sm leading-none">{opt.icon}</span>
+                            <span>{opt.label}</span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                                isSelected ? "bg-indigo-600 text-white" : opt.badge
+                              }`}
                             >
-                              {isSaving ? "Saving..." : "✓ Save & Mark Ready"}
+                              {opt.count}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Empty state for filtered category */}
+                  {filteredNeedsAttention.length === 0 ? (
+                    <div className="p-12 text-center bg-zinc-50 rounded-2xl border border-zinc-200">
+                      <span className="text-4xl">🎉</span>
+                      <h3 className="mt-3 font-bold text-zinc-800 text-lg">No items in this category!</h3>
+                      <p className="text-zinc-500 text-sm mt-1">
+                        All issues for this filter are resolved. Select another filter radio above to continue reviewing.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {displayedNeedsAttention.map((draft) => {
+                          const form = editingDrafts[draft._id] || {};
+                          const isSaving = actionLoading === `save-${draft._id}`;
+                          const reasons = draft.needsReviewReason || [];
+                          const isZeroPrice = !draft.retailPrice || draft.retailPrice <= 0 || reasons.includes("zero_price");
+
+                          return (
+                            <div key={draft._id} className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+                              <div>
+                                <div className="flex gap-3 mb-4">
+                                  <div className="shrink-0 flex gap-2">
+                                    <FastThumb
+                                      src={draft.frontImageUrl}
+                                      alt="Front photo"
+                                      label="Front"
+                                      className="h-20 w-20"
+                                      onClick={() => setSelectedImage(draft.frontImageUrl)}
+                                    />
+                                    <FastThumb
+                                      src={draft.backImageUrl}
+                                      alt="Back photo"
+                                      label="Back"
+                                      className="h-20 w-20"
+                                      onClick={() => setSelectedImage(draft.backImageUrl)}
+                                    />
+                                  </div>
+
+                                  <div className="flex-1">
+                                    <div className="flex flex-wrap gap-1 mb-1.5">
+                                      {isZeroPrice && (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
+                                          🚩 ₦0 Price
+                                        </span>
+                                      )}
+                                      {reasons.includes("unlikely_low_price") && (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                          ⚠️ Low Price: ₦{form.retailPrice ?? draft.retailPrice}
+                                        </span>
+                                      )}
+                                      {reasons.includes("high_price_check") && (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
+                                          ⚠️ High Price: ₦{Number(form.retailPrice ?? draft.retailPrice).toLocaleString()}
+                                        </span>
+                                      )}
+                                      {reasons.includes("high_qty_check") && (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
+                                          ⚠️ High Qty: {form.quantityInStock ?? draft.quantityInStock}
+                                        </span>
+                                      )}
+                                      {reasons.includes("past_expiry") && (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
+                                          🔴 Past Expiry
+                                        </span>
+                                      )}
+                                      {reasons.includes("missing_expiry") && (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                          ⏳ Missing Expiry
+                                        </span>
+                                      )}
+                                      {reasons.includes("missing_name") && (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                          🏷️ Needs Name
+                                        </span>
+                                      )}
+                                      {reasons.includes("looks_like_medicine") && (
+                                        <button 
+                                          type="button"
+                                          onClick={() => setEditingDrafts(prev => ({ ...prev, [draft._id]: { ...prev[draft._id], category: "medicine" } }))}
+                                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors flex items-center gap-1"
+                                          title="Click to set to Medicine"
+                                        >
+                                          💊 Switch to Medicine ↗
+                                        </button>
+                                      )}
+                                      {reasons.includes("looks_like_supermarket") && (
+                                        <button 
+                                          type="button"
+                                          onClick={() => setEditingDrafts(prev => ({ ...prev, [draft._id]: { ...prev[draft._id], category: "supermarket" } }))}
+                                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors flex items-center gap-1"
+                                          title="Click to set to Supermarket"
+                                        >
+                                          🛒 Switch to Supermarket ↗
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-zinc-400">Draft ID: {draft._id}</div>
+                                    <div className="text-xs text-zinc-600 mt-1">Qty in snap: <strong>{draft.quantityInStock}</strong></div>
+                                  </div>
+                                </div>
+
+                                {/* Editable Inputs */}
+                                <div className="space-y-2.5">
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-zinc-500 uppercase">Product Name</label>
+                                    <input
+                                      type="text"
+                                      value={form.extractedItemName !== undefined ? form.extractedItemName : (draft.extractedItemName || "")}
+                                      onChange={e => setEditingDrafts(prev => ({
+                                        ...prev,
+                                        [draft._id]: { ...prev[draft._id], extractedItemName: e.target.value }
+                                      }))}
+                                      placeholder="e.g. Bath Sponge / Paracetamol"
+                                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:bg-white focus:border-teal-500"
+                                    />
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[11px] font-bold text-zinc-500 uppercase">Retail Price (₦)</label>
+                                      <input
+                                        type="number"
+                                        value={form.retailPrice !== undefined ? form.retailPrice : (draft.retailPrice || "")}
+                                        onChange={e => setEditingDrafts(prev => ({
+                                          ...prev,
+                                          [draft._id]: { ...prev[draft._id], retailPrice: e.target.value }
+                                        }))}
+                                        placeholder="0.00 (Optional for MD)"
+                                        className={`w-full border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:bg-white ${
+                                          Number(form.retailPrice ?? draft.retailPrice) <= 0
+                                            ? "bg-rose-50 border-rose-300 text-rose-700"
+                                            : "bg-zinc-50 border-zinc-200 text-emerald-700 focus:border-teal-500"
+                                        }`}
+                                      />
+                                    </div>
+
+                                    <div>
+                                      <label className="block text-[11px] font-bold text-zinc-500 uppercase">Quantity</label>
+                                      <input
+                                        type="number"
+                                        value={form.quantityInStock !== undefined ? form.quantityInStock : (draft.quantityInStock || 0)}
+                                        onChange={e => setEditingDrafts(prev => ({
+                                          ...prev,
+                                          [draft._id]: { ...prev[draft._id], quantityInStock: e.target.value }
+                                        }))}
+                                        className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:bg-white focus:border-teal-500"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[11px] font-bold text-zinc-500 uppercase">Brand</label>
+                                      <input
+                                        type="text"
+                                        value={form.extractedBrand !== undefined ? form.extractedBrand : (draft.extractedBrand || "")}
+                                        onChange={e => setEditingDrafts(prev => ({
+                                          ...prev,
+                                          [draft._id]: { ...prev[draft._id], extractedBrand: e.target.value }
+                                        }))}
+                                        className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
+                                      />
+                                    </div>
+
+                                    <div>
+                                      <label className="block text-[11px] font-bold text-zinc-500 uppercase">Size / Strength</label>
+                                      <input
+                                        type="text"
+                                        value={form.extractedSize !== undefined ? form.extractedSize : (draft.extractedSize || "")}
+                                        onChange={e => setEditingDrafts(prev => ({
+                                          ...prev,
+                                          [draft._id]: { ...prev[draft._id], extractedSize: e.target.value }
+                                        }))}
+                                        className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Category Pills */}
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Category</label>
+                                    <div className="grid grid-cols-3 gap-1.5 p-1 bg-zinc-100 rounded-lg">
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "medicine" } }))}
+                                        className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
+                                          (form.category || draft.category) === "medicine" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                                        }`}
+                                      >
+                                        💊 Medicine
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "supermarket" } }))}
+                                        className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
+                                          (form.category || draft.category) === "supermarket" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                                        }`}
+                                      >
+                                        🛒 Supermarket
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "non-medicine" } }))}
+                                        className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
+                                          (form.category || draft.category) === "non-medicine" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                                        }`}
+                                      >
+                                        📦 General
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Expiry Date & Barcode */}
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[11px] font-bold text-zinc-500 uppercase">Expiry Date</label>
+                                      <input
+                                        type="date"
+                                        value={
+                                          form.extractedExpiryDate !== undefined
+                                            ? (form.extractedExpiryDate || "")
+                                            : draft.extractedExpiryDate
+                                            ? new Date(draft.extractedExpiryDate).toISOString().split('T')[0]
+                                            : ""
+                                        }
+                                        onChange={e => setEditingDrafts(prev => ({
+                                          ...prev,
+                                          [draft._id]: { ...prev[draft._id], extractedExpiryDate: e.target.value }
+                                        }))}
+                                        className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[11px] font-bold text-zinc-500 uppercase">Barcode</label>
+                                      <input
+                                        type="text"
+                                        value={form.extractedBarcode !== undefined ? form.extractedBarcode : (draft.extractedBarcode || "")}
+                                        onChange={e => setEditingDrafts(prev => ({
+                                          ...prev,
+                                          [draft._id]: { ...prev[draft._id], extractedBarcode: e.target.value }
+                                        }))}
+                                        placeholder="Optional"
+                                        className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:bg-white focus:border-teal-500"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Card Action Footer */}
+                              <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center justify-between gap-2">
+                                <div className="text-[11px]">
+                                  {reasons.length > 0 ? (
+                                    <span className="text-amber-700 font-medium">
+                                      ⚠️ {reasons.length} issue{reasons.length > 1 ? "s" : ""}
+                                    </span>
+                                  ) : (
+                                    <span className="text-emerald-700 font-bold">
+                                      ✓ Ready to publish
+                                    </span>
+                                  )}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveDraftEdit(draft._id)}
+                                  disabled={isSaving}
+                                  className={`px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-[0.98] disabled:opacity-50 flex items-center gap-1.5 ${
+                                    Number(form.retailPrice ?? draft.retailPrice) > 0 && reasons.length <= 1
+                                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                      : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                  }`}
+                                >
+                                  {isSaving ? (
+                                    <>
+                                      <span className="animate-spin">⏳</span>
+                                      <span>Saving...</span>
+                                    </>
+                                  ) : Number(form.retailPrice ?? draft.retailPrice) > 0 && reasons.length <= 1 ? (
+                                    <>
+                                      <span>✓</span>
+                                      <span>Save & Mark Ready</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span>💾</span>
+                                      <span>Save Changes</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Pagination: Load More */}
+                      {filteredNeedsAttention.length > displayedNeedsAttention.length && (
+                        <div className="p-6 bg-zinc-50 rounded-2xl border border-zinc-200 text-center space-y-2">
+                          <div className="text-xs text-zinc-500 font-medium">
+                            Showing <strong>{displayedNeedsAttention.length}</strong> of <strong>{filteredNeedsAttention.length}</strong> items in this category
+                          </div>
+                          <div className="flex items-center justify-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setNeedsLimit(prev => prev + 40)}
+                              className="px-5 py-2.5 bg-white hover:bg-zinc-100 border border-zinc-300 text-zinc-800 rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95"
+                            >
+                              ↓ Load More Items (+40)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNeedsLimit(filteredNeedsAttention.length)}
+                              className="px-4 py-2.5 bg-zinc-200 hover:bg-zinc-300 text-zinc-700 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95"
+                            >
+                              Show All ({filteredNeedsAttention.length})
                             </button>
                           </div>
-
                         </div>
-                      );
-                    })}
-                  </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </div>
