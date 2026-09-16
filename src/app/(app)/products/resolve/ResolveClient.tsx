@@ -234,32 +234,37 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
       return;
     }
 
+    const currentPrice =
+      form.retailPrice !== undefined && form.retailPrice !== ""
+        ? Number(form.retailPrice)
+        : (draft.retailPrice || 0);
+    const currentQty =
+      form.quantityInStock !== undefined && form.quantityInStock !== ""
+        ? Number(form.quantityInStock)
+        : (draft.quantityInStock || 0);
+
     const payload = {
       extractedItemName: itemName,
-      extractedBrand: String(
-        form.extractedBrand !== undefined ? form.extractedBrand : (draft.extractedBrand || "Unknown Brand")
-      ).trim(),
-      extractedSize: String(
-        form.extractedSize !== undefined ? form.extractedSize : (draft.extractedSize || "Standard")
-      ).trim(),
-      extractedBarcode: String(
-        form.extractedBarcode !== undefined ? form.extractedBarcode : (draft.extractedBarcode || "")
-      ).trim(),
-      retailPrice:
-        form.retailPrice !== undefined && form.retailPrice !== ""
-          ? Number(form.retailPrice)
-          : (draft.retailPrice || 0),
-      quantityInStock:
-        form.quantityInStock !== undefined && form.quantityInStock !== ""
-          ? Number(form.quantityInStock)
-          : (draft.quantityInStock || 0),
-      category: form.category || draft.category || "medicine",
-      categoryConfirmed: form.categoryConfirmed !== undefined ? form.categoryConfirmed : (draft.categoryConfirmed || false),
-      extractedExpiryDate:
-        form.extractedExpiryDate !== undefined
-          ? (form.extractedExpiryDate || null)
-          : (draft.extractedExpiryDate || null),
-    };
+        extractedBrand: String(
+          form.extractedBrand !== undefined ? form.extractedBrand : (draft.extractedBrand || "Unknown Brand")
+        ).trim(),
+        extractedSize: String(
+          form.extractedSize !== undefined ? form.extractedSize : (draft.extractedSize || "Standard")
+        ).trim(),
+        extractedBarcode: String(
+          form.extractedBarcode !== undefined ? form.extractedBarcode : (draft.extractedBarcode || "")
+        ).trim(),
+        retailPrice: currentPrice,
+        quantityInStock: currentQty,
+        category: form.category || draft.category || "medicine",
+        categoryConfirmed: form.categoryConfirmed !== undefined ? form.categoryConfirmed : (draft.categoryConfirmed || false),
+        priceConfirmed: form.priceConfirmed !== undefined ? Boolean(form.priceConfirmed) : (currentPrice > 0 ? true : Boolean(draft.priceConfirmed)),
+        qtyConfirmed: form.qtyConfirmed !== undefined ? Boolean(form.qtyConfirmed) : (currentQty > 0 ? true : Boolean(draft.qtyConfirmed)),
+        extractedExpiryDate:
+          form.extractedExpiryDate !== undefined
+            ? (form.extractedExpiryDate || null)
+            : (draft.extractedExpiryDate || null),
+      };
 
     try {
       setActionLoading(`save-${draftId}`);
@@ -395,6 +400,176 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
       }
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to confirm category");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // 1-Click Confirmation to resolve price outliers (e.g. confirming ₦5 or ₦60,000 is intentional)
+  const handleConfirmPrice = async (draftId: string) => {
+    const draft = needsAttention.find((d) => d._id === draftId);
+    const form = editingDrafts[draftId] || {};
+    if (!draft) return;
+
+    const currentPrice =
+      form.retailPrice !== undefined && form.retailPrice !== ""
+        ? Number(form.retailPrice)
+        : (draft.retailPrice || 0);
+
+    if (currentPrice <= 0) {
+      alert("Please enter a valid price > ₦0 first.");
+      return;
+    }
+
+    const payload = {
+      extractedItemName: String(
+        form.extractedItemName !== undefined ? form.extractedItemName : (draft.extractedItemName || "")
+      ).trim(),
+      category: form.category || draft.category || "medicine",
+      categoryConfirmed: form.categoryConfirmed !== undefined ? form.categoryConfirmed : (draft.categoryConfirmed || false),
+      priceConfirmed: true,
+      qtyConfirmed: form.qtyConfirmed !== undefined ? form.qtyConfirmed : (draft.qtyConfirmed || false),
+      retailPrice: currentPrice,
+      quantityInStock:
+        form.quantityInStock !== undefined && form.quantityInStock !== ""
+          ? Number(form.quantityInStock)
+          : (draft.quantityInStock || 0),
+      extractedBrand: form.extractedBrand !== undefined ? form.extractedBrand : draft.extractedBrand,
+      extractedSize: form.extractedSize !== undefined ? form.extractedSize : draft.extractedSize,
+      extractedBarcode: form.extractedBarcode !== undefined ? form.extractedBarcode : draft.extractedBarcode,
+      extractedExpiryDate: form.extractedExpiryDate !== undefined ? form.extractedExpiryDate : draft.extractedExpiryDate,
+    };
+
+    try {
+      setActionLoading(`price-${draftId}`);
+      const res = await fetch(`/api/products/ai-drafts/resolve/${draftId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to confirm price");
+
+      const updated = json.draft;
+      const reasons = updated.needsReviewReason || [];
+      const isFullyClean = reasons.length === 0 && Number(updated.retailPrice) > 0;
+
+      if (isFullyClean) {
+        setNeedsAttention((prev) => prev.filter((d) => d._id !== draftId));
+        setReadyToPublish((prev) => [updated, ...prev]);
+        if (setStats) {
+          setStats((prev: any) =>
+            prev
+              ? {
+                  ...prev,
+                  needsAttentionCount: Math.max(0, (prev.needsAttentionCount || 1) - 1),
+                  readyToPublishCount: (prev.readyToPublishCount || 0) + 1,
+                }
+              : prev
+          );
+        }
+        showSuccess(`✓ "${updated.extractedItemName}" price confirmed and moved to Ready to Publish!`);
+      } else {
+        setNeedsAttention((prev) =>
+          prev.map((d) => (d._id === draftId ? { ...d, ...updated } : d))
+        );
+        setEditingDrafts((prev) => ({
+          ...prev,
+          [draftId]: {
+            ...prev[draftId],
+            ...updated,
+            priceConfirmed: true,
+          },
+        }));
+        showSuccess(`✓ Price confirmed as ₦${currentPrice.toLocaleString()}! Outlier cleared.`);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to confirm price");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // 1-Click Confirmation to resolve quantity outliers (e.g. confirming 1000 qty is intentional)
+  const handleConfirmQty = async (draftId: string) => {
+    const draft = needsAttention.find((d) => d._id === draftId);
+    const form = editingDrafts[draftId] || {};
+    if (!draft) return;
+
+    const currentQty =
+      form.quantityInStock !== undefined && form.quantityInStock !== ""
+        ? Number(form.quantityInStock)
+        : (draft.quantityInStock || 0);
+
+    if (currentQty <= 0) {
+      alert("Please enter a valid quantity > 0 first.");
+      return;
+    }
+
+    const payload = {
+      extractedItemName: String(
+        form.extractedItemName !== undefined ? form.extractedItemName : (draft.extractedItemName || "")
+      ).trim(),
+      category: form.category || draft.category || "medicine",
+      categoryConfirmed: form.categoryConfirmed !== undefined ? form.categoryConfirmed : (draft.categoryConfirmed || false),
+      priceConfirmed: form.priceConfirmed !== undefined ? form.priceConfirmed : (draft.priceConfirmed || false),
+      qtyConfirmed: true,
+      retailPrice:
+        form.retailPrice !== undefined && form.retailPrice !== ""
+          ? Number(form.retailPrice)
+          : (draft.retailPrice || 0),
+      quantityInStock: currentQty,
+      extractedBrand: form.extractedBrand !== undefined ? form.extractedBrand : draft.extractedBrand,
+      extractedSize: form.extractedSize !== undefined ? form.extractedSize : draft.extractedSize,
+      extractedBarcode: form.extractedBarcode !== undefined ? form.extractedBarcode : draft.extractedBarcode,
+      extractedExpiryDate: form.extractedExpiryDate !== undefined ? form.extractedExpiryDate : draft.extractedExpiryDate,
+    };
+
+    try {
+      setActionLoading(`qty-${draftId}`);
+      const res = await fetch(`/api/products/ai-drafts/resolve/${draftId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to confirm quantity");
+
+      const updated = json.draft;
+      const reasons = updated.needsReviewReason || [];
+      const isFullyClean = reasons.length === 0 && Number(updated.retailPrice) > 0;
+
+      if (isFullyClean) {
+        setNeedsAttention((prev) => prev.filter((d) => d._id !== draftId));
+        setReadyToPublish((prev) => [updated, ...prev]);
+        if (setStats) {
+          setStats((prev: any) =>
+            prev
+              ? {
+                  ...prev,
+                  needsAttentionCount: Math.max(0, (prev.needsAttentionCount || 1) - 1),
+                  readyToPublishCount: (prev.readyToPublishCount || 0) + 1,
+                }
+              : prev
+          );
+        }
+        showSuccess(`✓ "${updated.extractedItemName}" quantity confirmed and moved to Ready to Publish!`);
+      } else {
+        setNeedsAttention((prev) =>
+          prev.map((d) => (d._id === draftId ? { ...d, ...updated } : d))
+        );
+        setEditingDrafts((prev) => ({
+          ...prev,
+          [draftId]: {
+            ...prev[draftId],
+            ...updated,
+            qtyConfirmed: true,
+          },
+        }));
+        showSuccess(`✓ Quantity confirmed as ${currentQty}! Outlier cleared.`);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to confirm quantity");
     } finally {
       setActionLoading(null);
     }
@@ -896,19 +1071,46 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                         </span>
                                       )}
                                       {reasons.includes("unlikely_low_price") && (
-                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                                          ⚠️ Low Price: ₦{form.retailPrice ?? draft.retailPrice}
-                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleConfirmPrice(draft._id)}
+                                          disabled={actionLoading === `price-${draft._id}`}
+                                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
+                                          title="Click to confirm this price is intentional and dismiss warning"
+                                        >
+                                          <span>⚠️ Low Price: ₦{form.retailPrice !== undefined && form.retailPrice !== "" ? form.retailPrice : (draft.retailPrice ?? 0)}</span>
+                                          <span className="bg-amber-200 hover:bg-amber-300 text-amber-900 px-1.5 py-0.2 rounded text-[9px] font-extrabold ml-1">
+                                            {actionLoading === `price-${draft._id}` ? "..." : "✓ Confirm"}
+                                          </span>
+                                        </button>
                                       )}
                                       {reasons.includes("high_price_check") && (
-                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
-                                          ⚠️ High Price: ₦{Number(form.retailPrice ?? draft.retailPrice).toLocaleString()}
-                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleConfirmPrice(draft._id)}
+                                          disabled={actionLoading === `price-${draft._id}`}
+                                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 hover:bg-purple-200 text-purple-800 transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
+                                          title="Click to confirm this high price is intentional and dismiss warning"
+                                        >
+                                          <span>⚠️ High Price: ₦{Number(form.retailPrice !== undefined && form.retailPrice !== "" ? form.retailPrice : (draft.retailPrice ?? 0)).toLocaleString()}</span>
+                                          <span className="bg-purple-200 hover:bg-purple-300 text-purple-900 px-1.5 py-0.2 rounded text-[9px] font-extrabold ml-1">
+                                            {actionLoading === `price-${draft._id}` ? "..." : "✓ Confirm"}
+                                          </span>
+                                        </button>
                                       )}
                                       {reasons.includes("high_qty_check") && (
-                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
-                                          ⚠️ High Qty: {form.quantityInStock ?? draft.quantityInStock}
-                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleConfirmQty(draft._id)}
+                                          disabled={actionLoading === `qty-${draft._id}`}
+                                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 hover:bg-purple-200 text-purple-800 transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
+                                          title="Click to confirm this high quantity is intentional and dismiss warning"
+                                        >
+                                          <span>⚠️ High Qty: {form.quantityInStock !== undefined && form.quantityInStock !== "" ? form.quantityInStock : (draft.quantityInStock ?? 0)}</span>
+                                          <span className="bg-purple-200 hover:bg-purple-300 text-purple-900 px-1.5 py-0.2 rounded text-[9px] font-extrabold ml-1">
+                                            {actionLoading === `qty-${draft._id}` ? "..." : "✓ Confirm"}
+                                          </span>
+                                        </button>
                                       )}
                                       {reasons.includes("past_expiry") && (
                                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
