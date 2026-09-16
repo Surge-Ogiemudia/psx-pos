@@ -33,6 +33,7 @@ const AiDraftProductSchema = new Schema(
     extractedExpiryDate: { type: Date, default: null },
     needsReviewReason: { type: [String], default: [] },
     isSplitUnique: { type: Boolean, default: false },
+    categoryConfirmed: { type: Boolean, default: false },
 
     // Final product reference once created
     productId: { type: Schema.Types.ObjectId, ref: "Product", default: null }

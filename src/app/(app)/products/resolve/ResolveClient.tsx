@@ -254,6 +254,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
           ? Number(form.quantityInStock)
           : (draft.quantityInStock || 0),
       category: form.category || draft.category || "medicine",
+      categoryConfirmed: form.categoryConfirmed !== undefined ? form.categoryConfirmed : (draft.categoryConfirmed || false),
       extractedExpiryDate:
         form.extractedExpiryDate !== undefined
           ? (form.extractedExpiryDate || null)
@@ -312,6 +313,88 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
       }
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to save item changes");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // 1-Click Confirmation to resolve category mismatches (e.g. confirming it IS Medicine)
+  const handleConfirmCategory = async (
+    draftId: string,
+    confirmedCategory: "medicine" | "supermarket" | "non-medicine"
+  ) => {
+    const draft = needsAttention.find((d) => d._id === draftId);
+    const form = editingDrafts[draftId] || {};
+    if (!draft) return;
+
+    const payload = {
+      extractedItemName: String(
+        form.extractedItemName !== undefined ? form.extractedItemName : (draft.extractedItemName || "")
+      ).trim(),
+      category: confirmedCategory,
+      categoryConfirmed: true,
+      extractedBrand: form.extractedBrand !== undefined ? form.extractedBrand : draft.extractedBrand,
+      extractedSize: form.extractedSize !== undefined ? form.extractedSize : draft.extractedSize,
+      retailPrice: form.retailPrice !== undefined && form.retailPrice !== "" ? Number(form.retailPrice) : draft.retailPrice,
+      quantityInStock: form.quantityInStock !== undefined && form.quantityInStock !== "" ? Number(form.quantityInStock) : draft.quantityInStock,
+      extractedBarcode: form.extractedBarcode !== undefined ? form.extractedBarcode : draft.extractedBarcode,
+      extractedExpiryDate: form.extractedExpiryDate !== undefined ? form.extractedExpiryDate : draft.extractedExpiryDate,
+    };
+
+    try {
+      setActionLoading(`cat-${draftId}`);
+      const res = await fetch(`/api/products/ai-drafts/resolve/${draftId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to confirm category");
+
+      const updated = json.draft;
+      const reasons = updated.needsReviewReason || [];
+      const isFullyClean = reasons.length === 0 && Number(updated.retailPrice) > 0;
+
+      if (isFullyClean) {
+        setNeedsAttention((prev) => prev.filter((d) => d._id !== draftId));
+        setReadyToPublish((prev) => [updated, ...prev]);
+        if (setStats) {
+          setStats((prev: any) =>
+            prev
+              ? {
+                  ...prev,
+                  needsAttentionCount: Math.max(0, (prev.needsAttentionCount || 1) - 1),
+                  readyToPublishCount: (prev.readyToPublishCount || 0) + 1,
+                }
+              : prev
+          );
+        }
+        showSuccess(`✓ "${updated.extractedItemName}" confirmed and moved to Ready to Publish!`);
+      } else {
+        setNeedsAttention((prev) =>
+          prev.map((d) => (d._id === draftId ? { ...d, ...updated } : d))
+        );
+        setEditingDrafts((prev) => ({
+          ...prev,
+          [draftId]: {
+            ...prev[draftId],
+            ...updated,
+            category: confirmedCategory,
+            categoryConfirmed: true,
+          },
+        }));
+        showSuccess(
+          `✓ Category confirmed as ${
+            confirmedCategory === "medicine"
+              ? "Medicine"
+              : confirmedCategory === "supermarket"
+              ? "Supermarket"
+              : "General"
+          }! Mismatch cleared.`
+        );
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to confirm category");
     } finally {
       setActionLoading(null);
     }
@@ -843,24 +926,52 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                         </span>
                                       )}
                                       {reasons.includes("looks_like_medicine") && (
-                                        <button 
-                                          type="button"
-                                          onClick={() => setEditingDrafts(prev => ({ ...prev, [draft._id]: { ...prev[draft._id], category: "medicine" } }))}
-                                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors flex items-center gap-1"
-                                          title="Click to set to Medicine"
-                                        >
-                                          💊 Switch to Medicine ↗
-                                        </button>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <button 
+                                            type="button"
+                                            onClick={() => handleConfirmCategory(draft._id, "supermarket")}
+                                            disabled={actionLoading === `cat-${draft._id}`}
+                                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
+                                            title="Confirm this item is definitely Supermarket and clear the medicine recommendation"
+                                          >
+                                            <span>✓</span>
+                                            <span>{actionLoading === `cat-${draft._id}` ? "Saving..." : "Keep as Supermarket"}</span>
+                                          </button>
+                                          <button 
+                                            type="button"
+                                            onClick={() => handleConfirmCategory(draft._id, "medicine")}
+                                            disabled={actionLoading === `cat-${draft._id}`}
+                                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-100 hover:bg-blue-200 text-blue-800 transition-colors flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
+                                            title="Switch category to Medicine"
+                                          >
+                                            <span>💊</span>
+                                            <span>Switch to Medicine ↗</span>
+                                          </button>
+                                        </div>
                                       )}
                                       {reasons.includes("looks_like_supermarket") && (
-                                        <button 
-                                          type="button"
-                                          onClick={() => setEditingDrafts(prev => ({ ...prev, [draft._id]: { ...prev[draft._id], category: "supermarket" } }))}
-                                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors flex items-center gap-1"
-                                          title="Click to set to Supermarket"
-                                        >
-                                          🛒 Switch to Supermarket ↗
-                                        </button>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <button 
+                                            type="button"
+                                            onClick={() => handleConfirmCategory(draft._id, "medicine")}
+                                            disabled={actionLoading === `cat-${draft._id}`}
+                                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
+                                            title="Confirm this item is definitely Medicine and clear the supermarket recommendation"
+                                          >
+                                            <span>✓</span>
+                                            <span>{actionLoading === `cat-${draft._id}` ? "Saving..." : "Keep as Medicine"}</span>
+                                          </button>
+                                          <button 
+                                            type="button"
+                                            onClick={() => handleConfirmCategory(draft._id, "supermarket")}
+                                            disabled={actionLoading === `cat-${draft._id}`}
+                                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 transition-colors flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
+                                            title="Switch category to Supermarket"
+                                          >
+                                            <span>🛒</span>
+                                            <span>Switch to Supermarket ↗</span>
+                                          </button>
+                                        </div>
                                       )}
                                     </div>
                                     <div className="text-xs text-zinc-400">Draft ID: {draft._id}</div>
@@ -951,7 +1062,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                     <div className="grid grid-cols-3 gap-1.5 p-1 bg-zinc-100 rounded-lg">
                                       <button
                                         type="button"
-                                        onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "medicine" } }))}
+                                        onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "medicine", categoryConfirmed: true } }))}
                                         className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
                                           (form.category || draft.category) === "medicine" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
                                         }`}
@@ -960,7 +1071,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "supermarket" } }))}
+                                        onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "supermarket", categoryConfirmed: true } }))}
                                         className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
                                           (form.category || draft.category) === "supermarket" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
                                         }`}
@@ -969,7 +1080,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "non-medicine" } }))}
+                                        onClick={() => setEditingDrafts(p => ({ ...p, [draft._id]: { ...p[draft._id], category: "non-medicine", categoryConfirmed: true } }))}
                                         className={`py-1 text-[11px] font-bold rounded flex items-center justify-center gap-1 transition-all ${
                                           (form.category || draft.category) === "non-medicine" ? "bg-teal-600 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-900"
                                         }`}

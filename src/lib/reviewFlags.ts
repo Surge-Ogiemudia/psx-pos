@@ -7,6 +7,7 @@ export function computeReviewFlags(draft: {
   category?: string | null;
   extractedExpiryDate?: Date | string | null;
   needsReviewReason?: string[] | null;
+  categoryConfirmed?: boolean | null;
 }): string[] {
   const flags = new Set<string>();
   const name = (draft.extractedItemName || "").toLowerCase().trim();
@@ -58,28 +59,30 @@ export function computeReviewFlags(draft: {
     flags.add("missing_expiry");
   }
 
-  // 5. Category mismatch check
-  const pharmaKeywords = [
-    "mg", "tablet", "tablets", "capsule", "capsules", "syrup", "suspension",
-    "injection", "infusion", "ointment", "antibiotic", "paracetamol", "amoxicillin",
-    "ampicillin", "metronidazole", "artemether", "lumefantrine", "ciprofloxacin",
-    "ibuprofen", "diclofenac", "inhaler", "suppository", "cream", "gel", "lotion",
-    "drops", "elixir", "powder", "bandage", "gauze", "cotton", "plaster"
-  ];
-  const supermarketKeywords = [
-    "biscuit", "biscuits", "wafer", "wafers", "drink", "drinks", "coca cola",
-    "fanta", "sprite", "pepsi", "malt", "water", "detergent", "bleach", "soap",
-    "toothpaste", "toilet roll", "tissue", "cleaner", "deodorant",
-    "perfume", "diaper", "diapers", "milk", "tea", "coffee", "sugar", "condom", "condoms"
-  ];
+  // 5. Category mismatch check (bypassed if human reviewer explicitly confirmed the category)
+  if (!draft.categoryConfirmed) {
+    const pharmaKeywords = [
+      "mg", "tablet", "tablets", "capsule", "capsules", "syrup", "suspension",
+      "injection", "infusion", "ointment", "antibiotic", "paracetamol", "amoxicillin",
+      "ampicillin", "metronidazole", "artemether", "lumefantrine", "ciprofloxacin",
+      "ibuprofen", "diclofenac", "inhaler", "suppository", "cream", "gel", "lotion",
+      "drops", "elixir", "powder", "bandage", "gauze", "cotton", "plaster"
+    ];
+    const supermarketKeywords = [
+      "biscuit", "biscuits", "wafer", "wafers", "drink", "drinks", "coca cola",
+      "fanta", "sprite", "pepsi", "malt", "water", "detergent", "bleach", "soap",
+      "toothpaste", "toilet roll", "tissue", "cleaner", "deodorant",
+      "perfume", "diaper", "diapers", "milk", "tea", "coffee", "sugar", "condom", "condoms"
+    ];
 
-  const hasPharma = pharmaKeywords.some(k => fullName.includes(k));
-  const hasSuper = supermarketKeywords.some(k => fullName.includes(k));
+    const hasPharma = pharmaKeywords.some(k => fullName.includes(k));
+    const hasSuper = supermarketKeywords.some(k => fullName.includes(k));
 
-  if (cat !== "medicine" && hasPharma) {
-    flags.add("looks_like_medicine");
-  } else if (cat === "medicine" && hasSuper && !hasPharma) {
-    flags.add("looks_like_supermarket");
+    if (cat !== "medicine" && hasPharma) {
+      flags.add("looks_like_medicine");
+    } else if (cat === "medicine" && hasSuper && !hasPharma) {
+      flags.add("looks_like_supermarket");
+    }
   }
 
   return Array.from(flags);
