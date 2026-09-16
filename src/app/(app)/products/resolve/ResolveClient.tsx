@@ -126,8 +126,8 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
     const form = editingGroups[groupKey];
     if (!group || !form) return;
 
-    if (!form.itemName || !form.retailPrice || Number(form.retailPrice) <= 0) {
-      alert("Please ensure product has a valid name and price > ₦0.");
+    if (!form.itemName?.trim()) {
+      alert("Please ensure product has a valid name before merging.");
       return;
     }
 
@@ -144,7 +144,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
     );
   };
 
-  // 1b. Approve Single Item Separated from Duplicate Group (Optimistic 0ms UI)
+  // 1b. Move Single Item Separated from Duplicate Group to Needs Attention (Optimistic 0ms UI)
   const handleApproveSingle = async (draftId: string, itemData: any) => {
     const targetGroup = duplicateGroups.find(g => g.items.some((it: any) => it._id === draftId));
     const targetItem = targetGroup?.items.find((it: any) => it._id === draftId);
@@ -152,7 +152,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
     sync.enqueue({
       id: `single-${draftId}`,
       type: "approve_single_item",
-      label: `Approved "${itemData.itemName}"`,
+      label: `Moved "${itemData.itemName}" to Needs Attention`,
       applyOptimistic: () => {
         // Instantly remove item from duplicate group in UI (0ms latency!)
         setDuplicateGroups(prev =>
@@ -190,7 +190,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
           }),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error || "Failed to approve item");
+        if (!res.ok) throw new Error(json.error || "Failed to save item");
         return json;
       },
       rollback: (err: Error) => {
@@ -208,10 +208,10 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
             return [targetGroup, ...prev];
           });
         }
-        setErrorMsg(`Failed to approve "${itemData.itemName}": ${err.message}`);
+        setErrorMsg(`Failed to save "${itemData.itemName}": ${err.message}`);
       },
       onSuccess: (json: any) => {
-        showSuccess(`✓ Approved "${json.product?.itemName || itemData.itemName}" live to POS!`);
+        showSuccess(`✓ Moved "${json.draft?.extractedItemName || itemData.itemName}" to Needs Attention for MD price review!`);
       },
     });
   };
@@ -513,7 +513,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
                 <div className="space-y-6">
                   <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl text-indigo-900 text-sm flex items-center justify-between">
                     <div>
-                      <strong>{duplicateGroups.length} duplicate groups detected.</strong> Review the combined quantity and click <em>Merge & Approve</em> to create 1 clean product in your POS.
+                      <strong>{duplicateGroups.length} duplicate groups detected.</strong> Merge duplicate snaps or split distinct items. Both actions move items directly to <em>Needs Attention</em> for the MD to review and set prices.
                     </div>
                   </div>
 

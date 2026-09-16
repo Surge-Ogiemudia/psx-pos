@@ -594,7 +594,7 @@ export function buildMergeGroupSyncAction({
     },
     onSuccess: (json: any) => {
       showSuccess(
-        `✓ Merged ${itemCount} items into "${json.product?.itemName || form.itemName}"!`
+        `✓ Merged ${itemCount} items into "${json.draft?.extractedItemName || json.product?.itemName || form.itemName}" and moved to Needs Attention for MD price review!`
       );
     },
   };
