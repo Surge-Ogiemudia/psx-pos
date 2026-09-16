@@ -34,6 +34,8 @@ const AiDraftProductSchema = new Schema(
     needsReviewReason: { type: [String], default: [] },
     isSplitUnique: { type: Boolean, default: false },
     categoryConfirmed: { type: Boolean, default: false },
+    priceConfirmed: { type: Boolean, default: false },
+    qtyConfirmed: { type: Boolean, default: false },
 
     // Final product reference once created
     productId: { type: Schema.Types.ObjectId, ref: "Product", default: null }

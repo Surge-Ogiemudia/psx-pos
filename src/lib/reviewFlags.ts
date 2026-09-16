@@ -8,6 +8,8 @@ export function computeReviewFlags(draft: {
   extractedExpiryDate?: Date | string | null;
   needsReviewReason?: string[] | null;
   categoryConfirmed?: boolean | null;
+  priceConfirmed?: boolean | null;
+  qtyConfirmed?: boolean | null;
 }): string[] {
   const flags = new Set<string>();
   const name = (draft.extractedItemName || "").toLowerCase().trim();
@@ -21,17 +23,21 @@ export function computeReviewFlags(draft: {
   // 1. Price checks
   if (price <= 0) {
     flags.add("zero_price");
-  } else if (price < 50) {
-    flags.add("unlikely_low_price");
-  } else if (price > 50000) {
-    flags.add("high_price_check");
+  } else if (!draft.priceConfirmed) {
+    if (price < 50) {
+      flags.add("unlikely_low_price");
+    } else if (price > 50000) {
+      flags.add("high_price_check");
+    }
   }
 
   // 2. Quantity checks
   if (qty <= 0) {
     flags.add("zero_qty");
-  } else if (qty > 100) {
-    flags.add("high_qty_check");
+  } else if (!draft.qtyConfirmed) {
+    if (qty > 100) {
+      flags.add("high_qty_check");
+    }
   }
 
   // 3. Name checks
