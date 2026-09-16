@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 import withSerwistInit from "@serwist/next";
 
 const withSerwist = withSerwistInit({
@@ -26,10 +27,12 @@ const nextConfig: NextConfig = {
     return config;
   },
   turbopack: {
+    root: path.resolve(__dirname),
     resolveAlias: {
       canvas: "./empty-canvas.js",
     },
   },
 };
+
 
 export default withSerwist(nextConfig);

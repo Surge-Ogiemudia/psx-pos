@@ -10,7 +10,9 @@ export function computeReviewFlags(draft: {
   categoryConfirmed?: boolean | null;
   priceConfirmed?: boolean | null;
   qtyConfirmed?: boolean | null;
-}): string[] {
+  expiryConfirmed?: boolean | null;
+}
+): string[] {
   const flags = new Set<string>();
   const name = (draft.extractedItemName || "").toLowerCase().trim();
   const brand = (draft.extractedBrand || "").toLowerCase().trim();
@@ -58,10 +60,10 @@ export function computeReviewFlags(draft: {
       if (year > 2040 || year < 2020) {
         flags.add("unlikely_expiry_year");
       }
-    } else if (cat === "medicine") {
+    } else if (cat === "medicine" && !draft.expiryConfirmed) {
       flags.add("missing_expiry");
     }
-  } else if (cat === "medicine") {
+  } else if (cat === "medicine" && !draft.expiryConfirmed) {
     flags.add("missing_expiry");
   }
 

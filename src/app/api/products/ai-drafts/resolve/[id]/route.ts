@@ -40,6 +40,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (body.qtyConfirmed !== undefined) {
       draft.qtyConfirmed = Boolean(body.qtyConfirmed);
     }
+    if (body.expiryConfirmed !== undefined) {
+      draft.expiryConfirmed = Boolean(body.expiryConfirmed);
+    }
 
     // Dynamically re-evaluate needsReviewReason using central validator
     draft.needsReviewReason = computeReviewFlags(draft);

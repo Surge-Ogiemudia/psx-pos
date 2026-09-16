@@ -260,6 +260,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
         categoryConfirmed: form.categoryConfirmed !== undefined ? form.categoryConfirmed : (draft.categoryConfirmed || false),
         priceConfirmed: form.priceConfirmed !== undefined ? Boolean(form.priceConfirmed) : (currentPrice > 0 ? true : Boolean(draft.priceConfirmed)),
         qtyConfirmed: form.qtyConfirmed !== undefined ? Boolean(form.qtyConfirmed) : (currentQty > 0 ? true : Boolean(draft.qtyConfirmed)),
+        expiryConfirmed: form.expiryConfirmed !== undefined ? Boolean(form.expiryConfirmed) : (draft.expiryConfirmed || false),
         extractedExpiryDate:
           form.extractedExpiryDate !== undefined
             ? (form.extractedExpiryDate || null)
@@ -429,6 +430,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
       categoryConfirmed: form.categoryConfirmed !== undefined ? form.categoryConfirmed : (draft.categoryConfirmed || false),
       priceConfirmed: true,
       qtyConfirmed: form.qtyConfirmed !== undefined ? form.qtyConfirmed : (draft.qtyConfirmed || false),
+      expiryConfirmed: form.expiryConfirmed !== undefined ? form.expiryConfirmed : (draft.expiryConfirmed || false),
       retailPrice: currentPrice,
       quantityInStock:
         form.quantityInStock !== undefined && form.quantityInStock !== ""
@@ -514,6 +516,7 @@ export default function ResolveClient({ branchId, onClose }: ResolveClientProps)
       categoryConfirmed: form.categoryConfirmed !== undefined ? form.categoryConfirmed : (draft.categoryConfirmed || false),
       priceConfirmed: form.priceConfirmed !== undefined ? form.priceConfirmed : (draft.priceConfirmed || false),
       qtyConfirmed: true,
+      expiryConfirmed: form.expiryConfirmed !== undefined ? form.expiryConfirmed : (draft.expiryConfirmed || false),
       retailPrice:
         form.retailPrice !== undefined && form.retailPrice !== ""
           ? Number(form.retailPrice)
