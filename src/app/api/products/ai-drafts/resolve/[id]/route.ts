@@ -3,6 +3,8 @@ import { dbConnect } from "@/lib/mongodb";
 import { AiDraftProduct } from "@/models/AiDraftProduct";
 import { requireApiSession } from "@/lib/session";
 
+import { computeReviewFlags } from "@/lib/reviewFlags";
+
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireApiSession();
@@ -30,15 +32,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       draft.extractedExpiryDate = body.extractedExpiryDate ? new Date(body.extractedExpiryDate) : null;
     }
 
-    // Re-evaluate needsReviewReason
-    const reasons: string[] = [];
-    if (!draft.retailPrice || draft.retailPrice <= 0) reasons.push("zero_price");
-    if (!draft.extractedItemName || draft.extractedItemName.toLowerCase().includes("unnamed") || draft.extractedItemName.length < 3) {
-      reasons.push("missing_name");
-    }
-    if (draft.retailPrice && draft.retailPrice > 100000) reasons.push("outlier_price");
-    if (draft.quantityInStock && draft.quantityInStock > 500) reasons.push("outlier_qty");
-    draft.needsReviewReason = reasons;
+    // Dynamically re-evaluate needsReviewReason using central validator
+    draft.needsReviewReason = computeReviewFlags(draft);
 
     await draft.save();
 
