@@ -10,7 +10,7 @@ import { usePosOfflineSync } from "./usePosOfflineSync";
 import { db } from "@/lib/db";
 
 type CartLine =
-  | { kind: "catalog"; key: string; product: ProductJSON; form: string; quantity: number; instruction?: string }
+  | { kind: "catalog"; key: string; product: ProductJSON; form: string; quantity: number; instruction?: string; customPrice?: number }
   | {
       kind: "custom";
       key: string;
@@ -77,7 +77,7 @@ function heldSalesStorageKey(branchId: string | null): string {
 
 function lineAmount(line: CartLine): number {
   return line.kind === "catalog"
-    ? line.product.retailPrice * piecesPerForm(line.product, line.form) * line.quantity
+    ? (line.customPrice !== undefined ? line.customPrice : line.product.retailPrice * piecesPerForm(line.product, line.form)) * line.quantity
     : line.unitPrice * line.quantity;
 }
 
@@ -106,6 +106,15 @@ export default function PosClient({
   const [showOfflineTray, setShowOfflineTray] = useState(false);
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [search]);
+
   const [cart, setCart] = useState<CartLine[]>([]);
   const [payments, setPayments] = useState<PaymentLine[]>([{ method: "cash", amount: "" }]);
   const [paymentsTouched, setPaymentsTouched] = useState(false);
@@ -419,16 +428,16 @@ export default function PosClient({
 
   function productParams() {
     const params = new URLSearchParams();
-    if (search) params.set("search", search);
+    if (debouncedSearch) params.set("search", debouncedSearch);
     if (branchId) params.set("branchId", branchId);
     return params.toString();
   }
 
   useEffect(() => {
     const controller = new AbortController();
-    const timeout = setTimeout(async () => {
+    const fetchProducts = async () => {
       if (!isOnline) {
-        const query = search.toLowerCase();
+        const query = debouncedSearch.toLowerCase();
         const allProducts = await db.products.toArray();
         const filtered = allProducts.filter(p => 
           (p.itemName && p.itemName.toLowerCase().includes(query)) ||
@@ -447,12 +456,12 @@ export default function PosClient({
           if (e.name !== "AbortError") console.error("Search fetch error", e);
         }
       }
-    }, 200);
+    };
+    fetchProducts();
     return () => {
-      clearTimeout(timeout);
       controller.abort();
     };
-  }, [search, branchId, isOnline]);
+  }, [debouncedSearch, branchId, isOnline]);
 
   // Global Barcode Scanner Listener
   useEffect(() => {
@@ -698,6 +707,7 @@ export default function PosClient({
             quantity: line.quantity,
             form: line.product.unitHierarchy?.length ? line.form : undefined,
             priceTier: "retail",
+            unitPrice: line.customPrice,
           }
         : {
             custom: true,
@@ -1044,7 +1054,7 @@ export default function PosClient({
                 </div>
               </button>
 
-              {products.map((product) => {
+              {products.slice(0, 100).map((product) => {
                 const expiryStatus = getExpiryStatus(product.expiryDate);
                 return (
                   <button
@@ -1249,7 +1259,28 @@ export default function PosClient({
                         }}
                         className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm text-center focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600 font-medium"
                       />
-                      <span className="text-sm text-zinc-600">₦{line.unitPrice.toFixed(2)} each</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm text-zinc-600">₦</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={line.unitPrice === 0 ? "" : line.unitPrice}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            if (raw === "") {
+                              updateLine(line.key, { unitPrice: 0 });
+                              return;
+                            }
+                            const val = parseNumeric(raw);
+                            if (!Number.isNaN(val)) {
+                              updateLine(line.key, { unitPrice: val });
+                            }
+                          }}
+                          className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                        />
+                        <span className="text-sm text-zinc-600">each</span>
+                      </div>
                     </div>
                     <div className="mt-1 text-right text-sm text-zinc-600">
                       ₦{(line.unitPrice * line.quantity).toFixed(2)}
@@ -1261,7 +1292,7 @@ export default function PosClient({
               const hierarchy = line.product.unitHierarchy;
               const perForm = piecesPerForm(line.product, line.form);
               const maxQty = Math.max(1, Math.floor(line.product.quantityInStock / perForm));
-              const priceForForm = line.product.retailPrice * perForm;
+              const priceForForm = line.customPrice !== undefined ? line.customPrice : line.product.retailPrice * perForm;
               return (
                 <div key={line.key} className="border-b border-zinc-100 pb-3 last:border-0">
                   <div className="flex items-start justify-between gap-2">
@@ -1340,11 +1371,63 @@ export default function PosClient({
                         ))}
                       </select>
                     ) : (
-                      <span className="text-sm text-zinc-600">₦{line.product.retailPrice.toFixed(2)} each</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm text-zinc-600">₦</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={line.customPrice !== undefined ? line.customPrice : line.product.retailPrice}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            if (raw === "") {
+                              updateLine(line.key, { customPrice: 0 });
+                              return;
+                            }
+                            const val = parseNumeric(raw);
+                            if (!Number.isNaN(val)) {
+                              updateLine(line.key, { customPrice: val });
+                            }
+                          }}
+                          onBlur={(e) => {
+                            if (!e.target.value.trim()) {
+                              updateLine(line.key, { customPrice: undefined });
+                            }
+                          }}
+                          className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                        />
+                        <span className="text-sm text-zinc-600">each</span>
+                      </div>
                     )}
                   </div>
                   {hierarchy && hierarchy.length > 0 && (
-                    <div className="mt-1 text-xs text-zinc-500">₦{priceForForm.toFixed(2)} per {line.form}</div>
+                    <div className="mt-1 flex items-center gap-1 text-xs text-zinc-500">
+                      <span>₦</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={line.customPrice !== undefined ? line.customPrice : (line.product.retailPrice * piecesPerForm(line.product, line.form))}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const raw = e.target.value.trim();
+                          if (raw === "") {
+                            updateLine(line.key, { customPrice: 0 });
+                            return;
+                          }
+                          const val = parseNumeric(raw);
+                          if (!Number.isNaN(val)) {
+                            updateLine(line.key, { customPrice: val });
+                          }
+                        }}
+                        onBlur={(e) => {
+                          if (!e.target.value.trim()) {
+                            updateLine(line.key, { customPrice: undefined });
+                          }
+                        }}
+                        className="w-16 rounded border border-zinc-200 px-1 py-0.5 text-xs text-zinc-700 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                      />
+                      <span>per {line.form}</span>
+                    </div>
                   )}
                   <div className="mt-1 text-right text-sm text-zinc-600">
                     ₦{(priceForForm * line.quantity).toFixed(2)}
