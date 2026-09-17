@@ -2127,7 +2127,7 @@ export default function ProductsClient({
                       <td className="px-3 py-2 font-medium text-zinc-900 sticky left-0 z-10 bg-white border-r border-zinc-100 shadow-[1px_0_0_0_#f4f4f5]">
                         <div className="flex items-center gap-2">
                           {product.imageUrl ? (
-                            <img src={product.imageUrl} alt={product.itemName} className="h-8 w-8 rounded object-cover" />
+                              <img src={`/_next/image?url=${encodeURIComponent(product.imageUrl)}&w=64&q=50`} alt={product.itemName} className="h-8 w-8 rounded object-cover" />
                           ) : (
                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-zinc-100 text-zinc-400">
                               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
