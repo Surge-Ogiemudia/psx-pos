@@ -1057,7 +1057,7 @@ export default function PosClient({
                       <div className="flex items-center gap-2">
                         {product.imageUrl ? (
                           <img
-                            src={product.imageUrl}
+                            src={`/_next/image?url=${encodeURIComponent(product.imageUrl)}&w=64&q=50`}
                             alt={product.itemName}
                             className="h-8 w-8 shrink-0 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity"
                             onClick={(e) => {
@@ -1287,7 +1287,7 @@ export default function PosClient({
                       <div className="flex items-center gap-2">
                         {line.product.imageUrl ? (
                           <img
-                            src={line.product.imageUrl}
+                            src={`/_next/image?url=${encodeURIComponent(line.product.imageUrl)}&w=64&q=50`}
                             alt={line.product.itemName}
                             className="h-6 w-6 shrink-0 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity"
                             onClick={(e) => {
@@ -1818,3 +1818,5 @@ export default function PosClient({
     </div>
   );
 }
+
+
