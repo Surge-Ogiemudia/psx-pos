@@ -150,31 +150,24 @@ export default function PosClient({
         setLoadingPrescription(true);
         const nextCart: CartLine[] = [];
         
+        const allProducts = await db.products.toArray();
+
         for (const med of medicines) {
           if (!med || !med.name) continue;
-          
-          const searchParams = new URLSearchParams({ search: med.name });
-          if (branchId) searchParams.set("branchId", branchId);
           
           try {
             let foundProduct = null;
             
             if (med.productId) {
-              const prodRes = await fetch(`/api/products/${med.productId}`);
-              if (prodRes.ok) {
-                const prodData = await prodRes.json();
-                foundProduct = prodData.product || null;
-              }
+              foundProduct = allProducts.find(p => p._id === med.productId) || null;
             }
             
             if (!foundProduct) {
-              const searchParams = new URLSearchParams({ search: med.name });
-              if (branchId) searchParams.set("branchId", branchId);
-              const prodRes = await fetch(`/api/products?${searchParams}`);
-              if (prodRes.ok) {
-                const prodData = await prodRes.json();
-                foundProduct = prodData.products?.[0];
-              }
+              const query = med.name.toLowerCase();
+              foundProduct = allProducts.find(p => 
+                (p.itemName && p.itemName.toLowerCase().includes(query)) ||
+                (p.brand && p.brand.toLowerCase().includes(query))
+              ) || null;
             }
             
             if (foundProduct) {
@@ -434,34 +427,18 @@ export default function PosClient({
   }
 
   useEffect(() => {
-    const controller = new AbortController();
     const fetchProducts = async () => {
-      if (!isOnline) {
-        const query = debouncedSearch.toLowerCase();
-        const allProducts = await db.products.toArray();
-        const filtered = allProducts.filter(p => 
-          (p.itemName && p.itemName.toLowerCase().includes(query)) ||
-          (p.brand && p.brand.toLowerCase().includes(query)) ||
-          (p.barcode && p.barcode.includes(query))
-        );
-        setProducts(filtered.slice(0, 50) as unknown as ProductJSON[]);
-      } else {
-        try {
-          const res = await fetch(`/api/products?${productParams()}`, { signal: controller.signal });
-          if (res.ok) {
-            const data = await res.json();
-            setProducts(data.products);
-          }
-        } catch (e: any) {
-          if (e.name !== "AbortError") console.error("Search fetch error", e);
-        }
-      }
+      const query = debouncedSearch.toLowerCase();
+      const allProducts = await db.products.toArray();
+      const filtered = allProducts.filter(p => 
+        (p.itemName && p.itemName.toLowerCase().includes(query)) ||
+        (p.brand && p.brand.toLowerCase().includes(query)) ||
+        (p.barcode && p.barcode.includes(query))
+      );
+      setProducts(filtered.slice(0, 50) as unknown as ProductJSON[]);
     };
     fetchProducts();
-    return () => {
-      controller.abort();
-    };
-  }, [debouncedSearch, branchId, isOnline]);
+  }, [debouncedSearch]);
 
   // Global Barcode Scanner Listener
   useEffect(() => {
@@ -487,25 +464,28 @@ export default function PosClient({
         const scannedCode = barcodeBuffer;
         barcodeBuffer = "";
         
-        if (!navigator.onLine) {
-          const allProducts = await db.products.toArray();
-          const matchedProduct = allProducts.find(p => p.barcode === scannedCode);
-          if (matchedProduct) {
-            addToCart(matchedProduct as unknown as ProductJSON);
-            scrollToCart();
-          }
-        } else {
+        const allProducts = await db.products.toArray();
+        const matchedProduct = allProducts.find(p => p.barcode === scannedCode);
+        
+        if (matchedProduct) {
+          addToCart(matchedProduct as unknown as ProductJSON);
+          scrollToCart();
+        } else if (navigator.onLine) {
           const params = new URLSearchParams({ search: scannedCode });
           if (branchId) params.set("branchId", branchId);
           
-          const res = await fetch(`/api/products?${params.toString()}`);
-          if (res.ok) {
-            const data = await res.json();
-            const matchedProduct = data.products.find((p: ProductJSON) => p.barcode === scannedCode);
-            if (matchedProduct) {
-              addToCart(matchedProduct);
-              scrollToCart();
+          try {
+            const res = await fetch(`/api/products?${params.toString()}`);
+            if (res.ok) {
+              const data = await res.json();
+              const remoteMatch = data.products.find((p: ProductJSON) => p.barcode === scannedCode);
+              if (remoteMatch) {
+                addToCart(remoteMatch);
+                scrollToCart();
+              }
             }
+          } catch (e) {
+            console.error("Barcode remote fallback error", e);
           }
         }
         return;
@@ -568,22 +548,23 @@ export default function PosClient({
       const timeout = setTimeout(() => setCustomMatches([]), 0);
       return () => clearTimeout(timeout);
     }
-    const controller = new AbortController();
     const timeout = setTimeout(async () => {
-      const params = new URLSearchParams({ search: customForm.itemName.trim() });
-      if (branchId) params.set("branchId", branchId);
       try {
-        const res = await fetch(`/api/products?${params}`, { signal: controller.signal });
-        if (res.ok) setCustomMatches((await res.json()).products.slice(0, 5));
+        const query = customForm.itemName.trim().toLowerCase();
+        const allProducts = await db.products.toArray();
+        const filtered = allProducts.filter(p => 
+          (p.itemName && p.itemName.toLowerCase().includes(query)) ||
+          (p.brand && p.brand.toLowerCase().includes(query))
+        );
+        setCustomMatches(filtered.slice(0, 5) as unknown as ProductJSON[]);
       } catch (e: any) {
-        if (e.name !== "AbortError") console.error("Custom search error", e);
+        console.error("Custom search error", e);
       }
     }, 250);
     return () => {
       clearTimeout(timeout);
-      controller.abort();
     };
-  }, [customMode, customForm.itemName, branchId]);
+  }, [customMode, customForm.itemName]);
 
   function addCustomToCart() {
     setCustomError(null);
@@ -817,8 +798,14 @@ export default function PosClient({
     setPayments([{ method: "cash", amount: "" }]);
     setPaymentsTouched(false);
     setChangeFee("0");
-    const refreshed = await fetch(`/api/products?${productParams()}`);
-    if (refreshed.ok) setProducts((await refreshed.json()).products);
+    const query = debouncedSearch.toLowerCase();
+    const allProducts = await db.products.toArray();
+    const filtered = allProducts.filter(p => 
+      (p.itemName && p.itemName.toLowerCase().includes(query)) ||
+      (p.brand && p.brand.toLowerCase().includes(query)) ||
+      (p.barcode && p.barcode.includes(query))
+    );
+    setProducts(filtered.slice(0, 50) as unknown as ProductJSON[]);
     
     if (data.sale) {
       // Re-map the API response to fit the ReceiptSale shape needed by the template
