@@ -61,22 +61,30 @@ export async function syncProductsToPsx(
 
   try {
     const mainPsxUrl = getMainPsxUrl();
-    const res = await fetch(`${mainPsxUrl}/api/pos-sync`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${PSX_SYNC_API_KEY}`,
-      },
-      body: JSON.stringify({
-        pharmacy_slug: pharmacySlug,
-        updates,
-        deletes: [],
-      }),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-    if (!res.ok) {
-      const body = await res.text();
-      console.warn(`⚠️ PSX sync failed (${res.status}): ${body}`);
+    try {
+      const res = await fetch(`${mainPsxUrl}/api/pos-sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${PSX_SYNC_API_KEY}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          pharmacy_slug: pharmacySlug,
+          updates,
+          deletes: [],
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        console.warn(`⚠️ PSX sync failed (${res.status}): ${body}`);
+      }
+    } finally {
+      clearTimeout(timeoutId);
     }
   } catch (error) {
     console.warn("⚠️ PSX sync error (non-blocking):", error);
@@ -98,22 +106,30 @@ export async function deleteProductsFromPsx(
 
   try {
     const mainPsxUrl = getMainPsxUrl();
-    const res = await fetch(`${mainPsxUrl}/api/pos-sync`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${PSX_SYNC_API_KEY}`,
-      },
-      body: JSON.stringify({
-        pharmacy_slug: pharmacySlug,
-        updates: [],
-        deletes,
-      }),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-    if (!res.ok) {
-      const body = await res.text();
-      console.warn(`⚠️ PSX delete-sync failed (${res.status}): ${body}`);
+    try {
+      const res = await fetch(`${mainPsxUrl}/api/pos-sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${PSX_SYNC_API_KEY}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          pharmacy_slug: pharmacySlug,
+          updates: [],
+          deletes,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        console.warn(`⚠️ PSX delete-sync failed (${res.status}): ${body}`);
+      }
+    } finally {
+      clearTimeout(timeoutId);
     }
   } catch (error) {
     console.warn("⚠️ PSX delete-sync error (non-blocking):", error);

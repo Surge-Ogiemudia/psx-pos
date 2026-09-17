@@ -6,7 +6,7 @@ import ImportBatch from "@/models/ImportBatch";
 import DeletionLog from "@/models/DeletionLog";
 import ProductBatch from "@/models/ProductBatch";
 import { requireAdminApiSession, requireApiSession, getBranchScope } from "@/lib/session";
-import { normalizeText, productSearchScore } from "@/lib/productSimilarity";
+import { normalizeText } from "@/lib/productSimilarity";
 import { parseNumeric } from "@/lib/numberInput";
 import { productsToCsv } from "@/lib/csv";
 import { handleApiError } from "@/lib/apiError";
@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
 
     const search = request.nextUrl.searchParams.get("search")?.trim();
     const lastSyncedAt = request.nextUrl.searchParams.get("lastSyncedAt");
+    const limit = request.nextUrl.searchParams.get("limit");
     
     const query: Record<string, unknown> = getBranchScope(
       session,
@@ -47,26 +48,29 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const products = await Product.find(query).sort({ itemName: 1, brand: 1 }).lean();
+    if (search) {
+      query.$or = [
+        { itemName: { $regex: search, $options: 'i' } },
+        { brand: { $regex: search, $options: 'i' } },
+        { barcode: search }
+      ];
+    }
+
+    let productsQuery = Product.find(query).sort({ itemName: 1, brand: 1 });
+    
+    if (search) {
+      productsQuery = productsQuery.limit(50);
+    } else if (limit) {
+      productsQuery = productsQuery.limit(parseInt(limit, 10));
+    }
+
+    const products = await productsQuery.lean();
 
     if (!search) {
       return NextResponse.json({ products, fullSyncRequired, timestamp: serverTime });
     }
 
-    // Exact barcode match takes absolute precedence
-    const exactBarcodeMatch = products.find((p) => p.barcode && p.barcode === search);
-    if (exactBarcodeMatch) {
-      return NextResponse.json({ products: [exactBarcodeMatch] });
-    }
-
-    // Search-as-you-type: rank by prefix/substring match first, then typo-tolerant fuzzy match
-    // (e.g. "Swiss" also finds "Swoss"/"Suoss"), so a single letter still shows sensible results.
-    const ranked = products
-      .map((p) => ({ product: p, score: productSearchScore(search, p) }))
-      .filter((r) => r.score > 0)
-      .sort((a, b) => b.score - a.score);
-
-    return NextResponse.json({ products: ranked.map((r) => r.product) });
+    return NextResponse.json({ products });
   } catch (error) {
     return handleApiError(error);
   }
