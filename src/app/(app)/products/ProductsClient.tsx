@@ -342,6 +342,7 @@ export default function ProductsClient({
   async function loadProducts() {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
+    else params.set("limit", "100");
     if (branchId) params.set("branchId", branchId);
     const res = await fetch(`/api/products?${params}`);
     if (res.ok) setProducts((await res.json()).products);
@@ -1936,7 +1937,7 @@ export default function ProductsClient({
             </tr>
           </thead>
           <tbody>
-            {visibleProducts.map((product) => {
+            {visibleProducts.slice(0, 100).map((product) => {
               const editing = editingId === product._id;
               const expiryStatus = getExpiryStatus(product.expiryDate);
               return (
