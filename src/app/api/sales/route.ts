@@ -305,10 +305,24 @@ export async function POST(request: NextRequest) {
             batchDraws.push({ batchId: draw.id, quantity: draw.baseUnitsDrawn });
           }
 
-          const unitPrice = product[priceField] as number;
+          const unitPriceFromProduct = product[priceField] as number;
           const unitCost = product.costPrice || 0;
-          const lineTotal = unitPrice * baseQuantity;
-          const costTotal = unitCost * baseQuantity;
+
+          let lineTotal: number;
+          let unitPrice: number;
+
+          if (item.unitPrice !== undefined) {
+            // item.unitPrice from frontend is the price PER FORM (or per unit if no hierarchy).
+            // item.quantity is the number of forms.
+            lineTotal = round2(item.unitPrice * item.quantity);
+            // Effective unit price per base unit
+            unitPrice = round2(lineTotal / baseQuantity);
+          } else {
+            lineTotal = round2(unitPriceFromProduct * baseQuantity);
+            unitPrice = unitPriceFromProduct;
+          }
+
+          const costTotal = round2(unitCost * baseQuantity);
           totalAmount += lineTotal;
           totalCost += costTotal;
 
