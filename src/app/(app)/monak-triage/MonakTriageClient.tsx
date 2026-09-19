@@ -684,19 +684,9 @@ export default function MonakTriageClient({ branchId }: Props) {
                   )}
                 </div>
 
-                {/* TEMP DEBUG — remove once the Panel 2 rendering bug is found */}
-                <div className="rounded-lg border-2 border-red-500 bg-red-50 p-2 text-[10px] font-mono text-red-900 break-all">
-                  DEBUG p2Search="{p2Search}" p2Loading={String(p2Loading)} p2Results.length=
-                  {p2Results.length} catalogMatches.length={catalogMatches.length}
-                  <br />
-                  p2Results={JSON.stringify(p2Results)}
-                  <br />
-                  catalogMatches={JSON.stringify(catalogMatches)}
-                </div>
-
                 {/* Already in catalog — likely the same item re-photographed off another shelf */}
                 {catalogMatches.length > 0 && (
-                  <div className="rounded-lg border-2 border-amber-300 bg-amber-50 overflow-hidden">
+                  <div className="shrink-0 rounded-lg border-2 border-amber-300 bg-amber-50">
                     <div className="px-3 py-1.5 text-xs font-bold text-amber-800 bg-amber-100">
                       ⚠️ Already in your catalog — same item?
                     </div>
@@ -723,7 +713,7 @@ export default function MonakTriageClient({ branchId }: Props) {
 
                 {/* Results */}
                 {p2Results.length > 0 && (
-                  <div className="rounded-lg border border-zinc-200 overflow-hidden">
+                  <div className="shrink-0 rounded-lg border border-zinc-200">
                     {p2Results.map((r) => (
                       <button
                         key={r._id}
@@ -844,7 +834,7 @@ export default function MonakTriageClient({ branchId }: Props) {
 
                 {/* Results */}
                 {p3Results.length > 0 && (
-                  <div className="rounded-lg border border-zinc-200 overflow-hidden">
+                  <div className="shrink-0 rounded-lg border border-zinc-200">
                     {p3Results.map((r) => (
                       <button
                         key={r._id}
