@@ -59,7 +59,7 @@ export interface DuplicateGroupCardProps {
   isMerging?: boolean;
   isApprovingDraftId?: string | null;
 }
-import ResilientThumb from "./ResilientThumb";
+import ResilientThumb from "@/components/ResilientThumb";
 
 // Resilient thumbnail with CacheStorage persistent caching & viewport lazy loading
 const CardThumb = ResilientThumb;

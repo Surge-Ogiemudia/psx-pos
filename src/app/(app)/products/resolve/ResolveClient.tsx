@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import DuplicateGroupCard from "./components/DuplicateGroupCard";
-import ResilientThumb from "./components/ResilientThumb";
+import ResilientThumb from "@/components/ResilientThumb";
 import {
   useBackgroundSync,
   FloatingSyncIndicator,
