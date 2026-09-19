@@ -2,13 +2,19 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
-interface MonakSnap {
+interface AiDraft {
   _id: string;
   frontImageUrl: string;
-  expiryImageUrl: string;
-  quantity: number;
+  backImageUrl: string | null;
+  quantityInStock: number;
+  retailPrice: number | null;
+  category: "medicine" | "non-medicine" | "supermarket";
   createdAt: string;
-  status: "pending" | "processed";
+  status: "pending" | "processing" | "extracted" | "completed" | "error" | "dismissed";
+  extractedItemName?: string | null;
+  extractedBrand?: string | null;
+  extractedSize?: string | null;
+  extractedExpiryDate?: string | null;
 }
 
 interface Excel1Result {
@@ -75,8 +81,10 @@ interface Props {
 
 export default function MonakTriageClient({ branchId }: Props) {
   // Panel 1 state
-  const [snaps, setSnaps] = useState<MonakSnap[]>([]);
-  const [selectedSnap, setSelectedSnap] = useState<MonakSnap | null>(null);
+  const [snaps, setSnaps] = useState<AiDraft[]>([]);
+  const [dismissedSnaps, setDismissedSnaps] = useState<AiDraft[]>([]);
+  const [showDismissed, setShowDismissed] = useState(false);
+  const [selectedSnap, setSelectedSnap] = useState<AiDraft | null>(null);
 
   // Panel 2 state
   const [p2Search, setP2Search] = useState("");
@@ -87,6 +95,10 @@ export default function MonakTriageClient({ branchId }: Props) {
   const [p3Search, setP3Search] = useState("");
   const [p3Results, setP3Results] = useState<Excel2Result[]>([]);
   const [p3Loading, setP3Loading] = useState(false);
+
+  // AI fallback scan (only used when a human search turns up no match)
+  const [aiScanning, setAiScanning] = useState(false);
+  const [aiScanError, setAiScanError] = useState("");
 
   // Shared form state
   const [form, setForm] = useState<ProductForm>({ ...EMPTY_FORM });
@@ -106,10 +118,12 @@ export default function MonakTriageClient({ branchId }: Props) {
   // --------------- Fetch snaps ---------------
   const fetchSnaps = useCallback(async () => {
     try {
-      const res = await fetch(`/api/monak-snaps?branchId=${branchId}`);
+      const res = await fetch(`/api/products/ai-drafts?branchId=${branchId}`);
       if (!res.ok) return;
       const data = await res.json();
-      setSnaps(data.snaps ?? []);
+      const all: AiDraft[] = data.drafts ?? [];
+      setSnaps(all.filter((d) => d.status !== "completed" && d.status !== "dismissed"));
+      setDismissedSnaps(all.filter((d) => d.status === "dismissed"));
     } catch {
       // silent
     }
@@ -168,14 +182,70 @@ export default function MonakTriageClient({ branchId }: Props) {
   }, [debouncedP3]);
 
   // --------------- Select snap ---------------
-  function selectSnap(snap: MonakSnap) {
+  function selectSnap(snap: AiDraft) {
     setSelectedSnap(snap);
-    setForm({ ...EMPTY_FORM, quantity: snap.quantity });
+    setForm({
+      ...EMPTY_FORM,
+      itemName: snap.extractedItemName || "",
+      brand: snap.extractedBrand || "",
+      size: snap.extractedSize || "",
+      category: snap.category,
+      expiryDate: snap.extractedExpiryDate ? snap.extractedExpiryDate.slice(0, 10) : "",
+      quantity: snap.quantityInStock,
+      retailPrice: snap.retailPrice || 0,
+    });
     setP2Search("");
     setP3Search("");
     setP2Results([]);
     setP3Results([]);
     setSaveError("");
+    setAiScanError("");
+  }
+
+  // --------------- AI fallback: scan the image when no manual match was found ---------------
+  async function handleAiScan() {
+    if (!selectedSnap) return;
+    setAiScanning(true);
+    setAiScanError("");
+    try {
+      const res = await fetch(`/api/products/ai-drafts/${selectedSnap._id}/process?stageOnly=true`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "AI scan failed");
+
+      const draft = json.draft as {
+        extractedItemName?: string | null;
+        extractedBrand?: string | null;
+        extractedSize?: string | null;
+        extractedExpiryDate?: string | null;
+        status: AiDraft["status"];
+      };
+
+      setForm((f) => ({
+        ...f,
+        itemName: draft.extractedItemName || f.itemName,
+        brand: draft.extractedBrand || f.brand,
+        size: draft.extractedSize || f.size,
+        expiryDate: draft.extractedExpiryDate ? draft.extractedExpiryDate.slice(0, 10) : f.expiryDate,
+      }));
+
+      // Keep the snap's own record in sync so re-selecting it later keeps the scan result
+      const updated: AiDraft = {
+        ...selectedSnap,
+        status: draft.status,
+        extractedItemName: draft.extractedItemName,
+        extractedBrand: draft.extractedBrand,
+        extractedSize: draft.extractedSize,
+        extractedExpiryDate: draft.extractedExpiryDate,
+      };
+      setSelectedSnap(updated);
+      setSnaps((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+    } catch (err) {
+      setAiScanError(err instanceof Error ? err.message : "AI scan failed");
+    } finally {
+      setAiScanning(false);
+    }
   }
 
   // --------------- Apply Excel1 result ---------------
@@ -220,10 +290,10 @@ export default function MonakTriageClient({ branchId }: Props) {
         wholesalePrice: form.wholesalePrice,
         distributorPrice: form.distributorPrice,
         frontImageUrl: selectedSnap.frontImageUrl,
-        expiryImageUrl: selectedSnap.expiryImageUrl,
+        backImageUrl: selectedSnap.backImageUrl,
       };
 
-      const res = await fetch(`/api/monak-snaps/${selectedSnap._id}/process`, {
+      const res = await fetch(`/api/products/ai-drafts/${selectedSnap._id}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -250,16 +320,40 @@ export default function MonakTriageClient({ branchId }: Props) {
     }
   }
 
-  // --------------- Delete snap ---------------
-  async function handleDelete(snap: MonakSnap) {
-    if (!confirm("Delete this snap from the queue?")) return;
+  // --------------- Dismiss snap (reversible — kept on record, hidden from queue) ---------------
+  async function handleDismiss(snap: AiDraft) {
+    if (!confirm("Move this item out of the triage queue? It stays on record and can be restored.")) return;
     try {
-      await fetch(`/api/monak-snaps/${snap._id}`, { method: "DELETE" });
+      const res = await fetch(`/api/products/ai-drafts/${snap._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "dismissed" }),
+      });
+      if (!res.ok) return;
+      const dismissed = { ...snap, status: "dismissed" as const };
       setSnaps((prev) => prev.filter((s) => s._id !== snap._id));
+      setDismissedSnaps((prev) => [dismissed, ...prev]);
       if (selectedSnap?._id === snap._id) {
         setSelectedSnap(null);
         setForm({ ...EMPTY_FORM });
       }
+    } catch {
+      // silent
+    }
+  }
+
+  // --------------- Restore a dismissed snap back into the queue ---------------
+  async function handleRestore(snap: AiDraft) {
+    try {
+      const res = await fetch(`/api/products/ai-drafts/${snap._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "pending" }),
+      });
+      if (!res.ok) return;
+      const restored = { ...snap, status: "pending" as const };
+      setDismissedSnaps((prev) => prev.filter((s) => s._id !== snap._id));
+      setSnaps((prev) => [restored, ...prev]);
     } catch {
       // silent
     }
@@ -276,66 +370,116 @@ export default function MonakTriageClient({ branchId }: Props) {
         <div className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
           <div className="bg-zinc-50 px-4 py-3 border-b border-zinc-200 font-semibold text-zinc-700 flex items-center justify-between">
             <span>📥 Live Queue</span>
-            <span className="text-xs bg-zinc-200 text-zinc-600 rounded-full px-2 py-0.5 font-normal">
-              {snaps.length} pending
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
-            {snaps.length === 0 && (
-              <div className="text-zinc-400 text-sm text-center mt-8">
-                No pending snaps. Waiting for new items…
-              </div>
-            )}
-            {snaps.map((snap) => {
-              const isSelected = selectedSnap?._id === snap._id;
-              return (
-                <div
-                  key={snap._id}
-                  className={`rounded-lg border p-3 flex flex-col gap-2 cursor-pointer transition-all ${
-                    isSelected
-                      ? "border-blue-500 bg-blue-50 shadow-md"
-                      : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
+            <div className="flex items-center gap-2">
+              {dismissedSnaps.length > 0 && (
+                <button
+                  onClick={() => setShowDismissed((v) => !v)}
+                  className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+                    showDismissed ? "bg-zinc-700 text-white" : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300"
                   }`}
                 >
-                  <div className="flex gap-2 items-start">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={snap.frontImageUrl}
-                      alt="Front"
-                      className="w-20 h-20 rounded object-cover border border-zinc-200 shrink-0"
-                    />
-                    <div className="flex flex-col gap-1 flex-1 min-w-0">
+                  {showDismissed ? "← Back to queue" : `🗑 Dismissed (${dismissedSnaps.length})`}
+                </button>
+              )}
+              {!showDismissed && (
+                <span className="text-xs bg-zinc-200 text-zinc-600 rounded-full px-2 py-0.5 font-normal">
+                  {snaps.length} pending
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+            {showDismissed ? (
+              <>
+                {dismissedSnaps.length === 0 && (
+                  <div className="text-zinc-400 text-sm text-center mt-8">Nothing dismissed.</div>
+                )}
+                {dismissedSnaps.map((snap) => (
+                  <div key={snap._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 flex flex-col gap-2 opacity-80">
+                    <div className="flex gap-2 items-start">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={snap.expiryImageUrl}
-                        alt="Expiry"
-                        className="w-full h-12 rounded object-cover border border-zinc-200"
+                        src={snap.frontImageUrl}
+                        alt="Front"
+                        className="w-20 h-20 rounded object-cover border border-zinc-200 shrink-0"
                       />
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-xs bg-zinc-100 text-zinc-700 rounded-full px-2 py-0.5 font-medium">
-                          Qty: {snap.quantity}
+                      <div className="flex flex-col gap-1 flex-1 min-w-0">
+                        <span className="text-xs bg-zinc-200 text-zinc-700 rounded-full px-2 py-0.5 font-medium w-fit">
+                          Qty: {snap.quantityInStock}
                         </span>
                         <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex gap-2">
                     <button
-                      onClick={() => selectSnap(snap)}
-                      className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                      onClick={() => handleRestore(snap)}
+                      className="w-full py-1.5 text-xs font-semibold rounded-lg bg-zinc-700 text-white hover:bg-zinc-800"
                     >
-                      Triage →
-                    </button>
-                    <button
-                      onClick={() => handleDelete(snap)}
-                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
-                    >
-                      ✕
+                      ↩ Restore to queue
                     </button>
                   </div>
-                </div>
-              );
-            })}
+                ))}
+              </>
+            ) : (
+              <>
+                {snaps.length === 0 && (
+                  <div className="text-zinc-400 text-sm text-center mt-8">
+                    No pending snaps. Waiting for new items…
+                  </div>
+                )}
+                {snaps.map((snap) => {
+                  const isSelected = selectedSnap?._id === snap._id;
+                  return (
+                    <div
+                      key={snap._id}
+                      className={`rounded-lg border p-3 flex flex-col gap-2 cursor-pointer transition-all ${
+                        isSelected
+                          ? "border-blue-500 bg-blue-50 shadow-md"
+                          : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
+                      }`}
+                    >
+                      <div className="flex gap-2 items-start">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={snap.frontImageUrl}
+                          alt="Front"
+                          className="w-20 h-20 rounded object-cover border border-zinc-200 shrink-0"
+                        />
+                        <div className="flex flex-col gap-1 flex-1 min-w-0">
+                          {snap.backImageUrl && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={snap.backImageUrl}
+                              alt="Back / Expiry"
+                              className="w-full h-12 rounded object-cover border border-zinc-200"
+                            />
+                          )}
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-xs bg-zinc-100 text-zinc-700 rounded-full px-2 py-0.5 font-medium">
+                              Qty: {snap.quantityInStock}
+                            </span>
+                            <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => selectSnap(snap)}
+                          className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                        >
+                          Triage →
+                        </button>
+                        <button
+                          onClick={() => handleDismiss(snap)}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>
         </div>
 
@@ -361,12 +505,14 @@ export default function MonakTriageClient({ branchId }: Props) {
                     alt="Front"
                     className="flex-1 rounded-lg object-contain border border-zinc-200 max-h-36 bg-zinc-50"
                   />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={selectedSnap.expiryImageUrl}
-                    alt="Expiry"
-                    className="flex-1 rounded-lg object-contain border border-zinc-200 max-h-36 bg-zinc-50"
-                  />
+                  {selectedSnap.backImageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={selectedSnap.backImageUrl}
+                      alt="Back / Expiry"
+                      className="flex-1 rounded-lg object-contain border border-zinc-200 max-h-36 bg-zinc-50"
+                    />
+                  )}
                 </div>
 
                 {/* Search */}
@@ -399,6 +545,21 @@ export default function MonakTriageClient({ branchId }: Props) {
                         </span>
                       </button>
                     ))}
+                  </div>
+                )}
+
+                {/* No match found — AI fallback, only shown once a search came up empty */}
+                {p2Search.trim() && !p2Loading && p2Results.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3 flex flex-col gap-2">
+                    <span className="text-xs text-zinc-500">No matches in the stock list for &quot;{p2Search}&quot;.</span>
+                    <button
+                      onClick={handleAiScan}
+                      disabled={aiScanning}
+                      className="py-2 text-xs font-semibold rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                    >
+                      {aiScanning ? "🤖 Reading image…" : "🤖 Can't find it — scan the image"}
+                    </button>
+                    {aiScanError && <span className="text-xs text-red-600">{aiScanError}</span>}
                   </div>
                 )}
 
@@ -597,12 +758,14 @@ export default function MonakTriageClient({ branchId }: Props) {
                   alt="Front"
                   className="flex-1 rounded-xl object-contain border border-zinc-200 max-h-44 bg-zinc-50"
                 />
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={selectedSnap.expiryImageUrl}
-                  alt="Expiry"
-                  className="flex-1 rounded-xl object-contain border border-zinc-200 max-h-44 bg-zinc-50"
-                />
+                {selectedSnap.backImageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={selectedSnap.backImageUrl}
+                    alt="Back / Expiry"
+                    className="flex-1 rounded-xl object-contain border border-zinc-200 max-h-44 bg-zinc-50"
+                  />
+                )}
               </div>
 
               {/* Editable fields */}
