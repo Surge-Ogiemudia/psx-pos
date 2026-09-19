@@ -9,7 +9,7 @@ const MonakExcel1Schema = new Schema(
     wholesalePrice: { type: Number, default: 0 },
     // You can add more fields if needed based on the CSV
   },
-  { timestamps: true }
+  { timestamps: true, collection: "monakexcel1s" }
 );
 
 // Create a text index for fast searching

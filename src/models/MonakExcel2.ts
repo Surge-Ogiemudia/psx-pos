@@ -9,7 +9,7 @@ const MonakExcel2Schema = new Schema(
     wholesalePrice: { type: Number, required: true, default: 0 },
     distributorPrice: { type: Number, default: 0 },
   },
-  { timestamps: true }
+  { timestamps: true, collection: "monakexcel2s" }
 );
 
 MonakExcel2Schema.index({ itemName: "text" });
