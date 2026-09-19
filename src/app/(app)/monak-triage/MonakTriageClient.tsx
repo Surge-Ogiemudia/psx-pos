@@ -166,6 +166,11 @@ export default function MonakTriageClient({ branchId }: Props) {
   // Polling ref
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Scroll target for the "Continue to Price Matching" button (Panel 2 -> Panel 3).
+  // Panel 3 is already live as soon as a snap is selected — this button is purely
+  // a visual "next step" cue, not a gate.
+  const panel3Ref = useRef<HTMLDivElement>(null);
+
   // --------------- Fetch snaps ---------------
   const fetchSnaps = useCallback(async () => {
     try {
@@ -799,6 +804,13 @@ export default function MonakTriageClient({ branchId }: Props) {
                     />
                   </div>
                 </div>
+
+                <button
+                  onClick={() => panel3Ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" })}
+                  className="w-full py-2.5 rounded-xl border border-blue-300 bg-blue-50 text-blue-700 font-semibold text-sm hover:bg-blue-100"
+                >
+                  Continue to Price Matching →
+                </button>
               </>
             )}
           </div>
@@ -807,7 +819,7 @@ export default function MonakTriageClient({ branchId }: Props) {
         {/* ============================================================ */}
         {/* PANEL 3 — Match Price                                         */}
         {/* ============================================================ */}
-        <div className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
+        <div ref={panel3Ref} className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
           <div className="bg-zinc-50 px-4 py-3 border-b border-zinc-200 font-semibold text-zinc-700">
             💰 Match Prices
           </div>
