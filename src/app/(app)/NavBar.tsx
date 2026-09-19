@@ -17,6 +17,8 @@ const ADMIN_LINKS = [
   { href: "/reports", label: "Reports" },
   { href: "/staff", label: "Staff" },
   { href: "/locations", label: "Locations" },
+  { href: "/monak-snap", label: "Monak Snap" },
+  { href: "/monak-triage", label: "Monak Triage" },
 ];
 const STORE_LINKS = [
   { href: "/store", label: "Bulk Store" },
