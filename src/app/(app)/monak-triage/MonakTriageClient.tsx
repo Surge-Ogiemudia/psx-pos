@@ -11,7 +11,7 @@ interface AiDraft {
   retailPrice: number | null;
   category: "medicine" | "non-medicine" | "supermarket";
   createdAt: string;
-  status: "pending" | "processing" | "extracted" | "completed" | "error" | "dismissed";
+  status: "pending" | "processing" | "extracted" | "completed" | "error" | "dismissed" | "confirming";
   extractedItemName?: string | null;
   extractedBrand?: string | null;
   extractedSize?: string | null;
@@ -33,6 +33,17 @@ interface Excel2Result {
   retailPrice: number;
   wholesalePrice: number;
   distributorPrice: number;
+}
+
+// A live catalog product — a hit here means this exact item was already triaged and
+// confirmed before, most likely re-photographed off a second shelf.
+interface CatalogMatch {
+  _id: string;
+  itemName: string;
+  brand: string;
+  size: string;
+  imageUrl: string | null;
+  quantityInStock: number;
 }
 
 interface ProductForm {
@@ -118,6 +129,16 @@ export default function MonakTriageClient({ branchId }: Props) {
   const [p2Results, setP2Results] = useState<Excel1Result[]>([]);
   const [p2Loading, setP2Loading] = useState(false);
 
+  // Live-catalog duplicate check — a hit means this item was already triaged before,
+  // most likely re-photographed off a second shelf. Kept separate from the Excel1
+  // reference-list results since clicking one means "merge stock", not "autofill".
+  const [catalogMatches, setCatalogMatches] = useState<CatalogMatch[]>([]);
+  const [mergeTarget, setMergeTarget] = useState<CatalogMatch | null>(null);
+  const [mergeQuantity, setMergeQuantity] = useState(1);
+  const [mergeExpiryDate, setMergeExpiryDate] = useState("");
+  const [merging, setMerging] = useState(false);
+  const [mergeError, setMergeError] = useState("");
+
   // Panel 3 state
   const [p3Search, setP3Search] = useState("");
   const [p3Results, setP3Results] = useState<Excel2Result[]>([]);
@@ -189,6 +210,24 @@ export default function MonakTriageClient({ branchId }: Props) {
     };
   }, [debouncedP2]);
 
+  // --------------- Panel 2: live-catalog duplicate check (same search term) ---------------
+  useEffect(() => {
+    if (!debouncedP2) {
+      setCatalogMatches([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/products?search=${encodeURIComponent(debouncedP2)}&branchId=${branchId}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setCatalogMatches((d.products ?? []).slice(0, 5));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedP2, branchId]);
+
   // --------------- Panel 3 Search ---------------
   useEffect(() => {
     if (!debouncedP3) {
@@ -228,8 +267,55 @@ export default function MonakTriageClient({ branchId }: Props) {
     setP3Search("");
     setP2Results([]);
     setP3Results([]);
+    setCatalogMatches([]);
+    setMergeTarget(null);
+    setMergeError("");
     setSaveError("");
     setAiScanError("");
+  }
+
+  // --------------- Open the merge-confirm view for a possible catalog duplicate ---------------
+  function openMergeConfirm(match: CatalogMatch) {
+    setMergeTarget(match);
+    setMergeQuantity(form.quantity || 1);
+    setMergeExpiryDate(form.expiryDate);
+    setMergeError("");
+  }
+
+  // --------------- Merge this snap's stock into an existing product ---------------
+  async function handleMerge() {
+    if (!selectedSnap || !mergeTarget) return;
+    setMerging(true);
+    setMergeError("");
+    try {
+      const res = await fetch(`/api/products/ai-drafts/${selectedSnap._id}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: mergeTarget._id,
+          quantity: mergeQuantity,
+          expiryDate: mergeExpiryDate || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Merge failed" }));
+        throw new Error(err.error ?? "Merge failed");
+      }
+
+      setSnaps((prev) => prev.filter((s) => s._id !== selectedSnap._id));
+      setSelectedSnap(null);
+      setForm({ ...EMPTY_FORM });
+      setMergeTarget(null);
+      setP2Search("");
+      setP3Search("");
+      setP2Results([]);
+      setP3Results([]);
+      setCatalogMatches([]);
+    } catch (err) {
+      setMergeError(err instanceof Error ? err.message : "Merge failed");
+    } finally {
+      setMerging(false);
+    }
   }
 
   // --------------- AI fallback: scan the image when no manual match was found ---------------
@@ -598,6 +684,33 @@ export default function MonakTriageClient({ branchId }: Props) {
                   )}
                 </div>
 
+                {/* Already in catalog — likely the same item re-photographed off another shelf */}
+                {catalogMatches.length > 0 && (
+                  <div className="rounded-lg border-2 border-amber-300 bg-amber-50 overflow-hidden">
+                    <div className="px-3 py-1.5 text-xs font-bold text-amber-800 bg-amber-100">
+                      ⚠️ Already in your catalog — same item?
+                    </div>
+                    {catalogMatches.map((m) => (
+                      <button
+                        key={m._id}
+                        onClick={() => openMergeConfirm(m)}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-amber-100 border-t border-amber-200 flex items-center gap-2"
+                      >
+                        <ResilientThumb src={m.imageUrl} alt={m.itemName} className="h-10 w-10 shrink-0" size={64} />
+                        <span className="flex-1 min-w-0">
+                          <span className="block font-medium text-zinc-800 leading-tight truncate">
+                            {m.itemName} · {m.size}
+                          </span>
+                          <span className="block text-xs text-zinc-500">{m.brand}</span>
+                        </span>
+                        <span className="text-xs font-semibold text-amber-700 shrink-0">
+                          {m.quantityInStock} in stock
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* Results */}
                 {p2Results.length > 0 && (
                   <div className="rounded-lg border border-zinc-200 overflow-hidden">
@@ -954,6 +1067,119 @@ export default function MonakTriageClient({ branchId }: Props) {
                 className="flex-1 py-2.5 rounded-xl bg-green-600 text-white font-bold text-sm hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {saving ? "Saving…" : "💾 Save to Catalog"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* MERGE CONFIRM MODAL — same item, additional stock from elsewhere  */}
+      {/* ================================================================ */}
+      {mergeTarget && selectedSnap && (
+        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
+            <div className="bg-amber-50 px-5 py-4 border-b border-amber-200 flex items-center justify-between">
+              <h2 className="font-bold text-amber-900 text-lg">⚠️ Is this the same item?</h2>
+              <button
+                onClick={() => setMergeTarget(null)}
+                className="text-zinc-400 hover:text-zinc-700 text-xl font-bold leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-5 flex flex-col gap-5">
+              <p className="text-sm text-zinc-600">
+                Compare the two photos below. If it&apos;s the same product just found on another
+                shelf, add these units to the existing stock instead of creating a duplicate.
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-bold text-zinc-500 uppercase tracking-wide text-center">
+                    New snap
+                  </span>
+                  <ResilientThumb
+                    src={selectedSnap.frontImageUrl}
+                    alt="New snap"
+                    className="w-full h-40"
+                    size={256}
+                    priority
+                    onClick={() => setZoomImage(selectedSnap.frontImageUrl)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-bold text-amber-700 uppercase tracking-wide text-center">
+                    Existing in catalog
+                  </span>
+                  <ResilientThumb
+                    src={mergeTarget.imageUrl}
+                    alt="Existing product"
+                    className="w-full h-40"
+                    size={256}
+                    priority
+                    onClick={() => mergeTarget.imageUrl && setZoomImage(mergeTarget.imageUrl)}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3 text-sm">
+                <div className="font-semibold text-zinc-800">
+                  {mergeTarget.itemName} · {mergeTarget.size}
+                </div>
+                <div className="text-zinc-500">{mergeTarget.brand}</div>
+                <div className="text-zinc-500 mt-1">
+                  Currently <span className="font-semibold text-zinc-700">{mergeTarget.quantityInStock}</span> in stock
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                    Additional Quantity Found
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={mergeQuantity}
+                    onChange={(e) => setMergeQuantity(Math.max(1, Number(e.target.value)))}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                    Expiry Date (this batch)
+                  </label>
+                  <input
+                    type="date"
+                    value={mergeExpiryDate}
+                    onChange={(e) => setMergeExpiryDate(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                </div>
+              </div>
+
+              {mergeError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
+                  ⚠️ {mergeError}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-4 border-t border-zinc-200 flex gap-3">
+              <button
+                onClick={() => setMergeTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-zinc-300 text-zinc-700 font-semibold text-sm hover:bg-zinc-50"
+              >
+                ✕ Not the same item
+              </button>
+              <button
+                onClick={handleMerge}
+                disabled={merging || mergeQuantity < 1}
+                className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {merging ? "Adding…" : `✅ Add ${mergeQuantity} to existing stock`}
               </button>
             </div>
           </div>
