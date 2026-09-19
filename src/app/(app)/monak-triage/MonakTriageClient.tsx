@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import ResilientThumb from "@/components/ResilientThumb";
 
 interface AiDraft {
   _id: string;
@@ -99,6 +100,9 @@ export default function MonakTriageClient({ branchId }: Props) {
   // AI fallback scan (only used when a human search turns up no match)
   const [aiScanning, setAiScanning] = useState(false);
   const [aiScanError, setAiScanError] = useState("");
+
+  // Full-resolution zoom overlay (thumbnails are compressed; zoom shows the original)
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
 
   // Shared form state
   const [form, setForm] = useState<ProductForm>({ ...EMPTY_FORM });
@@ -397,11 +401,12 @@ export default function MonakTriageClient({ branchId }: Props) {
                 {dismissedSnaps.map((snap) => (
                   <div key={snap._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 flex flex-col gap-2 opacity-80">
                     <div className="flex gap-2 items-start">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
+                      <ResilientThumb
                         src={snap.frontImageUrl}
                         alt="Front"
-                        className="w-20 h-20 rounded object-cover border border-zinc-200 shrink-0"
+                        className="w-20 h-20"
+                        size={96}
+                        onClick={() => setZoomImage(snap.frontImageUrl)}
                       />
                       <div className="flex flex-col gap-1 flex-1 min-w-0">
                         <span className="text-xs bg-zinc-200 text-zinc-700 rounded-full px-2 py-0.5 font-medium w-fit">
@@ -426,8 +431,9 @@ export default function MonakTriageClient({ branchId }: Props) {
                     No pending snaps. Waiting for new items…
                   </div>
                 )}
-                {snaps.map((snap) => {
+                {snaps.map((snap, idx) => {
                   const isSelected = selectedSnap?._id === snap._id;
+                  const isPriority = idx < 4;
                   return (
                     <div
                       key={snap._id}
@@ -438,19 +444,23 @@ export default function MonakTriageClient({ branchId }: Props) {
                       }`}
                     >
                       <div className="flex gap-2 items-start">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
+                        <ResilientThumb
                           src={snap.frontImageUrl}
                           alt="Front"
-                          className="w-20 h-20 rounded object-cover border border-zinc-200 shrink-0"
+                          className="w-20 h-20"
+                          size={96}
+                          priority={isPriority}
+                          onClick={() => setZoomImage(snap.frontImageUrl)}
                         />
                         <div className="flex flex-col gap-1 flex-1 min-w-0">
                           {snap.backImageUrl && (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
+                            <ResilientThumb
                               src={snap.backImageUrl}
                               alt="Back / Expiry"
-                              className="w-full h-12 rounded object-cover border border-zinc-200"
+                              className="w-full h-12"
+                              size={128}
+                              priority={isPriority}
+                              onClick={() => setZoomImage(snap.backImageUrl)}
                             />
                           )}
                           <div className="flex items-center justify-between mt-1">
@@ -497,22 +507,26 @@ export default function MonakTriageClient({ branchId }: Props) {
               </div>
             ) : (
               <>
-                {/* Images preview */}
+                {/* Images preview — tap to zoom in on the original full-res photo */}
                 <div className="flex gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <ResilientThumb
                     src={selectedSnap.frontImageUrl}
                     alt="Front"
-                    className="flex-1 rounded-lg object-contain border border-zinc-200 max-h-36 bg-zinc-50"
+                    label="Front"
+                    className="flex-1 h-36"
+                    size={256}
+                    priority
+                    onClick={() => setZoomImage(selectedSnap.frontImageUrl)}
                   />
-                  {selectedSnap.backImageUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={selectedSnap.backImageUrl}
-                      alt="Back / Expiry"
-                      className="flex-1 rounded-lg object-contain border border-zinc-200 max-h-36 bg-zinc-50"
-                    />
-                  )}
+                  <ResilientThumb
+                    src={selectedSnap.backImageUrl}
+                    alt="Back / Expiry"
+                    label="Back"
+                    className="flex-1 h-36"
+                    size={256}
+                    priority
+                    onClick={() => selectedSnap.backImageUrl && setZoomImage(selectedSnap.backImageUrl)}
+                  />
                 </div>
 
                 {/* Search */}
@@ -752,20 +766,24 @@ export default function MonakTriageClient({ branchId }: Props) {
             <div className="overflow-y-auto p-5 flex flex-col gap-5">
               {/* Images */}
               <div className="flex gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <ResilientThumb
                   src={selectedSnap.frontImageUrl}
                   alt="Front"
-                  className="flex-1 rounded-xl object-contain border border-zinc-200 max-h-44 bg-zinc-50"
+                  label="Front"
+                  className="flex-1 h-44"
+                  size={256}
+                  priority
+                  onClick={() => setZoomImage(selectedSnap.frontImageUrl)}
                 />
-                {selectedSnap.backImageUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={selectedSnap.backImageUrl}
-                    alt="Back / Expiry"
-                    className="flex-1 rounded-xl object-contain border border-zinc-200 max-h-44 bg-zinc-50"
-                  />
-                )}
+                <ResilientThumb
+                  src={selectedSnap.backImageUrl}
+                  alt="Back / Expiry"
+                  label="Back"
+                  className="flex-1 h-44"
+                  size={256}
+                  priority
+                  onClick={() => selectedSnap.backImageUrl && setZoomImage(selectedSnap.backImageUrl)}
+                />
               </div>
 
               {/* Editable fields */}
@@ -884,6 +902,30 @@ export default function MonakTriageClient({ branchId }: Props) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* ZOOM OVERLAY — full-resolution original, for reading fine print   */}
+      {/* ================================================================ */}
+      {zoomImage && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setZoomImage(null)}
+        >
+          <button
+            onClick={() => setZoomImage(null)}
+            className="absolute top-4 right-4 text-white hover:text-zinc-300 bg-black/50 rounded-full p-2"
+          >
+            ✕
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={zoomImage}
+            alt="Full resolution"
+            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </div>
