@@ -76,6 +76,20 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
+// Stable 3-way split so 3 operators can each work a fixed lane without colliding.
+// Based on the item's own id (not its position in the list), so an item never jumps
+// lanes as new snaps arrive and the newest-first order shifts underneath it.
+const LANE_COUNT = 3;
+function laneOf(id: string): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  }
+  return hash % LANE_COUNT;
+}
+
+const VIEW_STORAGE_KEY = "psx_monak_triage_view";
+
 interface Props {
   branchId: string;
 }
@@ -86,6 +100,18 @@ export default function MonakTriageClient({ branchId }: Props) {
   const [dismissedSnaps, setDismissedSnaps] = useState<AiDraft[]>([]);
   const [showDismissed, setShowDismissed] = useState(false);
   const [selectedSnap, setSelectedSnap] = useState<AiDraft | null>(null);
+
+  // Which lane this operator/computer is working — "all" or 0/1/2. Persisted per browser
+  // so each of the 3 computers keeps its assignment across reloads.
+  const [viewFilter, setViewFilter] = useState<"all" | number>("all");
+  useEffect(() => {
+    const saved = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (saved === "0" || saved === "1" || saved === "2") setViewFilter(Number(saved));
+  }, []);
+  function chooseView(v: "all" | number) {
+    setViewFilter(v);
+    localStorage.setItem(VIEW_STORAGE_KEY, String(v));
+  }
 
   // Panel 2 state
   const [p2Search, setP2Search] = useState("");
@@ -363,6 +389,9 @@ export default function MonakTriageClient({ branchId }: Props) {
     }
   }
 
+  const laneCounts = [0, 1, 2].map((lane) => snaps.filter((s) => laneOf(s._id) === lane).length);
+  const visibleSnaps = viewFilter === "all" ? snaps : snaps.filter((s) => laneOf(s._id) === viewFilter);
+
   return (
     // Break out of the layout's max-w-6xl by using negative margins
     <div className="-mx-4 -my-6 sm:-mx-6">
@@ -387,11 +416,35 @@ export default function MonakTriageClient({ branchId }: Props) {
               )}
               {!showDismissed && (
                 <span className="text-xs bg-zinc-200 text-zinc-600 rounded-full px-2 py-0.5 font-normal">
-                  {snaps.length} pending
+                  {visibleSnaps.length} pending
                 </span>
               )}
             </div>
           </div>
+          {!showDismissed && (
+            <div className="flex items-center gap-1.5 px-3 py-2 border-b border-zinc-100 bg-white">
+              <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mr-1">Working:</span>
+              <button
+                onClick={() => chooseView("all")}
+                className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
+                  viewFilter === "all" ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                }`}
+              >
+                All ({snaps.length})
+              </button>
+              {[0, 1, 2].map((lane) => (
+                <button
+                  key={lane}
+                  onClick={() => chooseView(lane)}
+                  className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
+                    viewFilter === lane ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                  }`}
+                >
+                  View {lane + 1} ({laneCounts[lane]})
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
             {showDismissed ? (
               <>
@@ -426,12 +479,14 @@ export default function MonakTriageClient({ branchId }: Props) {
               </>
             ) : (
               <>
-                {snaps.length === 0 && (
+                {visibleSnaps.length === 0 && (
                   <div className="text-zinc-400 text-sm text-center mt-8">
-                    No pending snaps. Waiting for new items…
+                    {snaps.length === 0
+                      ? "No pending snaps. Waiting for new items…"
+                      : "Nothing in this view right now."}
                   </div>
                 )}
-                {snaps.map((snap, idx) => {
+                {visibleSnaps.map((snap, idx) => {
                   const isSelected = selectedSnap?._id === snap._id;
                   const isPriority = idx < 4;
                   return (
