@@ -684,6 +684,16 @@ export default function MonakTriageClient({ branchId }: Props) {
                   )}
                 </div>
 
+                {/* TEMP DEBUG — remove once the Panel 2 rendering bug is found */}
+                <div className="rounded-lg border-2 border-red-500 bg-red-50 p-2 text-[10px] font-mono text-red-900 break-all">
+                  DEBUG p2Search="{p2Search}" p2Loading={String(p2Loading)} p2Results.length=
+                  {p2Results.length} catalogMatches.length={catalogMatches.length}
+                  <br />
+                  p2Results={JSON.stringify(p2Results)}
+                  <br />
+                  catalogMatches={JSON.stringify(catalogMatches)}
+                </div>
+
                 {/* Already in catalog — likely the same item re-photographed off another shelf */}
                 {catalogMatches.length > 0 && (
                   <div className="rounded-lg border-2 border-amber-300 bg-amber-50 overflow-hidden">
