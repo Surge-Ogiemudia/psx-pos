@@ -57,12 +57,24 @@ export async function POST(
 
     const { pharmacyId } = session.user;
 
-    const draft = await AiDraftProduct.findOne({ _id: id, pharmacyId }).lean();
+    // Atomic claim: with multiple operators triaging in parallel, this is the guard
+    // against two of them confirming the same snap at once. Whoever's update actually
+    // flips pending/extracted/error -> "confirming" wins; the other gets null back.
+    const draft = await AiDraftProduct.findOneAndUpdate(
+      { _id: id, pharmacyId, status: { $nin: ["completed", "confirming"] } },
+      { $set: { status: "confirming" } },
+      { new: true }
+    ).lean();
+
     if (!draft) {
-      return NextResponse.json({ error: "Draft not found" }, { status: 404 });
-    }
-    if (draft.status === "completed") {
-      return NextResponse.json({ error: "Already processed" }, { status: 400 });
+      const existing = await AiDraftProduct.findOne({ _id: id, pharmacyId }).lean();
+      if (!existing) {
+        return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+      }
+      return NextResponse.json(
+        { error: "This item is already being processed by another operator." },
+        { status: 409 }
+      );
     }
 
     const branchId = draft.branchId.toString();
@@ -138,6 +150,14 @@ export async function POST(
           { session: dbSession }
         );
       });
+    } catch (transactionError) {
+      // Release the claim so the item goes back to the queue instead of being stuck
+      // in "confirming" forever because one operator's save failed partway through.
+      await AiDraftProduct.findOneAndUpdate(
+        { _id: id, pharmacyId, status: "confirming" },
+        { $set: { status: "pending" } }
+      ).catch(() => {});
+      throw transactionError;
     } finally {
       await dbSession.endSession();
     }
