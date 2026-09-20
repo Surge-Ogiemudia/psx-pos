@@ -279,7 +279,16 @@ export default function MonakTriageClient({ branchId }: Props) {
       if (!res.ok) return;
       const data = await res.json();
       const all: AiDraft[] = data.drafts ?? [];
-      setSnaps(all.filter((d) => d.status !== "completed" && d.status !== "dismissed" && d.status !== "skipped"));
+      // "confirming" is a brief in-flight state while a save transaction is still
+      // running (create product, create batch, log activity) — without excluding it
+      // here, a poll landing mid-save would show the item as if it's still pending,
+      // undoing the optimistic removal from handleSave/handleMerge and making a
+      // just-confirmed item look like it "came back" until a later poll catches up.
+      setSnaps(
+        all.filter(
+          (d) => d.status !== "completed" && d.status !== "dismissed" && d.status !== "skipped" && d.status !== "confirming"
+        )
+      );
       setSkippedSnaps(all.filter((d) => d.status === "skipped"));
       setDismissedSnaps(all.filter((d) => d.status === "dismissed"));
     } catch {
