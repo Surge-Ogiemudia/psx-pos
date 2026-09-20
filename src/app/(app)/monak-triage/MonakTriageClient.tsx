@@ -126,6 +126,17 @@ function laneOf(id: string): number {
   return hash % LANE_COUNT;
 }
 
+// Panel 1 instant search — matches case-insensitively against whatever the AI extraction
+// sweep has filled in (name/brand/size, which may still be blank for un-swept items) plus
+// the stringified quantity, so an operator can search by "qty 30" even before extraction.
+function matchesQueueSearch(snap: AiDraft, query: string): boolean {
+  const haystack = [snap.extractedItemName, snap.extractedBrand, snap.extractedSize, String(snap.quantityInStock)]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query);
+}
+
 const VIEW_STORAGE_KEY = "psx_monak_triage_view";
 
 interface Props {
@@ -139,6 +150,11 @@ export default function MonakTriageClient({ branchId }: Props) {
   const [dismissedSnaps, setDismissedSnaps] = useState<AiDraft[]>([]);
   const [queueView, setQueueView] = useState<"active" | "skipped" | "dismissed">("active");
   const [selectedSnap, setSelectedSnap] = useState<AiDraft | null>(null);
+
+  // Instant client-side search over whichever Panel 1 list is currently on screen (active,
+  // skipped, or dismissed). Pure text filter over data already loaded in the browser — no
+  // API call, no debounce needed.
+  const [queueSearch, setQueueSearch] = useState("");
 
   // Which lane this operator/computer is working — "all" or 0/1/2. Persisted per browser
   // so each of the 3 computers keeps its assignment across reloads.
@@ -600,6 +616,19 @@ export default function MonakTriageClient({ branchId }: Props) {
   const visibleSkipped = viewFilter === "all" ? skippedSnaps : skippedSnaps.filter((s) => laneOf(s._id) === viewFilter);
   const aiReadCount = laneFilteredSnaps.filter((s) => s.status === "extracted").length;
 
+  // One more filter layer on top of whichever list is already "final" for the current
+  // queueView — composes with the lane/AI-read filters above rather than replacing them.
+  const trimmedQueueSearch = queueSearch.trim().toLowerCase();
+  const searchFilteredSnaps = trimmedQueueSearch
+    ? visibleSnaps.filter((s) => matchesQueueSearch(s, trimmedQueueSearch))
+    : visibleSnaps;
+  const searchFilteredSkipped = trimmedQueueSearch
+    ? visibleSkipped.filter((s) => matchesQueueSearch(s, trimmedQueueSearch))
+    : visibleSkipped;
+  const searchFilteredDismissed = trimmedQueueSearch
+    ? dismissedSnaps.filter((s) => matchesQueueSearch(s, trimmedQueueSearch))
+    : dismissedSnaps;
+
   // Panel 4 lists — pharmacy/branch-wide, deliberately not lane-filtered (see fetchProcessed).
   const cleanProcessedItems = processedItems.filter((i) => !i.needsReviewReason || i.needsReviewReason.length === 0);
   const flaggedProcessedItems = processedItems.filter((i) => i.needsReviewReason && i.needsReviewReason.length > 0);
@@ -636,7 +665,7 @@ export default function MonakTriageClient({ branchId }: Props) {
                     queueView === "skipped" ? "bg-purple-700 text-white" : "bg-purple-100 text-purple-700 hover:bg-purple-200"
                   }`}
                 >
-                  {`⏭️ Needs AI (${visibleSkipped.length})`}
+                  {`⏭️ Needs AI (${queueView === "skipped" ? searchFilteredSkipped.length : visibleSkipped.length})`}
                 </button>
               )}
               {dismissedSnaps.length > 0 && (
@@ -646,7 +675,7 @@ export default function MonakTriageClient({ branchId }: Props) {
                     queueView === "dismissed" ? "bg-zinc-700 text-white" : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300"
                   }`}
                 >
-                  {`🗑 Dismissed (${dismissedSnaps.length})`}
+                  {`🗑 Dismissed (${queueView === "dismissed" ? searchFilteredDismissed.length : dismissedSnaps.length})`}
                 </button>
               )}
               {queueView === "active" && aiReadCount > 0 && (
@@ -703,13 +732,24 @@ export default function MonakTriageClient({ branchId }: Props) {
               </span>
             </div>
           )}
+          <div className="px-3 pt-2 pb-1 border-b border-zinc-100 bg-white">
+            <input
+              type="text"
+              value={queueSearch}
+              onChange={(e) => setQueueSearch(e.target.value)}
+              placeholder="Search this queue by name, brand, size, or qty…"
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+          </div>
           <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
             {queueView === "dismissed" ? (
               <>
-                {dismissedSnaps.length === 0 && (
-                  <div className="text-zinc-400 text-sm text-center mt-8">Nothing dismissed.</div>
+                {searchFilteredDismissed.length === 0 && (
+                  <div className="text-zinc-400 text-sm text-center mt-8">
+                    {dismissedSnaps.length === 0 ? "Nothing dismissed." : "No matches for your search."}
+                  </div>
                 )}
-                {dismissedSnaps.map((snap) => (
+                {searchFilteredDismissed.map((snap) => (
                   <div key={snap._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 flex flex-col gap-2 opacity-80">
                     <div className="flex gap-2 items-start">
                       <ResilientThumb
@@ -737,10 +777,12 @@ export default function MonakTriageClient({ branchId }: Props) {
               </>
             ) : queueView === "skipped" ? (
               <>
-                {visibleSkipped.length === 0 && (
-                  <div className="text-zinc-400 text-sm text-center mt-8">Nothing skipped in this view.</div>
+                {searchFilteredSkipped.length === 0 && (
+                  <div className="text-zinc-400 text-sm text-center mt-8">
+                    {visibleSkipped.length === 0 ? "Nothing skipped in this view." : "No matches for your search."}
+                  </div>
                 )}
-                {visibleSkipped.map((snap) => (
+                {searchFilteredSkipped.map((snap) => (
                   <div key={snap._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 flex flex-col gap-2 opacity-80">
                     <div className="flex gap-2 items-start">
                       <ResilientThumb
@@ -768,14 +810,16 @@ export default function MonakTriageClient({ branchId }: Props) {
               </>
             ) : (
               <>
-                {visibleSnaps.length === 0 && (
+                {searchFilteredSnaps.length === 0 && (
                   <div className="text-zinc-400 text-sm text-center mt-8">
                     {snaps.length === 0
                       ? "No pending snaps. Waiting for new items…"
-                      : "Nothing in this view right now."}
+                      : visibleSnaps.length === 0
+                      ? "Nothing in this view right now."
+                      : "No matches for your search."}
                   </div>
                 )}
-                {visibleSnaps.map((snap, idx) => {
+                {searchFilteredSnaps.map((snap, idx) => {
                   const isSelected = selectedSnap?._id === snap._id;
                   const isPriority = idx < 4;
                   return (
