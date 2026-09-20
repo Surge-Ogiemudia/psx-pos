@@ -52,6 +52,8 @@ export async function GET(request: NextRequest) {
           size: product.size,
           imageUrl: product.imageUrl ?? draft.frontImageUrl ?? null,
           retailPrice: product.retailPrice,
+          wholesalePrice: product.wholesalePrice,
+          distributorPrice: product.distributorPrice,
           category: product.category,
           expiryDate: product.expiryDate ?? null,
           needsReviewReason: product.needsReviewReason ?? [],

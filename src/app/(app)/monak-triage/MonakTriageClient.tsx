@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
 import ResilientThumb from "@/components/ResilientThumb";
 
 interface AiDraft {
@@ -60,6 +59,8 @@ interface ProcessedItem {
   size: string;
   imageUrl: string | null;
   retailPrice: number;
+  wholesalePrice: number;
+  distributorPrice: number;
   category: "medicine" | "non-medicine" | "supermarket";
   expiryDate: string | null;
   needsReviewReason: string[];
@@ -209,6 +210,16 @@ export default function MonakTriageClient({ branchId }: Props) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  // "Edit existing product" mode — entered from Panel 4 (Processed Items). Mutually
+  // exclusive with selectedSnap: reopens a Product already in the live catalog into
+  // Panel 2/3 for fixing, instead of triaging a fresh AiDraftProduct snap. Save in this
+  // mode PATCHes the Product directly (see handleSaveEdit) rather than going through the
+  // draft-confirm/merge endpoints, so it gets its own dedicated saving/error state rather
+  // than reusing saving/saveError, which are tightly coupled to the confirm modal + snap flow.
+  const [editingProduct, setEditingProduct] = useState<ProcessedItem | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editSaveError, setEditSaveError] = useState("");
+
   // Debounced search terms
   const debouncedP2 = useDebounce(p2Search, 300);
   const debouncedP3 = useDebounce(p3Search, 300);
@@ -227,6 +238,10 @@ export default function MonakTriageClient({ branchId }: Props) {
   // Panel 3 is already live as soon as a snap is selected — this button is purely
   // a visual "next step" cue, not a gate.
   const panel3Ref = useRef<HTMLDivElement>(null);
+
+  // Scroll target for jumping into Panel 2 when a Processed Item is opened for edit from
+  // Panel 4, which lives below the 3-panel grid and may be scrolled out of view.
+  const panel2Ref = useRef<HTMLDivElement>(null);
 
   // --------------- Fetch snaps ---------------
   const fetchSnaps = useCallback(async () => {
@@ -338,6 +353,8 @@ export default function MonakTriageClient({ branchId }: Props) {
 
   // --------------- Select snap ---------------
   function selectSnap(snap: AiDraft) {
+    setEditingProduct(null);
+    setEditSaveError("");
     setSelectedSnap(snap);
     setForm({
       ...EMPTY_FORM,
@@ -540,6 +557,118 @@ export default function MonakTriageClient({ branchId }: Props) {
       setSaveError(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // --------------- Open a Panel 4 Processed Item into Panel 2/3 for editing ---------------
+  function editProcessedItem(item: ProcessedItem) {
+    // Mutually exclusive with selectedSnap — don't let an active draft and an editing
+    // product both be "selected" at once.
+    setSelectedSnap(null);
+    setEditingProduct(item);
+    setForm({
+      ...EMPTY_FORM,
+      itemName: item.itemName,
+      brand: item.brand,
+      size: item.size,
+      category: item.category,
+      expiryDate: item.expiryDate ? item.expiryDate.slice(0, 10) : "",
+      // Quantity editing isn't part of this flow (existing stock count isn't something
+      // that gets flagged) — default to 1 just so the form has a valid value.
+      quantity: 1,
+      retailPrice: item.retailPrice,
+      wholesalePrice: item.wholesalePrice,
+      distributorPrice: item.distributorPrice,
+    });
+    setP2Search("");
+    setP3Search("");
+    setP2Results([]);
+    setP3Results([]);
+    setCatalogMatches([]);
+    setMergeTarget(null);
+    setMergeError("");
+    setSaveError("");
+    setEditSaveError("");
+    setAiScanError("");
+    // Panel 2 lives above Panel 4 in the layout, so scroll it into view the same way
+    // the "Continue to Price Matching" button jumps down to Panel 3.
+    requestAnimationFrame(() => {
+      panel2Ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+    });
+  }
+
+  // --------------- Cancel edit mode without saving ---------------
+  function cancelEdit() {
+    setEditingProduct(null);
+    setEditSaveError("");
+    setForm({ ...EMPTY_FORM });
+    setP2Search("");
+    setP3Search("");
+    setP2Results([]);
+    setP3Results([]);
+  }
+
+  // --------------- Save an edit to an existing Product (Panel 4 edit mode) ---------------
+  async function handleSaveEdit() {
+    if (!editingProduct) return;
+    setEditSaving(true);
+    setEditSaveError("");
+    try {
+      const payload = {
+        itemName: form.itemName,
+        brand: form.brand,
+        size: form.size || "Standard",
+        category: form.category,
+        expiryDate: form.expiryDate || null,
+        retailPrice: form.retailPrice,
+        wholesalePrice: form.wholesalePrice,
+        distributorPrice: form.distributorPrice,
+      };
+
+      const res = await fetch(`/api/products/${editingProduct.productId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Save failed" }));
+        throw new Error(err.error ?? "Save failed");
+      }
+
+      const { product } = await res.json();
+
+      // Reflect the update in Panel 4 immediately — moves to Clean if now fully complete,
+      // or stays in Flagged with updated reason badges — without waiting for a refetch.
+      setProcessedItems((prev) =>
+        prev.map((item) =>
+          item.productId === editingProduct.productId
+            ? {
+                ...item,
+                itemName: product.itemName,
+                brand: product.brand,
+                size: product.size,
+                category: product.category,
+                expiryDate: product.expiryDate ?? null,
+                retailPrice: product.retailPrice,
+                wholesalePrice: product.wholesalePrice,
+                distributorPrice: product.distributorPrice,
+                needsReviewReason: product.needsReviewReason ?? [],
+              }
+            : item
+        )
+      );
+
+      setEditingProduct(null);
+      setForm({ ...EMPTY_FORM });
+      setP2Search("");
+      setP3Search("");
+      setP2Results([]);
+      setP3Results([]);
+    } catch (err) {
+      setEditSaveError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -891,37 +1020,57 @@ export default function MonakTriageClient({ branchId }: Props) {
         {/* ============================================================ */}
         {/* PANEL 2 — Match Name                                          */}
         {/* ============================================================ */}
-        <div className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
+        <div ref={panel2Ref} className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
           <div className="bg-zinc-50 px-4 py-3 border-b border-zinc-200 font-semibold text-zinc-700">
             📋 Match from Stock List
           </div>
           <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-            {!selectedSnap ? (
+            {!selectedSnap && !editingProduct ? (
               <div className="text-zinc-400 text-sm text-center mt-8">
                 Select a snap from the queue to begin triaging
               </div>
             ) : (
               <>
-                {/* Images preview — tap to zoom in on the original full-res photo */}
+                {editingProduct && (
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+                    <span className="text-xs font-semibold text-blue-800">
+                      ✏️ Editing catalog item: {editingProduct.itemName}
+                    </span>
+                    <button
+                      onClick={cancelEdit}
+                      className="text-xs font-semibold text-blue-700 hover:text-blue-900 shrink-0"
+                    >
+                      ✕ Cancel edit
+                    </button>
+                  </div>
+                )}
+
+                {/* Images preview — tap to zoom in on the original full-res photo. Editing an
+                    existing Product only ever has one image, so the Back slot is skipped. */}
                 <div className="flex gap-3">
                   <ResilientThumb
-                    src={selectedSnap.frontImageUrl}
+                    src={editingProduct ? editingProduct.imageUrl : selectedSnap?.frontImageUrl ?? null}
                     alt="Front"
                     label="Front"
                     className="flex-1 h-36"
                     size={256}
                     priority
-                    onClick={() => setZoomImage(selectedSnap.frontImageUrl)}
+                    onClick={() => {
+                      const url = editingProduct ? editingProduct.imageUrl : selectedSnap?.frontImageUrl;
+                      if (url) setZoomImage(url);
+                    }}
                   />
-                  <ResilientThumb
-                    src={selectedSnap.backImageUrl}
-                    alt="Back / Expiry"
-                    label="Back"
-                    className="flex-1 h-36"
-                    size={256}
-                    priority
-                    onClick={() => selectedSnap.backImageUrl && setZoomImage(selectedSnap.backImageUrl)}
-                  />
+                  {!editingProduct && selectedSnap && (
+                    <ResilientThumb
+                      src={selectedSnap.backImageUrl}
+                      alt="Back / Expiry"
+                      label="Back"
+                      className="flex-1 h-36"
+                      size={256}
+                      priority
+                      onClick={() => selectedSnap.backImageUrl && setZoomImage(selectedSnap.backImageUrl)}
+                    />
+                  )}
                 </div>
 
                 {/* Search */}
@@ -942,13 +1091,16 @@ export default function MonakTriageClient({ branchId }: Props) {
                 </div>
 
                 {/* Skip — always available, not gated behind "no results found". Fast, low-friction,
-                    and reversible via Restore, so no confirm dialog. */}
-                <button
-                  onClick={handleSkip}
-                  className="w-full py-2 text-xs font-semibold rounded-lg border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
-                >
-                  ⏭️ Skip for later
-                </button>
+                    and reversible via Restore, so no confirm dialog. Draft-specific, so hidden
+                    in edit mode where there's no queue snap to skip. */}
+                {selectedSnap && (
+                  <button
+                    onClick={handleSkip}
+                    className="w-full py-2 text-xs font-semibold rounded-lg border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
+                  >
+                    ⏭️ Skip for later
+                  </button>
+                )}
 
                 {/* Already in catalog — likely the same item re-photographed off another shelf */}
                 {catalogMatches.length > 0 && (
@@ -996,8 +1148,9 @@ export default function MonakTriageClient({ branchId }: Props) {
                   </div>
                 )}
 
-                {/* No match found — AI fallback, only shown once a search came up empty */}
-                {p2Search.trim() && !p2Loading && p2Results.length === 0 && (
+                {/* No match found — AI fallback, only shown once a search came up empty. Scans
+                    the draft's own photo, so it's not applicable in edit mode. */}
+                {!editingProduct && p2Search.trim() && !p2Loading && p2Results.length === 0 && (
                   <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3 flex flex-col gap-2">
                     <span className="text-xs text-zinc-500">No matches in the stock list for &quot;{p2Search}&quot;.</span>
                     <button
@@ -1085,7 +1238,7 @@ export default function MonakTriageClient({ branchId }: Props) {
             💰 Match Prices
           </div>
           <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-            {!selectedSnap ? (
+            {!selectedSnap && !editingProduct ? (
               <div className="text-zinc-400 text-sm text-center mt-8">
                 Select a snap to match prices
               </div>
@@ -1174,15 +1327,30 @@ export default function MonakTriageClient({ branchId }: Props) {
                   </div>
                 </div>
 
+                {editSaveError && (
+                  <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
+                    ⚠️ {editSaveError}
+                  </div>
+                )}
+
                 {/* Confirm button — only item name is actually required now; anything else
                     missing (brand/size/expiry/price) gets flagged on the saved product
-                    instead of blocking the save. */}
+                    instead of blocking the save. In edit mode there's no draft-review step —
+                    Panel 2/3 already show the real fields being changed — so this PATCHes
+                    the existing Product directly instead of opening the confirm modal. */}
                 <button
-                  onClick={() => { setSaveError(""); setShowModal(true); }}
-                  disabled={!form.itemName}
+                  onClick={() => {
+                    if (editingProduct) {
+                      handleSaveEdit();
+                    } else {
+                      setSaveError("");
+                      setShowModal(true);
+                    }
+                  }}
+                  disabled={!form.itemName || editSaving}
                   className="w-full py-3 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed mt-auto"
                 >
-                  ✅ Confirm &amp; Save
+                  {editingProduct ? (editSaving ? "Saving…" : "✅ Confirm & Save") : "✅ Confirm & Save"}
                 </button>
               </>
             )}
@@ -1254,11 +1422,14 @@ export default function MonakTriageClient({ branchId }: Props) {
                 </div>
               )}
               {visibleProcessedItems.map((item) => (
-                <Link
+                <button
                   key={item._id}
-                  href="/products"
-                  title="Open the Catalog to fix this item"
-                  className="flex flex-col gap-1.5 rounded-lg border border-zinc-200 bg-white p-2 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                  type="button"
+                  onClick={() => editProcessedItem(item)}
+                  title="Reopen this item in Panel 2/3 to fix it"
+                  className={`flex flex-col gap-1.5 rounded-lg border bg-white p-2 text-left hover:border-blue-300 hover:bg-blue-50 transition-colors ${
+                    editingProduct?._id === item._id ? "border-blue-500 bg-blue-50 shadow-md" : "border-zinc-200"
+                  }`}
                 >
                   <ResilientThumb
                     src={item.imageUrl}
@@ -1284,7 +1455,7 @@ export default function MonakTriageClient({ branchId }: Props) {
                       ))}
                     </div>
                   )}
-                </Link>
+                </button>
               ))}
             </div>
           </div>
