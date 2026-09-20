@@ -98,6 +98,27 @@ const EMPTY_FORM: ProductForm = {
   distributorPrice: 0,
 };
 
+// MonakExcel1's expiryDate field sometimes holds a raw Excel serial-date number as a
+// string (e.g. "46692" from an unconverted spreadsheet export) instead of a real date.
+// new Date("46692") doesn't error — it silently creates a date in year 46692. A native
+// <input type="date"> then just shows blank for that (invalid YYYY-MM-DD), so the bad
+// value sits unnoticed in form state until it gets saved. Detect and convert it here.
+function normalizeExpiryDate(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  if (/^\d{4,6}$/.test(trimmed)) {
+    const serial = Number(trimmed);
+    // Sane Excel serial range for pharmacy stock (roughly years 1990-2100).
+    if (serial > 32000 && serial < 73000) {
+      const excelEpoch = Date.UTC(1899, 11, 30);
+      return new Date(excelEpoch + serial * 86400000).toISOString().slice(0, 10);
+    }
+    return ""; // out-of-range numeric junk — don't guess, leave blank for a human to set
+  }
+  // Already a normal date-like string (e.g. "2027-05-01" or an ISO timestamp) — keep as-is.
+  return trimmed.slice(0, 10);
+}
+
 function timeAgo(dateStr: string): string {
   const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
   if (diff < 60) return `${diff}s ago`;
@@ -476,7 +497,7 @@ export default function MonakTriageClient({ branchId }: Props) {
     setForm((f) => ({
       ...f,
       itemName: result.itemName,
-      expiryDate: result.expiryDate ?? "",
+      expiryDate: normalizeExpiryDate(result.expiryDate),
       retailPrice: result.retailPrice,
       wholesalePrice: result.wholesalePrice,
     }));
@@ -615,6 +636,7 @@ export default function MonakTriageClient({ branchId }: Props) {
     setEditSaveError("");
     try {
       const payload = {
+        branchId,
         itemName: form.itemName,
         brand: form.brand,
         size: form.size || "Standard",

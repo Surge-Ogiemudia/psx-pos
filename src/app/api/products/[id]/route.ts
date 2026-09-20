@@ -9,6 +9,7 @@ import { formatProductLabel } from "@/lib/types";
 import { productsToCsv } from "@/lib/csv";
 import { handleApiError } from "@/lib/apiError";
 import { syncProductsToPsx, deleteProductsFromPsx, getPharmacySlug } from "@/lib/psxSync";
+import { parseExpiryDate } from "@/lib/parseExpiryDate";
 
 const NUMERIC_FIELDS = new Set(["retailPrice", "wholesalePrice", "distributorPrice", "costPrice", "alertQuantity", "quantityInStock"]);
 
@@ -61,7 +62,7 @@ export async function PATCH(
     for (const field of allowedFields) {
       if (body[field] === undefined) continue;
       if (field === "expiryDate") {
-        update[field] = body[field] ? new Date(body[field]) : null;
+        update[field] = parseExpiryDate(body[field]);
       } else if (NUMERIC_FIELDS.has(field)) {
         const parsed = parseNumeric(body[field]);
         if (Number.isNaN(parsed) || parsed < 0) {

@@ -8,6 +8,7 @@ import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
 import { formatProductLabel } from "@/lib/types";
+import { parseExpiryDate } from "@/lib/parseExpiryDate";
 
 interface MergePayload {
   productId: string;
@@ -67,7 +68,7 @@ export async function POST(
     }
 
     const branchId = existingProduct.branchId.toString();
-    const parsedExpiry = expiryDate ? new Date(expiryDate) : null;
+    const parsedExpiry = parseExpiryDate(expiryDate);
     const parsedQty = Number(quantity);
 
     const dbSession = await mongoose.startSession();
