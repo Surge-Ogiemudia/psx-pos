@@ -145,6 +145,7 @@ export default function ProductsClient({
     "all"
   );
   const [categoryFilter, setCategoryFilter] = useState<ProductCategory | "all">("all");
+  const [reviewFilter, setReviewFilter] = useState<"all" | "needs_review">("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Resets on reload/revisit — a dismissed banner shouldn't stay hidden forever and risk
   // masking a brand-new alert next time something goes wrong.
@@ -983,11 +984,15 @@ export default function ProductsClient({
       if (stockFilter === "lastUnit" && p.quantityInStock !== 1) return false;
       if (stockFilter === "low" && !(p.quantityInStock > 1 && p.quantityInStock <= p.alertQuantity)) return false;
     }
+    if (reviewFilter === "needs_review" && !(p.needsReviewReason && p.needsReviewReason.length > 0)) return false;
     return true;
   });
 
   const activeFilterCount =
-    (categoryFilter !== "all" ? 1 : 0) + (expiryFilter !== "all" ? 1 : 0) + (stockFilter !== "all" ? 1 : 0);
+    (categoryFilter !== "all" ? 1 : 0) +
+    (expiryFilter !== "all" ? 1 : 0) +
+    (stockFilter !== "all" ? 1 : 0) +
+    (reviewFilter !== "all" ? 1 : 0);
 
   const expiredProducts = products.filter((p) => getExpiryStatus(p.expiryDate).level === "expired");
   const urgentProducts = products.filter((p) => getExpiryStatus(p.expiryDate).level === "urgent");
@@ -1000,13 +1005,17 @@ export default function ProductsClient({
   const lowStockProducts = products.filter(
     (p) => p.quantityInStock > 1 && p.quantityInStock <= p.alertQuantity
   );
+  // Flagged at creation time (e.g. by the Monak Triage confirm flow) when brand/size/expiry/
+  // price genuinely weren't known and a placeholder was stored instead of blocking the save.
+  const needsReviewProducts = products.filter((p) => p.needsReviewReason && p.needsReviewReason.length > 0);
   const totalAlertCount =
     expiredProducts.length +
     urgentProducts.length +
     warningProducts.length +
     stockoutProducts.length +
     lastUnitProducts.length +
-    lowStockProducts.length;
+    lowStockProducts.length +
+    needsReviewProducts.length;
 
   return (
     <div>
@@ -1247,12 +1256,21 @@ export default function ProductsClient({
                   <option value="low">Below alert threshold</option>
                   <option value="not_stockout">Not stockout</option>
                 </select>
+                <select
+                  value={reviewFilter}
+                  onChange={(e) => setReviewFilter(e.target.value as typeof reviewFilter)}
+                  className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="all">Any review status</option>
+                  <option value="needs_review">Needs review</option>
+                </select>
                 {activeFilterCount > 0 && (
                   <button
                     onClick={() => {
                       setCategoryFilter("all");
                       setExpiryFilter("all");
                       setStockFilter("all");
+                      setReviewFilter("all");
                     }}
                     className="text-left text-xs text-zinc-400 hover:text-zinc-600 hover:underline"
                   >
@@ -1353,6 +1371,29 @@ export default function ProductsClient({
             {stockFilter !== "all" && (
               <button
                 onClick={() => setStockFilter("all")}
+                className="text-xs text-zinc-400 hover:text-zinc-600 hover:underline"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!alertsHidden && needsReviewProducts.length > 0 && (
+        <div className="mb-4 flex flex-col gap-2 rounded-lg border border-zinc-200 px-3 py-2 sm:flex-row sm:items-center">
+          <span className="text-xs font-medium text-zinc-500">Review:</span>
+          <div className="flex flex-wrap gap-2">
+            <AlertFilterButton
+              count={needsReviewProducts.length}
+              label="🚩 Needs Review"
+              severity="medium"
+              active={reviewFilter === "needs_review"}
+              onClick={() => setReviewFilter((prev) => (prev === "needs_review" ? "all" : "needs_review"))}
+            />
+            {reviewFilter !== "all" && (
+              <button
+                onClick={() => setReviewFilter("all")}
                 className="text-xs text-zinc-400 hover:text-zinc-600 hover:underline"
               >
                 Clear

@@ -42,6 +42,11 @@ const ProductSchema = new Schema(
     // Set only when this product was created via a bulk file import — lets the whole
     // batch be deleted together in one action instead of one product at a time.
     importBatchId: { type: Schema.Types.ObjectId, ref: "ImportBatch", default: null, index: true },
+    // Set at creation time (e.g. by the Monak Triage confirm flow) when fields like
+    // brand/size/expiry/price weren't actually known and a placeholder was stored
+    // instead — mirrors AiDraftProduct.needsReviewReason. Lets the catalog flag these
+    // for follow-up instead of blocking the save on incomplete reference data.
+    needsReviewReason: { type: [String], default: [] },
   },
   { timestamps: true }
 );
