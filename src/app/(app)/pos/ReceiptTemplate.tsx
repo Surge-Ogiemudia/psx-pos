@@ -12,6 +12,8 @@ export interface ReceiptSale {
     quantity: number;
     unitPrice: number;
     lineTotal: number;
+    originalUnitPrice?: number | null;
+    discountPercent?: number;
   }[];
   totalAmount: number;
   payments: { method: string; amount: number }[];
@@ -92,7 +94,15 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
               </div>
               <div style={{ fontSize: "11px", color: "#000" }}>
                 @ N{item.unitPrice?.toLocaleString() || "0"}
+                {!!item.discountPercent && item.originalUnitPrice != null && (
+                  <span> (was N{item.originalUnitPrice.toLocaleString()})</span>
+                )}
               </div>
+              {!!item.discountPercent && (
+                <div style={{ fontSize: "11px", fontWeight: "bold", color: "#000" }}>
+                  ** DISCOUNT APPLIED: -{item.discountPercent}% **
+                </div>
+              )}
             </div>
           ))}
         </div>

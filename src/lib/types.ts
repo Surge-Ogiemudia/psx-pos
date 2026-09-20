@@ -49,6 +49,8 @@ export interface SaleItemJSON {
   formQuantity?: number | null;
   priceTierUsed: PriceTier | "custom";
   unitPrice: number;
+  originalUnitPrice?: number | null;
+  discountPercent?: number;
   lineTotal: number;
   unitCost: number;
   costTotal: number;
