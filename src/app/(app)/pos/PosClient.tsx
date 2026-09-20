@@ -8,6 +8,7 @@ import { parseNumeric } from "@/lib/numberInput";
 import ReceiptTemplate, { type ReceiptSale } from "./ReceiptTemplate";
 import { usePosOfflineSync } from "./usePosOfflineSync";
 import { db } from "@/lib/db";
+import { POS_SALE_MODE_KEY, type PosSaleMode } from "@/lib/posSaleMode";
 
 type CartLine =
   | { kind: "catalog"; key: string; product: ProductJSON; form: string; quantity: number; instruction?: string; customPrice?: number }
@@ -75,9 +76,16 @@ function heldSalesStorageKey(branchId: string | null): string {
   return `pos-held-${branchId ?? "default"}`;
 }
 
-function lineAmount(line: CartLine): number {
+// The per-unit price this whole POS session sells catalog products at — retail or
+// wholesale, chosen once at login (see PosSaleMode). A manually-typed customPrice
+// override always wins regardless of mode; this is only the default.
+function unitPriceFor(product: ProductJSON, mode: PosSaleMode): number {
+  return mode === "wholesale" ? product.wholesalePrice : product.retailPrice;
+}
+
+function lineAmount(line: CartLine, mode: PosSaleMode): number {
   return line.kind === "catalog"
-    ? (line.customPrice !== undefined ? line.customPrice : line.product.retailPrice * piecesPerForm(line.product, line.form)) * line.quantity
+    ? (line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, mode) * piecesPerForm(line.product, line.form)) * line.quantity
     : line.unitPrice * line.quantity;
 }
 
@@ -103,6 +111,32 @@ export default function PosClient({
   staffName?: string; 
 }) {
   const { isOnline, syncStatus, lastSyncedAt, pendingSales, syncPendingSales } = usePosOfflineSync(branchId);
+
+  // Asked once per login (sessionStorage — cleared on sign-out, see clearPosSaleMode),
+  // not stored per-device. A per-computer lock would go silently stale if a machine ever
+  // got physically swapped between the retail and wholesale counters; asking fresh every
+  // login means whoever's sitting there today makes the call today. null = not yet
+  // answered this session, so the full-screen prompt below blocks the rest of the UI.
+  const [saleMode, setSaleMode] = useState<PosSaleMode | null>(null);
+  const [saleModeReady, setSaleModeReady] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(POS_SALE_MODE_KEY);
+      if (saved === "retail" || saved === "wholesale") setSaleMode(saved);
+    } catch {
+      // sessionStorage can throw in a locked-down browser context — just fall through to the prompt.
+    }
+    setSaleModeReady(true);
+  }, []);
+  function chooseSaleMode(mode: PosSaleMode) {
+    setSaleMode(mode);
+    try {
+      sessionStorage.setItem(POS_SALE_MODE_KEY, mode);
+    } catch {
+      // Worst case it re-prompts on the next reload — never block selling over storage failing.
+    }
+  }
+
   const [showOfflineTray, setShowOfflineTray] = useState(false);
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
@@ -561,7 +595,11 @@ export default function PosClient({
     setMessage(null);
   }
 
-  const total = useMemo(() => cart.reduce((sum, line) => sum + lineAmount(line), 0), [cart]);
+  const effectiveSaleMode: PosSaleMode = saleMode ?? "retail";
+  const total = useMemo(
+    () => cart.reduce((sum, line) => sum + lineAmount(line, effectiveSaleMode), 0),
+    [cart, effectiveSaleMode]
+  );
 
   // Close matches for whatever the staff is typing as a custom item's name, so they can bail
   // into the normal add-to-cart flow if it turns out the item actually is in the catalog.
@@ -709,7 +747,7 @@ export default function PosClient({
             productId: line.product._id,
             quantity: line.quantity,
             form: line.product.unitHierarchy?.length ? line.form : undefined,
-            priceTier: "retail",
+            priceTier: effectiveSaleMode,
             unitPrice: line.customPrice,
           }
         : {
@@ -848,8 +886,63 @@ export default function PosClient({
     }
   }
 
+  // Block everything else until this login session has answered — see saleMode above
+  // for why this is asked fresh every login instead of locked to the computer.
+  if (!saleModeReady) {
+    return null;
+  }
+
+  if (!saleMode) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900 p-4">
+        <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="px-6 pt-6 pb-4 text-center border-b border-zinc-100">
+            <h1 className="text-lg font-bold text-zinc-900">Selling to a retail customer, or a wholesaler?</h1>
+            <p className="mt-1 text-sm text-zinc-500">
+              This sets the price for every sale until you sign out{staffName ? ` — ${staffName}` : ""}.
+            </p>
+          </div>
+          <div className="p-5 flex flex-col gap-3">
+            <button
+              onClick={() => chooseSaleMode("retail")}
+              className="w-full rounded-xl border-2 border-teal-600 bg-teal-50 px-5 py-4 text-left hover:bg-teal-100 transition-colors"
+            >
+              <div className="text-base font-bold text-teal-800">🏪 Retail</div>
+              <div className="text-xs text-teal-700">Normal shop prices</div>
+            </button>
+            <button
+              onClick={() => chooseSaleMode("wholesale")}
+              className="w-full rounded-xl border-2 border-amber-500 bg-amber-50 px-5 py-4 text-left hover:bg-amber-100 transition-colors"
+            >
+              <div className="text-base font-bold text-amber-800">📦 Wholesale</div>
+              <div className="text-xs text-amber-700">Bulk buyer prices</div>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      {effectiveSaleMode === "wholesale" && (
+        <div className="lg:col-span-3 rounded-xl border-2 border-amber-400 bg-amber-100 px-4 py-2.5 flex items-center justify-between">
+          <span className="text-sm font-bold text-amber-900">📦 WHOLESALE MODE — every sale on this screen charges wholesale price</span>
+          <button
+            onClick={() => {
+              setSaleMode(null);
+              try {
+                sessionStorage.removeItem(POS_SALE_MODE_KEY);
+              } catch {
+                // fine — the prompt just re-shows on next reload instead
+              }
+            }}
+            className="text-xs font-semibold text-amber-900 underline hover:no-underline shrink-0 ml-3"
+          >
+            Not right? Switch
+          </button>
+        </div>
+      )}
       {lastSale && (
         <ReceiptTemplate
           sale={lastSale}
@@ -1110,7 +1203,10 @@ export default function PosClient({
                       {CATEGORY_LABEL[product.category]} · Stock: {product.quantityInStock}
                     </span>
                     <span className="mt-1 text-sm font-semibold text-teal-700">
-                      ₦{product.retailPrice.toFixed(2)}
+                      ₦{unitPriceFor(product, effectiveSaleMode).toFixed(2)}
+                      {effectiveSaleMode === "wholesale" && (
+                        <span className="ml-1 text-xs font-normal text-amber-700">(wholesale)</span>
+                      )}
                     </span>
                   </button>
                 );
@@ -1139,7 +1235,7 @@ export default function PosClient({
             {showHeld && (
               <div className="mt-2 flex flex-col gap-2">
                 {heldSales.map((held) => {
-                  const heldTotal = held.cart.reduce((sum, line) => sum + lineAmount(line), 0);
+                  const heldTotal = held.cart.reduce((sum, line) => sum + lineAmount(line, effectiveSaleMode), 0);
                   return (
                     <div
                       key={held.id}
@@ -1301,7 +1397,7 @@ export default function PosClient({
               const hierarchy = line.product.unitHierarchy;
               const perForm = piecesPerForm(line.product, line.form);
               const maxQty = Math.max(1, Math.floor(line.product.quantityInStock / perForm));
-              const priceForForm = line.customPrice !== undefined ? line.customPrice : line.product.retailPrice * perForm;
+              const priceForForm = line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode) * perForm;
               return (
                 <div key={line.key} className="border-b border-zinc-100 pb-3 last:border-0">
                   <div className="flex items-start justify-between gap-2">
@@ -1385,7 +1481,7 @@ export default function PosClient({
                         <input
                           type="text"
                           inputMode="decimal"
-                          value={line.customPrice !== undefined ? line.customPrice : line.product.retailPrice}
+                          value={line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode)}
                           onFocus={(e) => e.target.select()}
                           onChange={(e) => {
                             const raw = e.target.value.trim();
@@ -1415,7 +1511,7 @@ export default function PosClient({
                       <input
                         type="text"
                         inputMode="decimal"
-                        value={line.customPrice !== undefined ? line.customPrice : (line.product.retailPrice * piecesPerForm(line.product, line.form))}
+                        value={line.customPrice !== undefined ? line.customPrice : (unitPriceFor(line.product, effectiveSaleMode) * piecesPerForm(line.product, line.form))}
                         onFocus={(e) => e.target.select()}
                         onChange={(e) => {
                           const raw = e.target.value.trim();
@@ -1440,6 +1536,9 @@ export default function PosClient({
                   )}
                   <div className="mt-1 text-right text-sm text-zinc-600">
                     ₦{(priceForForm * line.quantity).toFixed(2)}
+                    {effectiveSaleMode === "wholesale" && line.customPrice === undefined && (
+                      <span className="ml-1 text-xs text-amber-700">(wholesale)</span>
+                    )}
                   </div>
                 </div>
               );
@@ -1614,9 +1713,11 @@ export default function PosClient({
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-2xl overflow-hidden border border-zinc-200 animate-in fade-in zoom-in-95 duration-150">
-            <div className="border-b border-zinc-200 bg-zinc-50/80 px-6 py-4 flex items-center justify-between">
+            <div className={`border-b px-6 py-4 flex items-center justify-between ${effectiveSaleMode === "wholesale" ? "bg-amber-100 border-amber-300" : "bg-zinc-50/80 border-zinc-200"}`}>
               <div>
-                <h2 className="text-lg font-bold text-zinc-900">Confirm Sale</h2>
+                <h2 className="text-lg font-bold text-zinc-900">
+                  Confirm Sale{effectiveSaleMode === "wholesale" && <span className="ml-2 text-amber-800">— WHOLESALE PRICING</span>}
+                </h2>
                 <p className="text-xs text-zinc-500">Please review order items and payment breakdown before completing.</p>
               </div>
               <button
@@ -1679,7 +1780,7 @@ export default function PosClient({
                     }
 
                     const perForm = piecesPerForm(line.product, line.form);
-                    const priceForForm = line.product.retailPrice * perForm;
+                    const priceForForm = line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode) * perForm;
                     const itemTotal = priceForForm * line.quantity;
                     return (
                       <div key={line.key} className="p-3 bg-white flex items-center justify-between gap-4">

@@ -7,6 +7,12 @@ import { signOut } from "next-auth/react";
 import type { UserRole } from "@/types/next-auth";
 import type { BranchOption } from "@/lib/branchScope";
 import type { StoreOption } from "@/lib/storeScope";
+import { clearPosSaleMode } from "@/lib/posSaleMode";
+
+function handleSignOut() {
+  clearPosSaleMode();
+  signOut({ callbackUrl: "/login" });
+}
 
 const RETAIL_LINKS = [
   { href: "/pos", label: "Point of Sale" },
@@ -185,7 +191,7 @@ export default function NavBar({
               )}
             </span>
             <button
-              onClick={() => signOut({ callbackUrl: "/login" })}
+              onClick={handleSignOut}
               className="whitespace-nowrap rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
             >
               Sign out
@@ -259,7 +265,7 @@ export default function NavBar({
               </span>
               <div className="flex flex-col gap-2 w-full">
                 <button
-                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  onClick={handleSignOut}
                   className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 text-center w-full"
                 >
                   Sign out
