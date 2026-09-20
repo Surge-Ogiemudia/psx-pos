@@ -54,8 +54,18 @@ export function fuzzyRank<T>(
     const cleanCandidate = cleanStr(getText(item));
     let score = diceSimilarity(cleanQuery, cleanCandidate);
 
-    // Boost if exact normalized match
-    if (cleanQuery === cleanCandidate) score = 1.0;
+    // Someone typing a real (possibly partial) product name should never have to scroll
+    // past merely-similar-looking names to reach the one they're actually spelling out —
+    // an exact/prefix/substring hit always outranks pure fuzzy similarity, no matter how
+    // long or bigram-dense the candidate's full name is (a short query against a long
+    // name dilutes its Dice score even when it's a perfect literal match).
+    if (cleanQuery && cleanCandidate === cleanQuery) {
+      score = 1.0;
+    } else if (cleanQuery && cleanCandidate.startsWith(cleanQuery)) {
+      score = Math.max(score, 0.97);
+    } else if (cleanQuery && cleanCandidate.includes(cleanQuery)) {
+      score = Math.max(score, 0.9);
+    }
 
     return { item, score };
   });
