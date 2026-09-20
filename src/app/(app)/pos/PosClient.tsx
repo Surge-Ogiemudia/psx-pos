@@ -1118,7 +1118,7 @@ export default function PosClient({
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:items-start">
       {effectiveSaleMode === "wholesale" && (
-        <div className="lg:col-span-3 rounded-xl border-2 border-amber-400 bg-amber-100 px-4 py-2.5 flex items-center justify-between">
+        <div className="lg:col-span-5 rounded-xl border-2 border-amber-400 bg-amber-100 px-4 py-2.5 flex items-center justify-between">
           <span className="text-sm font-bold text-amber-900">📦 WHOLESALE MODE — every sale on this screen charges wholesale price</span>
           <button
             onClick={() => {
@@ -1448,7 +1448,7 @@ export default function PosClient({
 
       <div
         ref={cartSectionRef}
-        className="scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto"
+        className="lg:col-span-2 scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto"
       >
         {heldSales.length > 0 && (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
