@@ -1316,7 +1316,7 @@ export default function PosClient({
 
             <button
               onClick={addCustomToCart}
-              className="mt-2 rounded-lg bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-800"
+              className="mt-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-bold text-white shadow-sm hover:bg-amber-700"
             >
               Add custom item to cart
             </button>
@@ -1382,7 +1382,7 @@ export default function PosClient({
                             </svg>
                           </div>
                         )}
-                        <span className="font-medium text-zinc-900">{formatProductLabel(product)}</span>
+                        <span className="font-bold uppercase tracking-tight text-zinc-900">{formatProductLabel(product)}</span>
                       </div>
                       {expiryStatus.label && (
                         <span
@@ -1486,7 +1486,7 @@ export default function PosClient({
         )}
 
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-zinc-900">Current sale</h2>
+          <h2 className="text-xl font-extrabold uppercase tracking-tight text-zinc-900">Current Sale</h2>
           
           <div className="flex items-center gap-4">
             <label className="hidden md:flex items-center gap-1.5 cursor-pointer rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-800 border border-teal-200">
@@ -1542,16 +1542,20 @@ export default function PosClient({
                   <div key={line.key} className="border-b-2 border-stone-200 pb-3 last:border-0">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium text-zinc-900">
+                        <span className="text-sm font-extrabold uppercase tracking-tight text-zinc-900">
                           {formatProductLabel(line)}{" "}
-                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-amber-800">
                             Not in catalog
                           </span>
                         </span>
-                        {line.instruction && <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-max mt-0.5">{line.instruction}</span>}
+                        {line.instruction && <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-max mt-0.5 normal-case">{line.instruction}</span>}
                       </div>
-                      <button onClick={() => removeLine(line.key)} className="text-xs text-red-600 hover:underline">
-                        Remove
+                      <button
+                        onClick={() => removeLine(line.key)}
+                        aria-label="Remove item"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-red-500 text-base font-bold leading-none text-white shadow-sm hover:bg-red-600"
+                      >
+                        ×
                       </button>
                     </div>
                     <div className="mt-2 grid grid-cols-3 gap-2">
@@ -1612,12 +1616,12 @@ export default function PosClient({
                       </CartFieldTile>
                     </div>
                     {line.discountPercent ? (
-                      <div className="mt-1.5 text-right text-sm">
+                      <div className="mt-1.5 text-right text-base">
                         <span className="text-zinc-400 line-through mr-1">₦{(line.unitPrice * line.quantity).toFixed(2)}</span>
-                        <span className="font-bold text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
+                        <span className="font-extrabold text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
                       </div>
                     ) : (
-                      <div className="mt-1.5 text-right text-sm text-zinc-600">
+                      <div className="mt-1.5 text-right text-base font-extrabold text-zinc-900">
                         ₦{(line.unitPrice * line.quantity).toFixed(2)}
                       </div>
                     )}
@@ -1653,15 +1657,16 @@ export default function PosClient({
                             </svg>
                           </div>
                         )}
-                        <span className="text-sm font-medium text-zinc-900">{formatProductLabel(line.product)}</span>
+                        <span className="text-sm font-extrabold uppercase tracking-tight text-zinc-900">{formatProductLabel(line.product)}</span>
                       </div>
-                      {line.instruction && <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-max mt-0.5">{line.instruction}</span>}
+                      {line.instruction && <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-max mt-0.5 normal-case">{line.instruction}</span>}
                     </div>
                     <button
                       onClick={() => removeLine(line.key)}
-                      className="text-xs text-red-600 hover:underline"
+                      aria-label="Remove item"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-red-500 text-base font-bold leading-none text-white shadow-sm hover:bg-red-600"
                     >
-                      Remove
+                      ×
                     </button>
                   </div>
                   <div className={`mt-2 grid gap-2 ${hierarchy && hierarchy.length > 0 ? "grid-cols-2" : "grid-cols-3"}`}>
@@ -1789,11 +1794,11 @@ export default function PosClient({
                     </CartFieldTile>
                     </div>
                   )}
-                  <div className="mt-2 text-right text-sm text-zinc-600">
+                  <div className="mt-2 text-right text-base font-extrabold text-zinc-900">
                     {line.discountPercent ? (
                       <>
-                        <span className="text-zinc-400 line-through mr-1">₦{(priceForForm * line.quantity).toFixed(2)}</span>
-                        <span className="font-bold text-red-600">
+                        <span className="text-sm font-normal text-zinc-400 line-through mr-1">₦{(priceForForm * line.quantity).toFixed(2)}</span>
+                        <span className="text-red-600">
                           ₦{(discountedUnitPrice(priceForForm, line.discountPercent) * line.quantity).toFixed(2)}
                         </span>
                       </>
@@ -1801,7 +1806,7 @@ export default function PosClient({
                       <>
                         ₦{(priceForForm * line.quantity).toFixed(2)}
                         {effectiveSaleMode === "wholesale" && line.customPrice === undefined && (
-                          <span className="ml-1 text-xs text-amber-700">(wholesale)</span>
+                          <span className="ml-1 text-xs font-normal text-amber-700">(wholesale)</span>
                         )}
                       </>
                     )}
@@ -1964,9 +1969,11 @@ export default function PosClient({
               <button
                 onClick={openConfirmModal}
                 disabled={submitting || !canCompleteSale}
-                className="mt-4 w-full rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60 shadow-sm"
+                className="mt-4 w-full rounded-lg bg-teal-700 px-4 py-3 text-base font-extrabold text-white hover:bg-teal-800 disabled:opacity-60 shadow-md"
               >
-                {submitting ? "Processing..." : "Complete sale"}
+                {submitting
+                  ? "Processing..."
+                  : `Complete Sale — ${cart.reduce((sum, l) => sum + l.quantity, 0)} item${cart.reduce((sum, l) => sum + l.quantity, 0) === 1 ? "" : "s"} · ₦${total.toFixed(2)}`}
               </button>
             </>
           )}
