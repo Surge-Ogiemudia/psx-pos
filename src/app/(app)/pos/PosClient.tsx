@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { formatProductLabel, type PaymentMethod, type ProductCategory, type ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
@@ -284,6 +284,43 @@ export default function PosClient({
   useEffect(() => {
     productListRef.current?.scrollTo(0, 0);
   }, [search]);
+
+  // A native scrollbar — even styled via CSS — rendered inconsistently across
+  // browsers/OS scrollbar settings and was still easy for less computer-literate staff to
+  // miss. This draws our own thick, high-contrast, draggable scroll thumb next to the
+  // results box instead, so its appearance is guaranteed rather than left up to how each
+  // browser feels like honoring ::-webkit-scrollbar that day.
+  const [scrollMetrics, setScrollMetrics] = useState({ top: 0, height: 0, clientHeight: 0 });
+  function syncScrollMetrics() {
+    const el = productListRef.current;
+    if (!el) return;
+    setScrollMetrics({ top: el.scrollTop, height: el.scrollHeight, clientHeight: el.clientHeight });
+  }
+  useEffect(() => {
+    syncScrollMetrics();
+  }, [products]);
+  const scrollThumbRef = useRef<HTMLDivElement>(null);
+  function handleScrollTrackPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    const track = e.currentTarget;
+    const el = productListRef.current;
+    if (!el) return;
+    (e.target as Element).setPointerCapture(e.pointerId);
+
+    const scrollToPointer = (clientY: number) => {
+      const rect = track.getBoundingClientRect();
+      const ratio = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
+      el.scrollTop = ratio * (el.scrollHeight - el.clientHeight);
+    };
+    scrollToPointer(e.clientY);
+
+    const onMove = (moveEvent: PointerEvent) => scrollToPointer(moveEvent.clientY);
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
 
   // So staff get visual confirmation an item landed in the cart, instead of it silently
   // updating somewhere off-screen while the catalog list stays put.
@@ -1169,7 +1206,8 @@ export default function PosClient({
           <div className="relative">
             <div
               ref={productListRef}
-              className="pos-results-scroll grid max-h-[70vh] grid-cols-1 gap-2 overflow-y-auto pb-1 pr-2 sm:grid-cols-2"
+              onScroll={syncScrollMetrics}
+              className="pos-results-scroll grid max-h-[70vh] grid-cols-1 gap-2 overflow-y-auto pb-1 pr-6 sm:grid-cols-2"
             >
               {/* Hardcoded Treatment Item */}
               <button
@@ -1247,6 +1285,24 @@ export default function PosClient({
             </div>
             {products.length > 4 && (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-zinc-50 to-transparent" />
+            )}
+            {scrollMetrics.height > scrollMetrics.clientHeight && (
+              <div
+                onPointerDown={handleScrollTrackPointerDown}
+                className="absolute inset-y-0 right-0 w-5 cursor-pointer rounded-full bg-emerald-100 border border-emerald-200"
+              >
+                <div
+                  ref={scrollThumbRef}
+                  className="absolute left-0 right-0 rounded-full bg-emerald-700 shadow-sm"
+                  style={{
+                    height: `${Math.max(10, (scrollMetrics.clientHeight / scrollMetrics.height) * 100)}%`,
+                    top: `${
+                      (scrollMetrics.top / (scrollMetrics.height - scrollMetrics.clientHeight)) *
+                      (100 - Math.max(10, (scrollMetrics.clientHeight / scrollMetrics.height) * 100))
+                    }%`,
+                  }}
+                />
+              </div>
             )}
           </div>
         </div>
