@@ -196,6 +196,14 @@ export default function MonakTriageClient({ branchId }: Props) {
   // reached yet, or "error" ones. Composes with viewFilter (lane), doesn't replace it.
   const [aiReadOnly, setAiReadOnly] = useState(true);
 
+  // Emergency pre-open safety valve: push every AI-read item straight into the catalog,
+  // price flagged missing rather than blocking. Scoped to the whole branch, not the
+  // operator's current lane — it's a one-time global action, not day-to-day lane work.
+  const [showBulkConfirmModal, setShowBulkConfirmModal] = useState(false);
+  const [bulkConfirming, setBulkConfirming] = useState(false);
+  const [bulkConfirmError, setBulkConfirmError] = useState("");
+  const [bulkConfirmSuccessMsg, setBulkConfirmSuccessMsg] = useState("");
+
   // Panel 2 state
   const [p2Search, setP2Search] = useState("");
   const [p2Results, setP2Results] = useState<Excel1Result[]>([]);
@@ -309,6 +317,31 @@ export default function MonakTriageClient({ branchId }: Props) {
       if (processedPollingRef.current) clearInterval(processedPollingRef.current);
     };
   }, [fetchProcessed]);
+
+  // --------------- Bulk-confirm every AI-read item (emergency pre-open safety valve) ---------------
+  async function handleBulkConfirm() {
+    setBulkConfirming(true);
+    setBulkConfirmError("");
+    setBulkConfirmSuccessMsg("");
+    try {
+      const res = await fetch(`/api/products/ai-drafts/bulk-confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branchId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Bulk confirm failed");
+
+      setShowBulkConfirmModal(false);
+      setBulkConfirmSuccessMsg(`✅ ${json.count} item${json.count === 1 ? "" : "s"} confirmed into the catalog.`);
+      fetchSnaps();
+      fetchProcessed();
+    } catch (err) {
+      setBulkConfirmError(err instanceof Error ? err.message : "Bulk confirm failed");
+    } finally {
+      setBulkConfirming(false);
+    }
+  }
 
   // --------------- Panel 2 Search ---------------
   useEffect(() => {
@@ -768,6 +801,9 @@ export default function MonakTriageClient({ branchId }: Props) {
   const visibleSnaps = aiReadOnly ? laneFilteredSnaps.filter((s) => s.status === "extracted") : laneFilteredSnaps;
   const visibleSkipped = viewFilter === "all" ? skippedSnaps : skippedSnaps.filter((s) => laneOf(s._id) === viewFilter);
   const aiReadCount = laneFilteredSnaps.filter((s) => s.status === "extracted").length;
+  // Branch-wide (not lane-filtered) — feeds the bulk-confirm safety valve, a global
+  // one-time action rather than per-operator lane work.
+  const totalAiReadCount = snaps.filter((s) => s.status === "extracted").length;
 
   // One more filter layer on top of whichever list is already "final" for the current
   // queueView — composes with the lane/AI-read filters above rather than replacing them.
@@ -843,6 +879,22 @@ export default function MonakTriageClient({ branchId }: Props) {
               )}
             </div>
           </div>
+          {queueView === "active" && totalAiReadCount > 0 && (
+            <div className="px-3 pt-2 bg-red-50 border-b border-red-100">
+              <button
+                onClick={() => {
+                  setBulkConfirmError("");
+                  setShowBulkConfirmModal(true);
+                }}
+                className="w-full py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
+              >
+                🚨 Bulk Confirm All AI-Read Items ({totalAiReadCount})
+              </button>
+              {bulkConfirmSuccessMsg && (
+                <p className="text-xs text-green-700 font-medium py-1.5">{bulkConfirmSuccessMsg}</p>
+              )}
+            </div>
+          )}
           {queueView === "active" && (
             <div className="flex items-center gap-1.5 px-3 py-2 border-b border-zinc-100 bg-white">
               <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mr-1">Working:</span>
@@ -1749,6 +1801,52 @@ export default function MonakTriageClient({ branchId }: Props) {
                 className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {merging ? "Adding…" : `✅ Add ${mergeQuantity} to existing stock`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* BULK CONFIRM MODAL — emergency pre-open safety valve              */}
+      {/* ================================================================ */}
+      {showBulkConfirmModal && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="bg-red-50 px-5 py-4 border-b border-red-200">
+              <h2 className="font-bold text-red-900 text-lg">🚨 Bulk Confirm {totalAiReadCount} Items</h2>
+            </div>
+            <div className="p-5 flex flex-col gap-3">
+              <p className="text-sm text-zinc-700">
+                This will immediately create <strong>{totalAiReadCount}</strong> products in the live catalog
+                from every AI-read item, using the quantity already counted.
+              </p>
+              <p className="text-sm text-zinc-700">
+                <strong>Price will be missing on most or all of them</strong> until reviewed later via the
+                Catalog page&apos;s &quot;Needs Review&quot; filter — this does not block them from being sold,
+                but a cashier could ring one up at ₦0 if they don&apos;t notice and set the price at sale time.
+              </p>
+              <p className="text-sm text-zinc-600 font-medium">This cannot be easily undone. Continue?</p>
+              {bulkConfirmError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
+                  ⚠️ {bulkConfirmError}
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-zinc-200 flex gap-3">
+              <button
+                onClick={() => setShowBulkConfirmModal(false)}
+                disabled={bulkConfirming}
+                className="flex-1 py-2.5 rounded-xl border border-zinc-300 text-zinc-700 font-semibold text-sm hover:bg-zinc-50 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkConfirm}
+                disabled={bulkConfirming}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-bold text-sm hover:bg-red-700 disabled:opacity-40"
+              >
+                {bulkConfirming ? "Confirming…" : `🚨 Confirm ${totalAiReadCount} Items`}
               </button>
             </div>
           </div>
