@@ -430,15 +430,37 @@ export default function PosClient({
     const fetchProducts = async () => {
       const query = debouncedSearch.toLowerCase();
       const allProducts = await db.products.toArray();
-      const filtered = allProducts.filter(p => 
+      const filtered = allProducts.filter(p =>
         (p.itemName && p.itemName.toLowerCase().includes(query)) ||
         (p.brand && p.brand.toLowerCase().includes(query)) ||
         (p.barcode && p.barcode.includes(query))
       );
+
+      // The local IndexedDB cache only refreshes on mount/branch-change/reconnect (see
+      // usePosOfflineSync) — a product added moments ago (e.g. a bulk catalog publish)
+      // can be invisible here for a few seconds while that background sync catches up.
+      // Same fallback the barcode-scanner path already uses below: a cache miss on a
+      // real search term also checks the live server before giving up, so a cashier
+      // never sees "not found" for something that genuinely exists.
+      if (filtered.length === 0 && debouncedSearch.trim() && navigator.onLine) {
+        try {
+          const params = new URLSearchParams({ search: debouncedSearch });
+          if (branchId) params.set("branchId", branchId);
+          const res = await fetch(`/api/products?${params.toString()}`);
+          if (res.ok) {
+            const data = await res.json();
+            setProducts((data.products ?? []).slice(0, 50));
+            return;
+          }
+        } catch (e) {
+          console.error("Live search fallback error", e);
+        }
+      }
+
       setProducts(filtered.slice(0, 50) as unknown as ProductJSON[]);
     };
     fetchProducts();
-  }, [debouncedSearch]);
+  }, [debouncedSearch, branchId]);
 
   // Global Barcode Scanner Listener
   useEffect(() => {
