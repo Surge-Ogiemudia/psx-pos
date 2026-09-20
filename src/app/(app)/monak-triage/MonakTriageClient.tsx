@@ -152,6 +152,12 @@ export default function MonakTriageClient({ branchId }: Props) {
     localStorage.setItem(VIEW_STORAGE_KEY, String(v));
   }
 
+  // AI-read fast lane — defaults to showing only snaps the background AI extraction
+  // sweep has already staged (status "extracted"), since those need only a glance +
+  // price match. Toggle back to "All" to see plain "pending" items the sweep hasn't
+  // reached yet, or "error" ones. Composes with viewFilter (lane), doesn't replace it.
+  const [aiReadOnly, setAiReadOnly] = useState(true);
+
   // Panel 2 state
   const [p2Search, setP2Search] = useState("");
   const [p2Results, setP2Results] = useState<Excel1Result[]>([]);
@@ -328,7 +334,11 @@ export default function MonakTriageClient({ branchId }: Props) {
       retailPrice: snap.retailPrice || 0,
     });
     setP2Search("");
-    setP3Search("");
+    // Auto-seed Panel 3's price search from the AI-extracted name the moment a snap is
+    // selected, so suggestions are already sitting there even before the operator types
+    // anything in Panel 2. Leave it empty when the sweep hasn't reached this snap yet —
+    // same as before.
+    setP3Search(snap.extractedItemName || "");
     setP2Results([]);
     setP3Results([]);
     setCatalogMatches([]);
@@ -448,14 +458,20 @@ export default function MonakTriageClient({ branchId }: Props) {
       normalizedCategory === "supermarket"
         ? (normalizedCategory as ProductForm["category"])
         : undefined;
-    setForm((f) => ({
-      ...f,
-      itemName: result.itemName,
-      ...(validCategory ? { category: validCategory } : {}),
-      retailPrice: result.retailPrice,
-      wholesalePrice: result.wholesalePrice,
-      distributorPrice: result.distributorPrice,
-    }));
+    setForm((f) => {
+      // A human's already-present name (typed, AI-extracted, or Excel1-applied) is the
+      // highest-trust value in this flow — an Excel2 price-list match should only ever
+      // fill the name in when it's genuinely still blank, never clobber it.
+      const nameIsBlank = !f.itemName.trim();
+      return {
+        ...f,
+        itemName: nameIsBlank ? result.itemName : f.itemName,
+        ...(nameIsBlank && validCategory ? { category: validCategory } : {}),
+        retailPrice: result.retailPrice,
+        wholesalePrice: result.wholesalePrice,
+        distributorPrice: result.distributorPrice,
+      };
+    });
   }
 
   function updateForm<K extends keyof ProductForm>(key: K, value: ProductForm[K]) {
@@ -579,9 +595,10 @@ export default function MonakTriageClient({ branchId }: Props) {
 
   const pendingSnaps = [...snaps, ...skippedSnaps];
   const laneCounts = [0, 1, 2].map((lane) => pendingSnaps.filter((s) => laneOf(s._id) === lane).length);
-  const visibleSnaps = viewFilter === "all" ? snaps : snaps.filter((s) => laneOf(s._id) === viewFilter);
+  const laneFilteredSnaps = viewFilter === "all" ? snaps : snaps.filter((s) => laneOf(s._id) === viewFilter);
+  const visibleSnaps = aiReadOnly ? laneFilteredSnaps.filter((s) => s.status === "extracted") : laneFilteredSnaps;
   const visibleSkipped = viewFilter === "all" ? skippedSnaps : skippedSnaps.filter((s) => laneOf(s._id) === viewFilter);
-  const aiReadCount = visibleSnaps.filter((s) => s.status === "extracted").length;
+  const aiReadCount = laneFilteredSnaps.filter((s) => s.status === "extracted").length;
 
   // Panel 4 lists — pharmacy/branch-wide, deliberately not lane-filtered (see fetchProcessed).
   const cleanProcessedItems = processedItems.filter((i) => !i.needsReviewReason || i.needsReviewReason.length === 0);
@@ -666,6 +683,24 @@ export default function MonakTriageClient({ branchId }: Props) {
                   View {lane + 1} ({laneCounts[lane]})
                 </button>
               ))}
+              <span className="ml-auto flex items-center gap-1.5">
+                <button
+                  onClick={() => setAiReadOnly(true)}
+                  className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
+                    aiReadOnly ? "bg-purple-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                  }`}
+                >
+                  🤖 AI-Read
+                </button>
+                <button
+                  onClick={() => setAiReadOnly(false)}
+                  className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
+                    !aiReadOnly ? "bg-purple-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                  }`}
+                >
+                  All
+                </button>
+              </span>
             </div>
           )}
           <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
