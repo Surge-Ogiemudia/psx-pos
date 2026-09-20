@@ -1116,7 +1116,7 @@ export default function PosClient({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:items-start">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
       {effectiveSaleMode === "wholesale" && (
         <div className="lg:col-span-5 rounded-xl border-2 border-amber-400 bg-amber-100 px-4 py-2.5 flex items-center justify-between">
           <span className="text-sm font-bold text-amber-900">📦 WHOLESALE MODE — every sale on this screen charges wholesale price</span>
@@ -1201,7 +1201,7 @@ export default function PosClient({
           </div>
         </>
       )}
-      <div className="lg:col-span-3">
+      <div className="lg:col-span-3 flex flex-col">
         <div className="sticky top-16 z-20 border-b border-zinc-100 bg-white pb-3 pt-1 md:top-[6.5rem]">
           <div className="mb-2 flex items-center justify-between">
             <h1 className="text-lg font-semibold text-zinc-900">Product catalog</h1>
@@ -1336,16 +1336,16 @@ export default function PosClient({
           </div>
         )}
 
-        <div className="rounded-xl border-2 border-stone-300 bg-stone-100 p-3 shadow-sm">
+        <div className="flex flex-1 flex-col rounded-xl border-2 border-stone-300 bg-stone-100 p-3 shadow-sm">
           <div className="mb-2 flex items-center justify-between text-xs font-bold uppercase tracking-wide text-stone-500">
             <span>{products.length} product{products.length === 1 ? "" : "s"}</span>
             {products.length > 4 && <span className="font-bold text-emerald-700 normal-case tracking-normal">▼ Scroll for more — this list keeps going</span>}
           </div>
-          <div className="relative">
+          <div className="relative flex-1">
             <div
               ref={productListRef}
               onScroll={syncScrollMetrics}
-              className="pos-results-scroll grid max-h-[70vh] grid-cols-1 gap-2 overflow-y-auto pb-1 pr-6 sm:grid-cols-2"
+              className="pos-results-scroll grid h-full min-h-[70vh] grid-cols-1 gap-2 overflow-y-auto pb-1 pr-6 sm:grid-cols-2"
             >
               {/* Hardcoded Treatment Item */}
               <button
