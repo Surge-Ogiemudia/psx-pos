@@ -19,7 +19,7 @@ const AiDraftProductSchema = new Schema(
     // Processing State
     status: { 
       type: String, 
-      enum: ["pending", "processing", "extracted", "completed", "error", "dismissed", "confirming"],
+      enum: ["pending", "processing", "extracted", "completed", "error", "dismissed", "confirming", "skipped"],
       default: "pending",
       index: true
     },

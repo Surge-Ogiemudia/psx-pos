@@ -11,7 +11,7 @@ interface AiDraft {
   retailPrice: number | null;
   category: "medicine" | "non-medicine" | "supermarket";
   createdAt: string;
-  status: "pending" | "processing" | "extracted" | "completed" | "error" | "dismissed" | "confirming";
+  status: "pending" | "processing" | "extracted" | "completed" | "error" | "dismissed" | "confirming" | "skipped";
   extractedItemName?: string | null;
   extractedBrand?: string | null;
   extractedSize?: string | null;
@@ -108,8 +108,9 @@ interface Props {
 export default function MonakTriageClient({ branchId }: Props) {
   // Panel 1 state
   const [snaps, setSnaps] = useState<AiDraft[]>([]);
+  const [skippedSnaps, setSkippedSnaps] = useState<AiDraft[]>([]);
   const [dismissedSnaps, setDismissedSnaps] = useState<AiDraft[]>([]);
-  const [showDismissed, setShowDismissed] = useState(false);
+  const [queueView, setQueueView] = useState<"active" | "skipped" | "dismissed">("active");
   const [selectedSnap, setSelectedSnap] = useState<AiDraft | null>(null);
 
   // Which lane this operator/computer is working — "all" or 0/1/2. Persisted per browser
@@ -178,7 +179,8 @@ export default function MonakTriageClient({ branchId }: Props) {
       if (!res.ok) return;
       const data = await res.json();
       const all: AiDraft[] = data.drafts ?? [];
-      setSnaps(all.filter((d) => d.status !== "completed" && d.status !== "dismissed"));
+      setSnaps(all.filter((d) => d.status !== "completed" && d.status !== "dismissed" && d.status !== "skipped"));
+      setSkippedSnaps(all.filter((d) => d.status === "skipped"));
       setDismissedSnaps(all.filter((d) => d.status === "dismissed"));
     } catch {
       // silent
@@ -472,7 +474,35 @@ export default function MonakTriageClient({ branchId }: Props) {
     }
   }
 
-  // --------------- Restore a dismissed snap back into the queue ---------------
+  // --------------- Skip snap (reversible — needs later attention, moved out of the main queue) ---------------
+  async function handleSkip() {
+    if (!selectedSnap) return;
+    const snap = selectedSnap;
+    try {
+      const res = await fetch(`/api/products/ai-drafts/${snap._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "skipped" }),
+      });
+      if (!res.ok) return;
+      const skipped = { ...snap, status: "skipped" as const };
+      setSnaps((prev) => prev.filter((s) => s._id !== snap._id));
+      setSkippedSnaps((prev) => [skipped, ...prev]);
+      setSelectedSnap(null);
+      setForm({ ...EMPTY_FORM });
+      setP2Search("");
+      setP3Search("");
+      setP2Results([]);
+      setP3Results([]);
+      setCatalogMatches([]);
+      setSaveError("");
+      setMergeError("");
+    } catch {
+      // silent
+    }
+  }
+
+  // --------------- Restore a skipped or dismissed snap back into the queue ---------------
   async function handleRestore(snap: AiDraft) {
     try {
       const res = await fetch(`/api/products/ai-drafts/${snap._id}`, {
@@ -482,6 +512,7 @@ export default function MonakTriageClient({ branchId }: Props) {
       });
       if (!res.ok) return;
       const restored = { ...snap, status: "pending" as const };
+      setSkippedSnaps((prev) => prev.filter((s) => s._id !== snap._id));
       setDismissedSnaps((prev) => prev.filter((s) => s._id !== snap._id));
       setSnaps((prev) => [restored, ...prev]);
     } catch {
@@ -489,8 +520,10 @@ export default function MonakTriageClient({ branchId }: Props) {
     }
   }
 
-  const laneCounts = [0, 1, 2].map((lane) => snaps.filter((s) => laneOf(s._id) === lane).length);
+  const pendingSnaps = [...snaps, ...skippedSnaps];
+  const laneCounts = [0, 1, 2].map((lane) => pendingSnaps.filter((s) => laneOf(s._id) === lane).length);
   const visibleSnaps = viewFilter === "all" ? snaps : snaps.filter((s) => laneOf(s._id) === viewFilter);
+  const visibleSkipped = viewFilter === "all" ? skippedSnaps : skippedSnaps.filter((s) => laneOf(s._id) === viewFilter);
 
   return (
     // Break out of the layout's max-w-6xl by using negative margins
@@ -504,24 +537,42 @@ export default function MonakTriageClient({ branchId }: Props) {
           <div className="bg-zinc-50 px-4 py-3 border-b border-zinc-200 font-semibold text-zinc-700 flex items-center justify-between">
             <span>📥 Live Queue</span>
             <div className="flex items-center gap-2">
-              {dismissedSnaps.length > 0 && (
+              {queueView !== "active" && (
                 <button
-                  onClick={() => setShowDismissed((v) => !v)}
-                  className={`text-xs rounded-full px-2 py-0.5 font-medium ${
-                    showDismissed ? "bg-zinc-700 text-white" : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300"
-                  }`}
+                  onClick={() => setQueueView("active")}
+                  className="text-xs rounded-full px-2 py-0.5 font-medium bg-zinc-700 text-white"
                 >
-                  {showDismissed ? "← Back to queue" : `🗑 Dismissed (${dismissedSnaps.length})`}
+                  ← Back to queue
                 </button>
               )}
-              {!showDismissed && (
+              {visibleSkipped.length > 0 && (
+                <button
+                  onClick={() => setQueueView((v) => (v === "skipped" ? "active" : "skipped"))}
+                  className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+                    queueView === "skipped" ? "bg-purple-700 text-white" : "bg-purple-100 text-purple-700 hover:bg-purple-200"
+                  }`}
+                >
+                  {`⏭️ Needs AI (${visibleSkipped.length})`}
+                </button>
+              )}
+              {dismissedSnaps.length > 0 && (
+                <button
+                  onClick={() => setQueueView((v) => (v === "dismissed" ? "active" : "dismissed"))}
+                  className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+                    queueView === "dismissed" ? "bg-zinc-700 text-white" : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300"
+                  }`}
+                >
+                  {`🗑 Dismissed (${dismissedSnaps.length})`}
+                </button>
+              )}
+              {queueView === "active" && (
                 <span className="text-xs bg-zinc-200 text-zinc-600 rounded-full px-2 py-0.5 font-normal">
-                  {visibleSnaps.length} pending
+                  {visibleSnaps.length + visibleSkipped.length} pending
                 </span>
               )}
             </div>
           </div>
-          {!showDismissed && (
+          {queueView === "active" && (
             <div className="flex items-center gap-1.5 px-3 py-2 border-b border-zinc-100 bg-white">
               <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mr-1">Working:</span>
               <button
@@ -530,7 +581,7 @@ export default function MonakTriageClient({ branchId }: Props) {
                   viewFilter === "all" ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                 }`}
               >
-                All ({snaps.length})
+                All ({pendingSnaps.length})
               </button>
               {[0, 1, 2].map((lane) => (
                 <button
@@ -546,12 +597,43 @@ export default function MonakTriageClient({ branchId }: Props) {
             </div>
           )}
           <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
-            {showDismissed ? (
+            {queueView === "dismissed" ? (
               <>
                 {dismissedSnaps.length === 0 && (
                   <div className="text-zinc-400 text-sm text-center mt-8">Nothing dismissed.</div>
                 )}
                 {dismissedSnaps.map((snap) => (
+                  <div key={snap._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 flex flex-col gap-2 opacity-80">
+                    <div className="flex gap-2 items-start">
+                      <ResilientThumb
+                        src={snap.frontImageUrl}
+                        alt="Front"
+                        className="w-20 h-20"
+                        size={96}
+                        onClick={() => setZoomImage(snap.frontImageUrl)}
+                      />
+                      <div className="flex flex-col gap-1 flex-1 min-w-0">
+                        <span className="text-xs bg-zinc-200 text-zinc-700 rounded-full px-2 py-0.5 font-medium w-fit">
+                          Qty: {snap.quantityInStock}
+                        </span>
+                        <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleRestore(snap)}
+                      className="w-full py-1.5 text-xs font-semibold rounded-lg bg-zinc-700 text-white hover:bg-zinc-800"
+                    >
+                      ↩ Restore to queue
+                    </button>
+                  </div>
+                ))}
+              </>
+            ) : queueView === "skipped" ? (
+              <>
+                {visibleSkipped.length === 0 && (
+                  <div className="text-zinc-400 text-sm text-center mt-8">Nothing skipped in this view.</div>
+                )}
+                {visibleSkipped.map((snap) => (
                   <div key={snap._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 flex flex-col gap-2 opacity-80">
                     <div className="flex gap-2 items-start">
                       <ResilientThumb
@@ -697,6 +779,15 @@ export default function MonakTriageClient({ branchId }: Props) {
                     <span className="absolute right-3 top-2 text-xs text-zinc-400">searching…</span>
                   )}
                 </div>
+
+                {/* Skip — always available, not gated behind "no results found". Fast, low-friction,
+                    and reversible via Restore, so no confirm dialog. */}
+                <button
+                  onClick={handleSkip}
+                  className="w-full py-2 text-xs font-semibold rounded-lg border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
+                >
+                  ⏭️ Skip for later
+                </button>
 
                 {/* Already in catalog — likely the same item re-photographed off another shelf */}
                 {catalogMatches.length > 0 && (
