@@ -266,6 +266,9 @@ export default function ProductsClient({
 
   // Pending "sold as custom, not in catalog yet" requests filed from POS, awaiting review.
   const [productRequests, setProductRequests] = useState<ProductRequestJSON[]>([]);
+  // Collapsed by default — this list can grow long and was pushing the actual catalog
+  // down the page every time it had anything in it.
+  const [showPendingRequests, setShowPendingRequests] = useState(false);
   const [approvingRequestId, setApprovingRequestId] = useState<string | null>(null);
   const [matchingRequestId, setMatchingRequestId] = useState<string | null>(null);
   const [matchSearch, setMatchSearch] = useState("");
@@ -1115,10 +1118,20 @@ export default function ProductsClient({
 
       {isAdmin && productRequests.length > 0 && (
         <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-amber-900">
-            Pending item requests ({productRequests.length})
-          </h2>
-          <p className="mb-3 text-xs text-amber-800">
+          <button
+            onClick={() => setShowPendingRequests((v) => !v)}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <h2 className="text-sm font-semibold text-amber-900">
+              Pending item requests ({productRequests.length})
+            </h2>
+            <span className="text-xs font-medium text-amber-800">
+              {showPendingRequests ? "▲ Hide" : "▼ Show"}
+            </span>
+          </button>
+          {showPendingRequests && (
+            <>
+          <p className="mb-3 mt-3 text-xs text-amber-800">
             Sold at POS as a custom item because it wasn&apos;t in the catalog. Add it as a new product, or match
             it to an existing product to reconcile the stock that already left the shelf.
           </p>
@@ -1191,6 +1204,8 @@ export default function ProductsClient({
               </div>
             ))}
           </div>
+            </>
+          )}
         </div>
       )}
 
