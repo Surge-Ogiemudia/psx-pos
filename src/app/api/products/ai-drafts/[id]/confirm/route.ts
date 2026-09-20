@@ -8,6 +8,7 @@ import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
 import { formatProductLabel } from "@/lib/types";
+import { parseExpiryDate } from "@/lib/parseExpiryDate";
 
 interface ConfirmPayload {
   itemName: string;
@@ -79,7 +80,7 @@ export async function POST(
 
     const branchId = draft.branchId.toString();
     const alertQuantity = Math.max(1, Math.floor(Number(quantity) * 0.2));
-    const parsedExpiry = expiryDate ? new Date(expiryDate) : null;
+    const parsedExpiry = parseExpiryDate(expiryDate);
     const parsedQty = Number(quantity);
 
     // Computed from the RAW client input, before any storage fallback is applied below,
