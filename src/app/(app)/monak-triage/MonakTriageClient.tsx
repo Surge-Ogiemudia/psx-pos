@@ -849,7 +849,10 @@ export default function MonakTriageClient({ branchId }: Props) {
                     type="text"
                     placeholder="Search stock list by name…"
                     value={p2Search}
-                    onChange={(e) => setP2Search(e.target.value)}
+                    onChange={(e) => {
+                      setP2Search(e.target.value);
+                      setP3Search(e.target.value);
+                    }}
                     className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                   />
                   {p2Loading && (
