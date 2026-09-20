@@ -74,6 +74,28 @@ export async function PATCH(
     }
 
     const scope = getBranchScope(session, body.branchId);
+
+    // Fetch the existing doc first so we can compute needsReviewReason off the FINAL
+    // post-update values (existing value for any field not present in this PATCH),
+    // and fold it into the same $set — one atomic write, not a second round trip.
+    const existing = await Product.findOne({ _id: id, ...scope }).lean();
+    if (!existing) {
+      return NextResponse.json({ error: "Product not found" }, { status: 404 });
+    }
+
+    const finalBrand = "brand" in update ? (update.brand as string) : existing.brand;
+    const finalSize = "size" in update ? (update.size as string) : existing.size;
+    const finalExpiryDate = "expiryDate" in update ? (update.expiryDate as Date | null) : existing.expiryDate;
+    const finalRetailPrice = "retailPrice" in update ? (update.retailPrice as number) : existing.retailPrice;
+
+    // Same reason strings/logic as ai-drafts/[id]/confirm/route.ts.
+    const needsReviewReason: string[] = [];
+    if (!finalBrand?.trim()) needsReviewReason.push("missing_brand");
+    if (!finalSize?.trim()) needsReviewReason.push("missing_size");
+    if (!finalExpiryDate) needsReviewReason.push("missing_expiry");
+    if (!finalRetailPrice || finalRetailPrice <= 0) needsReviewReason.push("missing_price");
+    update.needsReviewReason = needsReviewReason;
+
     const product = await Product.findOneAndUpdate(
       { _id: id, ...scope },
       { $set: update },
