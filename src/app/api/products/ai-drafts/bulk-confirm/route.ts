@@ -10,14 +10,22 @@ import { logActivity } from "@/lib/activityLog";
 import { parseExpiryDate } from "@/lib/parseExpiryDate";
 
 // Emergency pre-open safety valve: push every already AI-read snap straight into the
-// live catalog in one shot, price simply flagged missing rather than blocking. Done as
-// bulk Mongo operations (insertMany/bulkWrite), never a per-item loop — that's what keeps
-// this safe well past any serverless timeout even at four-figure item counts. No
+// live catalog in one shot, price simply flagged missing rather than blocking (checkout
+// itself refuses to sell anything still at ₦0 — see the guard in src/app/api/sales/route.ts).
+// Done as bulk Mongo operations (insertMany/bulkWrite), never a per-item loop — that's what
+// keeps this safe well past any serverless timeout even at four-figure item counts. No
 // multi-collection transaction wrapping the bulk writes on purpose: an interrupted
 // transaction across a huge insertMany is a worse failure mode (silent full rollback,
 // no partial progress) than the small window here where a product could in principle be
-// created without every AiDraftProduct row confirmed as "completed" yet — every step is
-// idempotent and re-queryable, so a partial run is just re-run, not corrupted data.
+// created without every AiDraftProduct row linked yet — every step is idempotent and
+// re-queryable, so a partial run is just re-run, not corrupted data.
+//
+// Deliberately does NOT mark drafts "completed" — it links each one to its new live
+// product via productId but leaves status as "extracted", so every item stays visible in
+// Panel 1/2/3 for an operator to finish triaging (real price, corrected name/brand,
+// duplicate check) even though it's already sellable. The `productId: null` filter below
+// is what makes this idempotent — re-running it only picks up items that haven't been
+// published yet, never double-publishes something already live.
 export async function POST(request: NextRequest) {
   try {
     const session = await requireAdminApiSession();
@@ -30,6 +38,7 @@ export async function POST(request: NextRequest) {
       pharmacyId,
       branchId,
       status: "extracted",
+      productId: null,
       extractedItemName: { $exists: true, $ne: null },
     }).lean();
 
@@ -102,7 +111,7 @@ export async function POST(request: NextRequest) {
       productDocs.map((p) => ({
         updateOne: {
           filter: { _id: p.draftId },
-          update: { $set: { status: "completed", productId: p._id } },
+          update: { $set: { productId: p._id } },
         },
       }))
     );
@@ -117,7 +126,7 @@ export async function POST(request: NextRequest) {
           actorUserId: session.user.id,
           actorName: session.user.name ?? "Unknown",
           action: "product_create",
-          summary: `Bulk-confirmed ${productDocs.length} AI-read items into the catalog (emergency pre-open sweep)`,
+          summary: `Published ${productDocs.length} AI-read items to the live catalog (emergency pre-open sweep) — still open in the triage queue for review`,
           refCollection: "Product",
           refId: null,
         });

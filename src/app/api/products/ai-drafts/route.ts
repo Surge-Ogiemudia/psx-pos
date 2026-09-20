@@ -44,11 +44,20 @@ export async function GET(req: NextRequest) {
 
     await dbConnect();
 
-    const query: any = { pharmacyId: session.user.pharmacyId };
+    // Excludes "completed" — Panel 1 never displays those (Panel 4's own /processed
+    // endpoint covers them), so shipping them here on every 5s poll is pure waste.
+    const query: any = { pharmacyId: session.user.pharmacyId, status: { $ne: "completed" } };
     if (branchId) query.branchId = branchId;
 
-    // Get all drafts sorted by newest first
-    const drafts = await AiDraftProduct.find(query).sort({ createdAt: -1 }).lean();
+    // Trimmed to exactly what the Live Queue UI reads — drops branchId/pharmacyId,
+    // internal confirm-flow flags, and other fields that were being shipped over the
+    // wire on every poll but never used client-side.
+    const drafts = await AiDraftProduct.find(query)
+      .select(
+        "frontImageUrl backImageUrl quantityInStock retailPrice category status createdAt extractedItemName extractedBrand extractedSize extractedExpiryDate productId"
+      )
+      .sort({ createdAt: -1 })
+      .lean();
 
     return NextResponse.json({ success: true, drafts });
   } catch (error: any) {

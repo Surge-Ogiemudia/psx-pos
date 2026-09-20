@@ -23,6 +23,7 @@ const ActivityLogSchema = new Schema(
         "product_create",
         "refund",
         "receive",
+        "duplicate_merge",
       ],
       required: true,
     },

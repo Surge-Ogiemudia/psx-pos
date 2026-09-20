@@ -322,6 +322,17 @@ export async function POST(request: NextRequest) {
             unitPrice = unitPriceFromProduct;
           }
 
+          // Catalog products can go live with no price yet (e.g. the AI stock-take fast
+          // lane — quantity is always known, price isn't). Unlike the custom-item path
+          // above, nothing here previously stopped that from ringing up as a free sale.
+          // Blocks whether the missing price came from the product record or a cashier
+          // manually typing 0 into the per-line price override.
+          if (unitPrice <= 0) {
+            throw new Error(
+              `${formatProductLabel(existingProduct)} has no price set — enter a price for it before selling (or fix it in the catalog).`
+            );
+          }
+
           const costTotal = round2(unitCost * baseQuantity);
           totalAmount += lineTotal;
           totalCost += costTotal;

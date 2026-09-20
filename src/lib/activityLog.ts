@@ -20,7 +20,8 @@ interface LogActivityInput {
     | "stock_adjustment"
     | "product_create"
     | "refund"
-    | "receive";
+    | "receive"
+    | "duplicate_merge";
   summary: string;
   metadata?: Record<string, unknown>;
   refCollection?: string;
