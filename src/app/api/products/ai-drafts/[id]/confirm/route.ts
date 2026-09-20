@@ -98,6 +98,46 @@ export async function POST(
 
     try {
       await dbSession.withTransaction(async () => {
+        // This draft may already have a live Product — the pre-open bulk-publish flow
+        // creates the catalog entry immediately (so it's sellable right away) but leaves
+        // the draft's status as "extracted" instead of "completed", specifically so it
+        // stays visible here for an operator to finish triaging later. In that case this
+        // confirm is an EDIT of the already-live product, not a second creation.
+        // quantityInStock/ProductBatch are deliberately left untouched here — by the time
+        // an operator gets to it, the product may already have live sales against it, so
+        // this path only ever touches identity/pricing fields, never stock.
+        const existingProduct = draft.productId
+          ? await Product.findOne({ _id: draft.productId, pharmacyId }, null, { session: dbSession })
+          : null;
+
+        if (existingProduct) {
+          product = await Product.findByIdAndUpdate(
+            existingProduct._id,
+            {
+              $set: {
+                itemName: itemName.trim(),
+                brand: brand?.trim() || "Unknown",
+                size: size?.trim() || "Standard",
+                category,
+                imageUrl: frontImageUrl || existingProduct.imageUrl,
+                retailPrice: Number(retailPrice) || 0,
+                wholesalePrice: Number(wholesalePrice) || 0,
+                distributorPrice: Number(distributorPrice) || 0,
+                expiryDate: parsedExpiry,
+                needsReviewReason,
+              },
+            },
+            { new: true, session: dbSession }
+          );
+
+          await AiDraftProduct.findByIdAndUpdate(
+            id,
+            { status: "completed", productId: product!._id },
+            { session: dbSession }
+          );
+          return;
+        }
+
         const created = await Product.create(
           [
             {

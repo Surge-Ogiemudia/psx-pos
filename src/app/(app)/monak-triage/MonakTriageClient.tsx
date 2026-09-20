@@ -16,6 +16,9 @@ interface AiDraft {
   extractedBrand?: string | null;
   extractedSize?: string | null;
   extractedExpiryDate?: string | null;
+  // Set once the pre-open bulk-publish flow has already created a live Product for this
+  // draft — status stays "extracted" so it's still shown here, but it's already sellable.
+  productId?: string | null;
 }
 
 interface Excel1Result {
@@ -73,6 +76,28 @@ const REASON_LABELS: Record<string, string> = {
   missing_expiry: "Missing Expiry",
   missing_price: "Missing Price",
 };
+
+// A live catalog Product that a duplicate scan flagged as possibly the same physical item as
+// one or more other live Products — feeds Panel 4's "Possible Duplicates" tab. frontImageUrl/
+// backImageUrl come from the originating AiDraftProduct(s) when one exists; imageUrl is the
+// product's own (always-present) fallback for pre-existing catalog entries with no draft.
+interface DuplicateProduct {
+  _id: string;
+  itemName: string;
+  brand: string;
+  size: string;
+  quantityInStock: number;
+  imageUrl: string | null;
+  frontImageUrl: string | null;
+  backImageUrl: string | null;
+  createdAt: string;
+}
+
+interface DuplicateGroup {
+  groupKey: string;
+  matchType: "exact" | "fuzzy";
+  products: DuplicateProduct[];
+}
 
 interface ProductForm {
   itemName: string;
@@ -178,6 +203,13 @@ export default function MonakTriageClient({ branchId }: Props) {
   // API call, no debounce needed.
   const [queueSearch, setQueueSearch] = useState("");
 
+  // Caps how many Live Queue rows actually mount into the DOM at once — with thousands
+  // of items in "All" view, rendering every row (2 images each) up front is what makes
+  // the screen sit blank for a few seconds even after the data has already arrived.
+  // "Load more" grows this in batches instead of paying for the whole list up front.
+  const RENDER_BATCH = 60;
+  const [renderLimit, setRenderLimit] = useState(RENDER_BATCH);
+
   // Which lane this operator/computer is working — "all" or 0/1/2. Persisted per browser
   // so each of the 3 computers keeps its assignment across reloads.
   const [viewFilter, setViewFilter] = useState<"all" | number>("all");
@@ -256,8 +288,21 @@ export default function MonakTriageClient({ branchId }: Props) {
   // Panel 4 — Processed Items (review log) state
   const [processedItems, setProcessedItems] = useState<ProcessedItem[]>([]);
   const [processedExpanded, setProcessedExpanded] = useState(false);
-  const [processedTab, setProcessedTab] = useState<"clean" | "flagged">("clean");
+  const [processedTab, setProcessedTab] = useState<"clean" | "flagged" | "duplicates">("clean");
   const [flaggedReasonFilter, setFlaggedReasonFilter] = useState<"all" | ReviewReason>("all");
+
+  // Panel 4 — "Possible Duplicates" tab state. Detected live from /api/products/duplicates
+  // (not lane-filtered, not cached client-side) whenever this tab is opened.
+  const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
+  const [duplicatesLoading, setDuplicatesLoading] = useState(false);
+  const [duplicatesError, setDuplicatesError] = useState("");
+  // The confirm step both duplicate actions require before anything is written — mirrors
+  // the mergeTarget confirm-view pattern used for Panel 2's catalog-duplicate merge.
+  const [dupConfirm, setDupConfirm] = useState<{ mode: "merge" | "dismiss"; group: DuplicateGroup } | null>(null);
+  const [dupKeptId, setDupKeptId] = useState("");
+  const [dupFinalQty, setDupFinalQty] = useState(0);
+  const [dupSubmitting, setDupSubmitting] = useState(false);
+  const [dupError, setDupError] = useState("");
 
   // Polling ref
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -304,6 +349,12 @@ export default function MonakTriageClient({ branchId }: Props) {
     };
   }, [fetchSnaps]);
 
+  // Switching lanes/AI-read filter/search/tab should start back at the top of the
+  // (now-shorter) list rather than staying scrolled deep into a stale render window.
+  useEffect(() => {
+    setRenderLimit(RENDER_BATCH);
+  }, [queueView, viewFilter, aiReadOnly, queueSearch]);
+
   // --------------- Fetch processed items (Panel 4 — review log, pharmacy/branch-wide) ---------------
   // Not lane-filtered — this is an audit log across every operator's work, same as the
   // existing Dismissed bucket. Fetched on mount (and lightly refreshed) so the collapsed
@@ -327,6 +378,30 @@ export default function MonakTriageClient({ branchId }: Props) {
     };
   }, [fetchProcessed]);
 
+  // --------------- Fetch possible-duplicate candidate groups (Panel 4, "Possible Duplicates" tab) ---------------
+  // Lazily scanned on demand (whenever this tab is open) rather than polled continuously —
+  // it's a whole-catalog scan, not a lightweight lookup, and nobody's watching it every 30s.
+  const fetchDuplicates = useCallback(async () => {
+    setDuplicatesLoading(true);
+    setDuplicatesError("");
+    try {
+      const res = await fetch(`/api/products/duplicates?branchId=${branchId}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to load duplicate candidates");
+      setDuplicateGroups(data.groups ?? []);
+    } catch (err) {
+      setDuplicatesError(err instanceof Error ? err.message : "Failed to load duplicate candidates");
+    } finally {
+      setDuplicatesLoading(false);
+    }
+  }, [branchId]);
+
+  useEffect(() => {
+    if (processedExpanded && processedTab === "duplicates") {
+      fetchDuplicates();
+    }
+  }, [processedExpanded, processedTab, fetchDuplicates]);
+
   // --------------- Bulk-confirm every AI-read item (emergency pre-open safety valve) ---------------
   async function handleBulkConfirm() {
     setBulkConfirming(true);
@@ -342,7 +417,7 @@ export default function MonakTriageClient({ branchId }: Props) {
       if (!res.ok) throw new Error(json.error ?? "Bulk confirm failed");
 
       setShowBulkConfirmModal(false);
-      setBulkConfirmSuccessMsg(`✅ ${json.count} item${json.count === 1 ? "" : "s"} confirmed into the catalog.`);
+      setBulkConfirmSuccessMsg(`✅ ${json.count} item${json.count === 1 ? "" : "s"} published — still here for review.`);
       fetchSnaps();
       fetchProcessed();
     } catch (err) {
@@ -381,10 +456,13 @@ export default function MonakTriageClient({ branchId }: Props) {
       return;
     }
     let cancelled = false;
-    fetch(`/api/products?search=${encodeURIComponent(debouncedP2)}&branchId=${branchId}`)
+    // Dedicated fuzzy-matching endpoint (see its own comment) — the shared /api/products
+    // search does a literal whole-string match and stopped catching duplicates once this
+    // search box started auto-filling from the longer AI-extracted item name.
+    fetch(`/api/monak-catalog-check?search=${encodeURIComponent(debouncedP2)}&branchId=${branchId}`)
       .then((r) => r.json())
       .then((d) => {
-        if (!cancelled) setCatalogMatches((d.products ?? []).slice(0, 5));
+        if (!cancelled) setCatalogMatches(d.products ?? []);
       })
       .catch(() => {});
     return () => {
@@ -485,6 +563,66 @@ export default function MonakTriageClient({ branchId }: Props) {
       setMergeError(err instanceof Error ? err.message : "Merge failed");
     } finally {
       setMerging(false);
+    }
+  }
+
+  // --------------- Open the confirm view for merging a possible-duplicate group into one product ---------------
+  function openDupMergeConfirm(group: DuplicateGroup) {
+    const kept = group.products.reduce(
+      (best, p) => (p.quantityInStock > best.quantityInStock ? p : best),
+      group.products[0]
+    );
+    setDupConfirm({ mode: "merge", group });
+    setDupKeptId(kept._id);
+    setDupFinalQty(group.products.reduce((sum, p) => sum + p.quantityInStock, 0));
+    setDupError("");
+  }
+
+  // --------------- Open the confirm view for dismissing a possible-duplicate group ---------------
+  function openDupDismissConfirm(group: DuplicateGroup) {
+    setDupConfirm({ mode: "dismiss", group });
+    setDupError("");
+  }
+
+  // --------------- Commit whichever action the duplicate-review confirm modal is showing ---------------
+  async function handleDupConfirmSubmit() {
+    if (!dupConfirm) return;
+    setDupSubmitting(true);
+    setDupError("");
+    try {
+      if (dupConfirm.mode === "merge") {
+        const mergedProductIds = dupConfirm.group.products
+          .map((p) => p._id)
+          .filter((id) => id !== dupKeptId);
+        const res = await fetch(`/api/products/duplicates/merge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            branchId,
+            keptProductId: dupKeptId,
+            mergedProductIds,
+            finalQuantity: dupFinalQty,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error ?? "Merge failed");
+      } else {
+        const res = await fetch(`/api/products/duplicates/dismiss`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ branchId, productIds: dupConfirm.group.products.map((p) => p._id) }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error ?? "Failed to dismiss");
+      }
+
+      const finishedKey = dupConfirm.group.groupKey;
+      setDuplicateGroups((prev) => prev.filter((g) => g.groupKey !== finishedKey));
+      setDupConfirm(null);
+    } catch (err) {
+      setDupError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setDupSubmitting(false);
     }
   }
 
@@ -810,9 +948,12 @@ export default function MonakTriageClient({ branchId }: Props) {
   const visibleSnaps = aiReadOnly ? laneFilteredSnaps.filter((s) => s.status === "extracted") : laneFilteredSnaps;
   const visibleSkipped = viewFilter === "all" ? skippedSnaps : skippedSnaps.filter((s) => laneOf(s._id) === viewFilter);
   const aiReadCount = laneFilteredSnaps.filter((s) => s.status === "extracted").length;
-  // Branch-wide (not lane-filtered) — feeds the bulk-confirm safety valve, a global
-  // one-time action rather than per-operator lane work.
-  const totalAiReadCount = snaps.filter((s) => s.status === "extracted").length;
+  // Branch-wide (not lane-filtered) — feeds the bulk-publish safety valve, a global
+  // one-time action rather than per-operator lane work. Excludes anything already
+  // published (productId set) so the banner's count — and the action itself — only ever
+  // covers items that genuinely aren't live yet, not a re-publish of the whole queue.
+  const totalAiReadCount = snaps.filter((s) => s.status === "extracted" && !s.productId).length;
+  const publishedCount = snaps.filter((s) => s.status === "extracted" && !!s.productId).length;
 
   // One more filter layer on top of whichever list is already "final" for the current
   // queueView — composes with the lane/AI-read filters above rather than replacing them.
@@ -826,6 +967,9 @@ export default function MonakTriageClient({ branchId }: Props) {
   const searchFilteredDismissed = trimmedQueueSearch
     ? dismissedSnaps.filter((s) => matchesQueueSearch(s, trimmedQueueSearch))
     : dismissedSnaps;
+
+  const renderedSnaps = searchFilteredSnaps.slice(0, renderLimit);
+  const hasMoreSnaps = searchFilteredSnaps.length > renderLimit;
 
   // Panel 4 lists — pharmacy/branch-wide, deliberately not lane-filtered (see fetchProcessed).
   const cleanProcessedItems = processedItems.filter((i) => !i.needsReviewReason || i.needsReviewReason.length === 0);
@@ -881,6 +1025,11 @@ export default function MonakTriageClient({ branchId }: Props) {
                   🤖 {aiReadCount} AI-read
                 </span>
               )}
+              {queueView === "active" && publishedCount > 0 && (
+                <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-medium">
+                  🟢 {publishedCount} live in POS
+                </span>
+              )}
               {queueView === "active" && (
                 <span className="text-xs bg-zinc-200 text-zinc-600 rounded-full px-2 py-0.5 font-normal">
                   {visibleSnaps.length + visibleSkipped.length} pending
@@ -897,7 +1046,7 @@ export default function MonakTriageClient({ branchId }: Props) {
                 }}
                 className="w-full py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
               >
-                🚨 Bulk Confirm All AI-Read Items ({totalAiReadCount})
+                📤 Publish All AI-Read Items to POS ({totalAiReadCount})
               </button>
               {bulkConfirmSuccessMsg && (
                 <p className="text-xs text-green-700 font-medium py-1.5">{bulkConfirmSuccessMsg}</p>
@@ -1033,7 +1182,7 @@ export default function MonakTriageClient({ branchId }: Props) {
                       : "No matches for your search."}
                   </div>
                 )}
-                {searchFilteredSnaps.map((snap, idx) => {
+                {renderedSnaps.map((snap, idx) => {
                   const isSelected = selectedSnap?._id === snap._id;
                   const isPriority = idx < 4;
                   return (
@@ -1076,6 +1225,11 @@ export default function MonakTriageClient({ branchId }: Props) {
                               🤖 AI read: {snap.extractedItemName}
                             </span>
                           )}
+                          {snap.productId && (
+                            <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-medium w-fit mt-0.5">
+                              🟢 Already live in POS — this just edits it
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex gap-2">
@@ -1095,6 +1249,14 @@ export default function MonakTriageClient({ branchId }: Props) {
                     </div>
                   );
                 })}
+                {hasMoreSnaps && (
+                  <button
+                    onClick={() => setRenderLimit((n) => n + RENDER_BATCH)}
+                    className="py-2 text-xs font-semibold rounded-lg border border-zinc-300 text-zinc-600 hover:bg-zinc-50"
+                  >
+                    Load {Math.min(RENDER_BATCH, searchFilteredSnaps.length - renderLimit)} more ({searchFilteredSnaps.length - renderLimit} left)
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -1476,6 +1638,14 @@ export default function MonakTriageClient({ branchId }: Props) {
               >
                 🚩 Flagged ({flaggedProcessedItems.length})
               </button>
+              <button
+                onClick={() => setProcessedTab("duplicates")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  processedTab === "duplicates" ? "bg-purple-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                }`}
+              >
+                🧬 Possible Duplicates ({duplicateGroups.length})
+              </button>
             </div>
 
             {processedTab === "flagged" && (
@@ -1498,49 +1668,133 @@ export default function MonakTriageClient({ branchId }: Props) {
               </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-              {visibleProcessedItems.length === 0 && (
-                <div className="col-span-full text-zinc-400 text-sm text-center py-6">
-                  {processedTab === "clean" ? "No clean processed items yet." : "No flagged items match this filter."}
-                </div>
-              )}
-              {visibleProcessedItems.map((item) => (
-                <button
-                  key={item._id}
-                  type="button"
-                  onClick={() => editProcessedItem(item)}
-                  title="Reopen this item in Panel 2/3 to fix it"
-                  className={`flex flex-col gap-1.5 rounded-lg border bg-white p-2 text-left hover:border-blue-300 hover:bg-blue-50 transition-colors ${
-                    editingProduct?._id === item._id ? "border-blue-500 bg-blue-50 shadow-md" : "border-zinc-200"
-                  }`}
-                >
-                  <ResilientThumb
-                    src={item.imageUrl}
-                    alt={item.itemName}
-                    className="h-16 w-16 mx-auto"
-                    size={64}
-                  />
-                  <div className="text-xs font-medium text-zinc-800 leading-tight truncate" title={item.itemName}>
-                    {item.itemName}
+            {processedTab === "duplicates" ? (
+              <div className="flex flex-col gap-3">
+                {duplicatesLoading && (
+                  <div className="text-zinc-400 text-sm text-center py-6">Scanning catalog for duplicates…</div>
+                )}
+                {duplicatesError && (
+                  <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
+                    ⚠️ {duplicatesError}
                   </div>
-                  <div className="text-[11px] text-zinc-500 truncate">
-                    {item.brand} · {item.size}
-                  </div>
-                  {item.needsReviewReason.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {item.needsReviewReason.map((reason) => (
-                        <span
-                          key={reason}
-                          className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700"
+                )}
+                {!duplicatesLoading && !duplicatesError && duplicateGroups.length === 0 && (
+                  <div className="text-zinc-400 text-sm text-center py-6">No possible duplicates found.</div>
+                )}
+                {duplicateGroups.map((group) => (
+                  <div
+                    key={group.groupKey}
+                    className="rounded-lg border border-purple-200 bg-purple-50/40 p-3 flex flex-col gap-3"
+                  >
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                          group.matchType === "exact" ? "bg-purple-700 text-white" : "bg-purple-100 text-purple-700"
+                        }`}
+                      >
+                        {group.matchType === "exact" ? "Exact name match" : "Likely match"} · {group.products.length} copies
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openDupDismissConfirm(group)}
+                          className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-zinc-300 text-zinc-600 hover:bg-zinc-100"
                         >
-                          {REASON_LABELS[reason] ?? reason}
-                        </span>
+                          Not a duplicate
+                        </button>
+                        <button
+                          onClick={() => openDupMergeConfirm(group)}
+                          className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-purple-600 text-white hover:bg-purple-700"
+                        >
+                          Merge
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      {group.products.map((p) => (
+                        <div key={p._id} className="flex flex-col items-center gap-1 w-28">
+                          <div className="flex gap-1">
+                            {p.frontImageUrl || p.backImageUrl ? (
+                              <>
+                                <ResilientThumb
+                                  src={p.frontImageUrl}
+                                  alt={`${p.itemName} front`}
+                                  label="Front"
+                                  className="h-14 w-14"
+                                  size={64}
+                                />
+                                <ResilientThumb
+                                  src={p.backImageUrl}
+                                  alt={`${p.itemName} back`}
+                                  label="Back"
+                                  className="h-14 w-14"
+                                  size={64}
+                                />
+                              </>
+                            ) : (
+                              <ResilientThumb src={p.imageUrl} alt={p.itemName} className="h-14 w-14" size={64} />
+                            )}
+                          </div>
+                          <div
+                            className="text-[11px] font-medium text-zinc-800 text-center leading-tight truncate w-full"
+                            title={p.itemName}
+                          >
+                            {p.itemName}
+                          </div>
+                          <div className="text-[10px] text-zinc-500 truncate w-full text-center">
+                            {p.brand} · {p.size}
+                          </div>
+                          <div className="text-[10px] text-zinc-600 font-semibold">Qty: {p.quantityInStock}</div>
+                        </div>
                       ))}
                     </div>
-                  )}
-                </button>
-              ))}
-            </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                {visibleProcessedItems.length === 0 && (
+                  <div className="col-span-full text-zinc-400 text-sm text-center py-6">
+                    {processedTab === "clean" ? "No clean processed items yet." : "No flagged items match this filter."}
+                  </div>
+                )}
+                {visibleProcessedItems.map((item) => (
+                  <button
+                    key={item._id}
+                    type="button"
+                    onClick={() => editProcessedItem(item)}
+                    title="Reopen this item in Panel 2/3 to fix it"
+                    className={`flex flex-col gap-1.5 rounded-lg border bg-white p-2 text-left hover:border-blue-300 hover:bg-blue-50 transition-colors ${
+                      editingProduct?._id === item._id ? "border-blue-500 bg-blue-50 shadow-md" : "border-zinc-200"
+                    }`}
+                  >
+                    <ResilientThumb
+                      src={item.imageUrl}
+                      alt={item.itemName}
+                      className="h-16 w-16 mx-auto"
+                      size={64}
+                    />
+                    <div className="text-xs font-medium text-zinc-800 leading-tight truncate" title={item.itemName}>
+                      {item.itemName}
+                    </div>
+                    <div className="text-[11px] text-zinc-500 truncate">
+                      {item.brand} · {item.size}
+                    </div>
+                    {item.needsReviewReason.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {item.needsReviewReason.map((reason) => (
+                          <span
+                            key={reason}
+                            className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700"
+                          >
+                            {REASON_LABELS[reason] ?? reason}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1817,25 +2071,176 @@ export default function MonakTriageClient({ branchId }: Props) {
       )}
 
       {/* ================================================================ */}
+      {/* DUPLICATE REVIEW CONFIRM MODAL — merge N live-catalog copies into  */}
+      {/* one, or dismiss a group as not-actually-duplicates. Nothing here   */}
+      {/* is written until this explicit confirm step, same as the merge     */}
+      {/* modal above.                                                       */}
+      {/* ================================================================ */}
+      {dupConfirm && (
+        <div className="fixed inset-0 z-[66] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
+            <div
+              className={`px-5 py-4 border-b flex items-center justify-between ${
+                dupConfirm.mode === "merge" ? "bg-purple-50 border-purple-200" : "bg-zinc-50 border-zinc-200"
+              }`}
+            >
+              <h2 className={`font-bold text-lg ${dupConfirm.mode === "merge" ? "text-purple-900" : "text-zinc-800"}`}>
+                {dupConfirm.mode === "merge"
+                  ? `⚠️ Merge ${dupConfirm.group.products.length} listings into one?`
+                  : "Confirm: these are different products"}
+              </h2>
+              <button
+                onClick={() => setDupConfirm(null)}
+                className="text-zinc-400 hover:text-zinc-700 text-xl font-bold leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-5 flex flex-col gap-5">
+              <p className="text-sm text-zinc-600">
+                {dupConfirm.mode === "merge"
+                  ? "Pick which listing to keep. The others will be deleted and their batch/expiry history moved onto the kept listing — this cannot be undone from here."
+                  : "This marks the whole group as not duplicates so it stops showing up in this review list."}
+              </p>
+
+              <div className="flex flex-wrap gap-3">
+                {dupConfirm.group.products.map((p) => (
+                  <label
+                    key={p._id}
+                    onClick={() => dupConfirm.mode === "merge" && setDupKeptId(p._id)}
+                    className={`flex flex-col items-center gap-1.5 w-32 rounded-lg border p-2 ${
+                      dupConfirm.mode === "merge" ? "cursor-pointer" : "cursor-default"
+                    } ${
+                      dupConfirm.mode === "merge" && dupKeptId === p._id
+                        ? "border-purple-500 bg-purple-50 shadow-md"
+                        : "border-zinc-200"
+                    }`}
+                  >
+                    {dupConfirm.mode === "merge" && (
+                      <input
+                        type="radio"
+                        name="dupKeptId"
+                        checked={dupKeptId === p._id}
+                        onChange={() => setDupKeptId(p._id)}
+                        className="accent-purple-600"
+                      />
+                    )}
+                    <div className="flex gap-1">
+                      {p.frontImageUrl || p.backImageUrl ? (
+                        <>
+                          <ResilientThumb
+                            src={p.frontImageUrl}
+                            alt={`${p.itemName} front`}
+                            label="Front"
+                            className="h-16 w-16"
+                            size={128}
+                          />
+                          <ResilientThumb
+                            src={p.backImageUrl}
+                            alt={`${p.itemName} back`}
+                            label="Back"
+                            className="h-16 w-16"
+                            size={128}
+                          />
+                        </>
+                      ) : (
+                        <ResilientThumb src={p.imageUrl} alt={p.itemName} className="h-16 w-16" size={128} />
+                      )}
+                    </div>
+                    <div
+                      className="text-[11px] font-medium text-zinc-800 text-center leading-tight truncate w-full"
+                      title={p.itemName}
+                    >
+                      {p.itemName}
+                    </div>
+                    <div className="text-[10px] text-zinc-500 truncate w-full text-center">
+                      {p.brand} · {p.size}
+                    </div>
+                    <div className="text-[10px] text-zinc-600 font-semibold">Qty: {p.quantityInStock}</div>
+                    {dupConfirm.mode === "merge" && dupKeptId === p._id && (
+                      <span className="text-[9px] font-bold text-purple-700 uppercase">Keep this one</span>
+                    )}
+                  </label>
+                ))}
+              </div>
+
+              {dupConfirm.mode === "merge" && (
+                <div>
+                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                    Final Quantity In Stock
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={dupFinalQty}
+                    onChange={(e) => setDupFinalQty(Math.max(0, Number(e.target.value)))}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                  <p className="mt-1 text-[11px] text-zinc-400">
+                    Defaults to the sum of all copies&apos; stock (
+                    {dupConfirm.group.products.reduce((s, p) => s + p.quantityInStock, 0)}) — adjust if the real
+                    count differs.
+                  </p>
+                </div>
+              )}
+
+              {dupError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
+                  ⚠️ {dupError}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-4 border-t border-zinc-200 flex gap-3">
+              <button
+                onClick={() => setDupConfirm(null)}
+                disabled={dupSubmitting}
+                className="flex-1 py-2.5 rounded-xl border border-zinc-300 text-zinc-700 font-semibold text-sm hover:bg-zinc-50 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDupConfirmSubmit}
+                disabled={dupSubmitting || (dupConfirm.mode === "merge" && !dupKeptId)}
+                className={`flex-1 py-2.5 rounded-xl text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
+                  dupConfirm.mode === "merge" ? "bg-purple-600 hover:bg-purple-700" : "bg-zinc-700 hover:bg-zinc-800"
+                }`}
+              >
+                {dupSubmitting
+                  ? "Working…"
+                  : dupConfirm.mode === "merge"
+                  ? `✅ Merge into ${dupFinalQty} in stock`
+                  : "✅ Confirm, not duplicates"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
       {/* BULK CONFIRM MODAL — emergency pre-open safety valve              */}
       {/* ================================================================ */}
       {showBulkConfirmModal && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden">
             <div className="bg-red-50 px-5 py-4 border-b border-red-200">
-              <h2 className="font-bold text-red-900 text-lg">🚨 Bulk Confirm {totalAiReadCount} Items</h2>
+              <h2 className="font-bold text-red-900 text-lg">📤 Publish {totalAiReadCount} Items to POS</h2>
             </div>
             <div className="p-5 flex flex-col gap-3">
               <p className="text-sm text-zinc-700">
                 This will immediately create <strong>{totalAiReadCount}</strong> products in the live catalog
-                from every AI-read item, using the quantity already counted.
+                from every AI-read item, using the quantity already counted. They&apos;ll <strong>stay in this
+                queue</strong> too, so operators can keep fixing names/brands, matching real prices, and
+                resolving duplicates — triaging one just updates the same live product, it won&apos;t create
+                a second one.
               </p>
               <p className="text-sm text-zinc-700">
-                <strong>Price will be missing on most or all of them</strong> until reviewed later via the
-                Catalog page&apos;s &quot;Needs Review&quot; filter — this does not block them from being sold,
-                but a cashier could ring one up at ₦0 if they don&apos;t notice and set the price at sale time.
+                <strong>Price will be missing on most or all of them</strong> until reviewed — checkout now
+                refuses to sell anything still at ₦0, so nothing rings up for free by accident, but it does
+                mean those items can&apos;t be sold until a real price is set.
               </p>
-              <p className="text-sm text-zinc-600 font-medium">This cannot be easily undone. Continue?</p>
+              <p className="text-sm text-zinc-600 font-medium">Continue?</p>
               {bulkConfirmError && (
                 <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
                   ⚠️ {bulkConfirmError}

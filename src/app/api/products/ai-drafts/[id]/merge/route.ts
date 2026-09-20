@@ -71,44 +71,85 @@ export async function POST(
     const parsedExpiry = parseExpiryDate(expiryDate);
     const parsedQty = Number(quantity);
 
+    // This draft may already have its OWN live product (the pre-open bulk-publish flow
+    // creates one immediately, then leaves the draft visible for an operator to finish
+    // triaging). If the operator now merges it into a DIFFERENT existing product, the
+    // already-published one can't just be left behind — that's exactly the duplicate
+    // leak this whole merge feature exists to prevent. Retire it into the target instead
+    // of adding a fresh batch: reassign its batch history, fold in its actual CURRENT
+    // quantityInStock (not the operator-typed `quantity`, since live sales may already
+    // have moved it since publish), then delete it.
+    const alreadyPublishedProduct =
+      draft.productId && String(draft.productId) !== String(existingProduct._id)
+        ? await Product.findOne({ _id: draft.productId, pharmacyId }).lean()
+        : null;
+
     const dbSession = await mongoose.startSession();
 
     try {
       await dbSession.withTransaction(async () => {
-        await ProductBatch.create(
-          [
-            {
-              pharmacyId,
-              branchId,
-              productId: existingProduct._id,
-              quantity: parsedQty,
-              remainingQuantity: parsedQty,
-              batchNumber: "",
-              expiryDate: parsedExpiry,
-              receivedByUserId: session.user.id,
-              receivedAt: new Date(),
-            },
-          ],
-          { session: dbSession }
-        );
+        if (alreadyPublishedProduct) {
+          await ProductBatch.updateMany(
+            { productId: alreadyPublishedProduct._id },
+            { $set: { productId: existingProduct._id } },
+            { session: dbSession }
+          );
 
-        await Product.findByIdAndUpdate(
-          existingProduct._id,
-          { $inc: { quantityInStock: parsedQty } },
-          { session: dbSession }
-        );
+          await Product.findByIdAndUpdate(
+            existingProduct._id,
+            { $inc: { quantityInStock: alreadyPublishedProduct.quantityInStock } },
+            { session: dbSession }
+          );
 
-        await logActivity(dbSession, {
-          pharmacyId,
-          scope: "branch",
-          branchId,
-          actorUserId: session.user.id,
-          actorName: session.user.name ?? "Unknown",
-          action: "receive",
-          summary: `Fast Mobile Entry (Triage): Added ${parsedQty} more units of ${formatProductLabel(existingProduct)} found on another shelf`,
-          refCollection: "Product",
-          refId: existingProduct._id,
-        });
+          await Product.findByIdAndDelete(alreadyPublishedProduct._id, { session: dbSession });
+
+          await logActivity(dbSession, {
+            pharmacyId,
+            scope: "branch",
+            branchId,
+            actorUserId: session.user.id,
+            actorName: session.user.name ?? "Unknown",
+            action: "duplicate_merge",
+            summary: `Fast Mobile Entry (Triage): Merged already-published duplicate ${formatProductLabel(alreadyPublishedProduct)} (${alreadyPublishedProduct.quantityInStock} units) into ${formatProductLabel(existingProduct)}`,
+            refCollection: "Product",
+            refId: existingProduct._id,
+          });
+        } else {
+          await ProductBatch.create(
+            [
+              {
+                pharmacyId,
+                branchId,
+                productId: existingProduct._id,
+                quantity: parsedQty,
+                remainingQuantity: parsedQty,
+                batchNumber: "",
+                expiryDate: parsedExpiry,
+                receivedByUserId: session.user.id,
+                receivedAt: new Date(),
+              },
+            ],
+            { session: dbSession }
+          );
+
+          await Product.findByIdAndUpdate(
+            existingProduct._id,
+            { $inc: { quantityInStock: parsedQty } },
+            { session: dbSession }
+          );
+
+          await logActivity(dbSession, {
+            pharmacyId,
+            scope: "branch",
+            branchId,
+            actorUserId: session.user.id,
+            actorName: session.user.name ?? "Unknown",
+            action: "receive",
+            summary: `Fast Mobile Entry (Triage): Added ${parsedQty} more units of ${formatProductLabel(existingProduct)} found on another shelf`,
+            refCollection: "Product",
+            refId: existingProduct._id,
+          });
+        }
 
         await AiDraftProduct.findByIdAndUpdate(
           id,
