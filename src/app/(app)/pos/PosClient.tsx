@@ -748,6 +748,17 @@ export default function PosClient({
       if (product.quantityInStock < 1) return prev;
       return [...prev, { kind: "catalog", key: product._id, product, form: baseUnitName(product), quantity: 1 }];
     });
+    flashCartLine(product._id);
+  }
+
+  // Cart sits sticky alongside the catalog now (see the grid wrapper below), so a click
+  // doesn't need to jump the page — but a quiet position change alone is easy to miss.
+  // This briefly highlights the exact line that changed so it's unmistakable that the
+  // click actually landed, even for someone not looking at the cart at that instant.
+  const [flashKey, setFlashKey] = useState<string | null>(null);
+  function flashCartLine(key: string) {
+    setFlashKey(key);
+    window.setTimeout(() => setFlashKey((k) => (k === key ? null : k)), 1200);
   }
 
   function updateLine(key: string, changes: Partial<CartLine>) {
@@ -820,11 +831,12 @@ export default function PosClient({
     }
     if (!Number.isFinite(price) || price <= 0) return setCustomError("Price must be greater than 0.");
 
+    const newKey = `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setCart((prev) => [
       ...prev,
       {
         kind: "custom",
-        key: `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        key: newKey,
         itemName,
         brand,
         size,
@@ -837,6 +849,7 @@ export default function PosClient({
     setCustomForm({ itemName: "", brand: "", size: "", category: "supermarket", price: "", quantity: "1" });
     setCustomMatches([]);
     setCustomMode(false);
+    flashCartLine(newKey);
     scrollToCart();
   }
 
@@ -1103,7 +1116,7 @@ export default function PosClient({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
       {effectiveSaleMode === "wholesale" && (
         <div className="lg:col-span-3 rounded-xl border-2 border-amber-400 bg-amber-100 px-4 py-2.5 flex items-center justify-between">
           <span className="text-sm font-bold text-amber-900">📦 WHOLESALE MODE — every sale on this screen charges wholesale price</span>
@@ -1435,7 +1448,7 @@ export default function PosClient({
 
       <div
         ref={cartSectionRef}
-        className="scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm"
+        className="scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto"
       >
         {heldSales.length > 0 && (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
@@ -1539,7 +1552,12 @@ export default function PosClient({
             {cart.map((line) => {
               if (line.kind === "custom") {
                 return (
-                  <div key={line.key} className="border-b-2 border-stone-200 pb-3 last:border-0">
+                  <div
+                    key={line.key}
+                    className={`border-b-2 border-stone-200 pb-3 last:border-0 rounded-lg transition-colors duration-700 ${
+                      flashKey === line.key ? "bg-emerald-100" : "bg-transparent"
+                    }`}
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex flex-col">
                         <span className="text-sm font-extrabold uppercase tracking-tight text-zinc-900">
@@ -1634,7 +1652,12 @@ export default function PosClient({
               const maxQty = Math.max(1, Math.floor(line.product.quantityInStock / perForm));
               const priceForForm = line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode) * perForm;
               return (
-                <div key={line.key} className="border-b-2 border-stone-200 pb-3 last:border-0">
+                <div
+                  key={line.key}
+                  className={`border-b-2 border-stone-200 pb-3 last:border-0 rounded-lg transition-colors duration-700 ${
+                    flashKey === line.key ? "bg-emerald-100" : "bg-transparent"
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
