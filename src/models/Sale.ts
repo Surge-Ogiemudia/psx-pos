@@ -30,7 +30,13 @@ const SaleItemSchema = new Schema(
     form: { type: String, default: null },
     formQuantity: { type: Number, default: null },
     priceTierUsed: { type: String, enum: ["retail", "wholesale", "distributor", "custom"], required: true },
+    // unitPrice/lineTotal are always the FINAL, post-discount figures — what stock/revenue
+    // calculations elsewhere already assume. originalUnitPrice (pre-discount) is kept
+    // alongside purely so a discounted line can be shown clearly on the receipt and in
+    // reports ("was ₦X, -15%, now ₦Y") rather than the discount being invisible once applied.
     unitPrice: { type: Number, required: true, min: 0 },
+    originalUnitPrice: { type: Number, default: null },
+    discountPercent: { type: Number, default: 0, min: 0, max: 100 },
     lineTotal: { type: Number, required: true, min: 0 },
     unitCost: { type: Number, required: true, default: 0, min: 0 },
     costTotal: { type: Number, required: true, default: 0, min: 0 },

@@ -12,7 +12,16 @@ import { POS_SALE_MODE_KEY, type PosSaleMode } from "@/lib/posSaleMode";
 import { fuzzyRank } from "@/lib/fuzzyMatch";
 
 type CartLine =
-  | { kind: "catalog"; key: string; product: ProductJSON; form: string; quantity: number; instruction?: string; customPrice?: number }
+  | {
+      kind: "catalog";
+      key: string;
+      product: ProductJSON;
+      form: string;
+      quantity: number;
+      instruction?: string;
+      customPrice?: number;
+      discountPercent?: number;
+    }
   | {
       kind: "custom";
       key: string;
@@ -24,7 +33,18 @@ type CartLine =
       unitCost: number;
       quantity: number;
       instruction?: string;
+      discountPercent?: number;
     };
+
+// Never more than 25% off without an admin actually logged into this terminal — the
+// admin-approval gate for a larger discount reuses the real login/role check rather than
+// a new PIN system, same trust model as the wholesale-mode lock elsewhere on this screen.
+const DISCOUNT_APPROVAL_THRESHOLD = 25;
+
+function discountedUnitPrice(basePrice: number, discountPercent: number | undefined): number {
+  if (!discountPercent) return basePrice;
+  return basePrice * (1 - discountPercent / 100);
+}
 
 function baseUnitName(product: ProductJSON): string {
   const h = product.unitHierarchy;
@@ -85,9 +105,13 @@ function unitPriceFor(product: ProductJSON, mode: PosSaleMode): number {
 }
 
 function lineAmount(line: CartLine, mode: PosSaleMode): number {
-  return line.kind === "catalog"
-    ? (line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, mode) * piecesPerForm(line.product, line.form)) * line.quantity
-    : line.unitPrice * line.quantity;
+  const base =
+    line.kind === "catalog"
+      ? line.customPrice !== undefined
+        ? line.customPrice
+        : unitPriceFor(line.product, mode) * piecesPerForm(line.product, line.form)
+      : line.unitPrice;
+  return discountedUnitPrice(base, line.discountPercent) * line.quantity;
 }
 
 function lineCost(line: CartLine): number {
@@ -96,21 +120,100 @@ function lineCost(line: CartLine): number {
     : (line.unitCost || 0) * line.quantity;
 }
 
-export default function PosClient({ 
-  branchId, 
-  pharmacyId, 
-  pharmacyName, 
-  branchName, 
-  branchAddress, 
-  staffName 
-}: { 
-  branchId: string | null; 
-  pharmacyId: string; 
-  pharmacyName?: string; 
-  branchName?: string; 
-  branchAddress?: string; 
-  staffName?: string; 
+// Per-line discount control — a red % stepper that sits beside a price field, plus the
+// resulting discounted price shown underneath in red once a discount is set. Reused for
+// catalog items (with and without a unit hierarchy) and custom items alike. Enforces the
+// >25% admin-approval rule right here at the input level, not just on submit, so staff
+// get immediate feedback instead of a rejected sale later.
+function DiscountControl({
+  basePrice,
+  value,
+  onChange,
+  isAdminSession,
+}: {
+  basePrice: number;
+  value: number | undefined;
+  onChange: (percent: number | undefined) => void;
+  isAdminSession: boolean;
 }) {
+  const [blocked, setBlocked] = useState(false);
+
+  function apply(next: number) {
+    const clamped = Math.max(0, Math.min(100, Math.round(next)));
+    if (clamped > DISCOUNT_APPROVAL_THRESHOLD && !isAdminSession) {
+      onChange(DISCOUNT_APPROVAL_THRESHOLD);
+      setBlocked(true);
+      return;
+    }
+    setBlocked(false);
+    onChange(clamped === 0 ? undefined : clamped);
+  }
+
+  return (
+    <div className="flex flex-col items-start">
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => apply((value ?? 0) - 1)}
+          className="flex h-6 w-6 items-center justify-center rounded border border-red-300 text-sm font-bold text-red-700 hover:bg-red-50"
+        >
+          −
+        </button>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={value ?? ""}
+          placeholder="0"
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => {
+            const raw = e.target.value.trim();
+            if (raw === "") {
+              onChange(undefined);
+              setBlocked(false);
+              return;
+            }
+            const val = parseNumeric(raw);
+            if (!Number.isNaN(val)) apply(val);
+          }}
+          className="w-10 rounded border border-red-300 px-1 py-0.5 text-center text-xs font-semibold text-red-700 focus:border-red-600 focus:outline-none focus:ring-1 focus:ring-red-600"
+        />
+        <span className="text-xs font-bold text-red-600">%</span>
+        <button
+          type="button"
+          onClick={() => apply((value ?? 0) + 1)}
+          className="flex h-6 w-6 items-center justify-center rounded border border-red-300 text-sm font-bold text-red-700 hover:bg-red-50"
+        >
+          +
+        </button>
+      </div>
+      <span className="mt-0.5 text-[10px] font-semibold text-red-500">Discount</span>
+      {blocked && (
+        <span className="mt-0.5 max-w-[8rem] text-[10px] leading-tight text-red-500">
+          Over 25% needs an admin logged in on this terminal.
+        </span>
+      )}
+    </div>
+  );
+}
+
+export default function PosClient({
+  branchId,
+  pharmacyId,
+  pharmacyName,
+  branchName,
+  branchAddress,
+  staffName,
+  userRole,
+}: {
+  branchId: string | null;
+  pharmacyId: string;
+  pharmacyName?: string;
+  branchName?: string;
+  branchAddress?: string;
+  staffName?: string;
+  userRole?: string;
+}) {
+  const isAdminSession = userRole === "admin";
   const { isOnline, syncStatus, lastSyncedAt, pendingSales, syncPendingSales } = usePosOfflineSync(branchId);
 
   // Asked once per login (sessionStorage — cleared on sign-out, see clearPosSaleMode),
@@ -803,6 +906,7 @@ export default function PosClient({
             form: line.product.unitHierarchy?.length ? line.form : undefined,
             priceTier: effectiveSaleMode,
             unitPrice: line.customPrice,
+            discountPercent: line.discountPercent,
           }
         : {
             custom: true,
@@ -813,6 +917,7 @@ export default function PosClient({
             quantity: line.quantity,
             unitPrice: line.unitPrice,
             unitCost: line.unitCost,
+            discountPercent: line.discountPercent,
           }
     );
 
@@ -1472,10 +1577,23 @@ export default function PosClient({
                         />
                         <span className="text-sm text-zinc-600">each</span>
                       </div>
+                      <DiscountControl
+                        basePrice={line.unitPrice}
+                        value={line.discountPercent}
+                        onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
+                        isAdminSession={isAdminSession}
+                      />
                     </div>
-                    <div className="mt-1 text-right text-sm text-zinc-600">
-                      ₦{(line.unitPrice * line.quantity).toFixed(2)}
-                    </div>
+                    {line.discountPercent ? (
+                      <div className="mt-1 text-right text-sm">
+                        <span className="text-zinc-400 line-through mr-1">₦{(line.unitPrice * line.quantity).toFixed(2)}</span>
+                        <span className="font-bold text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-right text-sm text-zinc-600">
+                        ₦{(line.unitPrice * line.quantity).toFixed(2)}
+                      </div>
+                    )}
                   </div>
                 );
               }
@@ -1588,6 +1706,12 @@ export default function PosClient({
                           className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
                         />
                         <span className="text-sm text-zinc-600">each</span>
+                        <DiscountControl
+                          basePrice={line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode)}
+                          value={line.discountPercent}
+                          onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
+                          isAdminSession={isAdminSession}
+                        />
                       </div>
                     )}
                   </div>
@@ -1618,12 +1742,29 @@ export default function PosClient({
                         className="w-16 rounded border border-zinc-200 px-1 py-0.5 text-xs text-zinc-700 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
                       />
                       <span>per {line.form}</span>
+                      <DiscountControl
+                        basePrice={priceForForm}
+                        value={line.discountPercent}
+                        onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
+                        isAdminSession={isAdminSession}
+                      />
                     </div>
                   )}
                   <div className="mt-1 text-right text-sm text-zinc-600">
-                    ₦{(priceForForm * line.quantity).toFixed(2)}
-                    {effectiveSaleMode === "wholesale" && line.customPrice === undefined && (
-                      <span className="ml-1 text-xs text-amber-700">(wholesale)</span>
+                    {line.discountPercent ? (
+                      <>
+                        <span className="text-zinc-400 line-through mr-1">₦{(priceForForm * line.quantity).toFixed(2)}</span>
+                        <span className="font-bold text-red-600">
+                          ₦{(discountedUnitPrice(priceForForm, line.discountPercent) * line.quantity).toFixed(2)}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        ₦{(priceForForm * line.quantity).toFixed(2)}
+                        {effectiveSaleMode === "wholesale" && line.customPrice === undefined && (
+                          <span className="ml-1 text-xs text-amber-700">(wholesale)</span>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -1710,7 +1851,11 @@ export default function PosClient({
                 </div>
               )}
 
-              {/* Optional EMR Clinical Condition/Complaint */}
+              {/* Optional EMR Clinical Condition/Complaint — not relevant for a wholesale
+                  buyer, so this whole card (and the customer-linking fields inside it)
+                  is skipped in wholesale mode rather than left showing an empty patient
+                  workflow for what's actually a business sale. */}
+              {effectiveSaleMode !== "wholesale" && (
               <div className="mt-4 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-xs font-bold uppercase tracking-wider text-teal-900 flex items-center gap-1.5">
@@ -1775,6 +1920,7 @@ export default function PosClient({
                   </div>
                 )}
               </div>
+              )}
 
               <button
                 onClick={openConfirmModal}
@@ -1846,20 +1992,33 @@ export default function PosClient({
                 <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100 overflow-hidden">
                   {cart.map((line) => {
                     if (line.kind === "custom") {
-                      const itemTotal = line.unitPrice * line.quantity;
+                      const rawTotal = line.unitPrice * line.quantity;
+                      const itemTotal = discountedUnitPrice(line.unitPrice, line.discountPercent) * line.quantity;
                       return (
                         <div key={line.key} className="p-3 bg-white flex items-center justify-between gap-4">
                           <div>
                             <div className="text-sm font-semibold text-zinc-900">
                               {formatProductLabel(line)}{" "}
                               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">Custom</span>
+                              {!!line.discountPercent && (
+                                <span className="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                                  −{line.discountPercent}% OFF
+                                </span>
+                              )}
                             </div>
                             <div className="text-xs text-zinc-500">
                               Qty: {line.quantity} × ₦{line.unitPrice.toFixed(2)}
                             </div>
                           </div>
-                          <div className="text-right text-sm font-bold text-zinc-900">
-                            ₦{itemTotal.toFixed(2)}
+                          <div className="text-right text-sm font-bold">
+                            {line.discountPercent ? (
+                              <>
+                                <span className="block text-xs font-normal text-zinc-400 line-through">₦{rawTotal.toFixed(2)}</span>
+                                <span className="text-red-600">₦{itemTotal.toFixed(2)}</span>
+                              </>
+                            ) : (
+                              <span className="text-zinc-900">₦{itemTotal.toFixed(2)}</span>
+                            )}
                           </div>
                         </div>
                       );
@@ -1867,12 +2026,18 @@ export default function PosClient({
 
                     const perForm = piecesPerForm(line.product, line.form);
                     const priceForForm = line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode) * perForm;
-                    const itemTotal = priceForForm * line.quantity;
+                    const rawTotal = priceForForm * line.quantity;
+                    const itemTotal = discountedUnitPrice(priceForForm, line.discountPercent) * line.quantity;
                     return (
                       <div key={line.key} className="p-3 bg-white flex items-center justify-between gap-4">
                         <div>
                           <div className="text-sm font-semibold text-zinc-900">
                             {formatProductLabel(line.product)}
+                            {!!line.discountPercent && (
+                              <span className="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                                −{line.discountPercent}% OFF
+                              </span>
+                            )}
                           </div>
                           <div className="text-xs text-zinc-500">
                             {line.quantity} {line.form}{line.quantity > 1 ? "s" : ""} × ₦{priceForForm.toFixed(2)}
@@ -1883,8 +2048,15 @@ export default function PosClient({
                             </div>
                           )}
                         </div>
-                        <div className="text-right text-sm font-bold text-zinc-900">
-                          ₦{itemTotal.toFixed(2)}
+                        <div className="text-right text-sm font-bold">
+                          {line.discountPercent ? (
+                            <>
+                              <span className="block text-xs font-normal text-zinc-400 line-through">₦{rawTotal.toFixed(2)}</span>
+                              <span className="text-red-600">₦{itemTotal.toFixed(2)}</span>
+                            </>
+                          ) : (
+                            <span className="text-zinc-900">₦{itemTotal.toFixed(2)}</span>
+                          )}
                         </div>
                       </div>
                     );

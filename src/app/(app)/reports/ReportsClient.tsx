@@ -145,6 +145,8 @@ export default function ReportsClient({
         quantity: i.formQuantity ?? i.quantity,
         unitPrice: i.unitPrice,
         lineTotal: i.lineTotal,
+        originalUnitPrice: i.originalUnitPrice,
+        discountPercent: i.discountPercent,
       })),
       totalAmount: sale.totalAmount,
       payments: sale.payments,
@@ -459,11 +461,28 @@ export default function ReportsClient({
                         const profit = i.unitPrice - cost;
                         return (
                           <div key={idx} className="flex flex-col border-b border-zinc-100 last:border-0 pb-1 last:pb-0">
-                            <span className="font-medium text-sm text-zinc-800">{i.productName}</span>
+                            <span className="font-medium text-sm text-zinc-800">
+                              {i.productName}
+                              {!!i.discountPercent && (
+                                <span className="ml-1.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                                  −{i.discountPercent}% DISCOUNT
+                                </span>
+                              )}
+                            </span>
                             <div className="flex flex-wrap gap-x-3 text-xs text-zinc-500">
                               <span>Qty: <span className="font-medium text-zinc-700">{qty}{qtySuffix}</span></span>
                               <span>Cost: <span className="font-medium text-zinc-700">₦{cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
-                              <span>Sell: <span className="font-medium text-zinc-700">₦{i.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                              <span>
+                                Sell:{" "}
+                                {!!i.discountPercent && i.originalUnitPrice != null && (
+                                  <span className="text-zinc-400 line-through mr-1">
+                                    ₦{i.originalUnitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                )}
+                                <span className={`font-medium ${i.discountPercent ? "text-red-600" : "text-zinc-700"}`}>
+                                  ₦{i.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </span>
                               <span>Profit: <span className={`font-medium ${profit >= 0 ? "text-orange-600" : "text-red-600"}`}>₦{profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
                             </div>
                           </div>

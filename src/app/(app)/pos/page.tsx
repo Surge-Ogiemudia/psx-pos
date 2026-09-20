@@ -23,13 +23,14 @@ export default async function PosPage() {
   }
 
   return (
-    <PosClient 
-      branchId={activeBranchId} 
-      pharmacyId={session.user.pharmacyId} 
+    <PosClient
+      branchId={activeBranchId}
+      pharmacyId={session.user.pharmacyId}
       pharmacyName={pharmacy?.pharmacyName || "Pharmacy"}
       branchName={branchName}
       branchAddress={branchAddress}
       staffName={session.user.name || undefined}
+      userRole={session.user.role}
     />
   );
 }

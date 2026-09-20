@@ -37,6 +37,11 @@ function round2(n: number): number {
 
 const EPS = 0.005;
 
+// Discounts above this need an admin actually logged into the terminal — enforced here,
+// not just in the POS UI, since a client-side-only check is trivially bypassed by anyone
+// crafting their own request to this endpoint.
+const DISCOUNT_APPROVAL_THRESHOLD = 25;
+
 interface SaleItemInput {
   productId?: string;
   quantity: number;
@@ -49,6 +54,7 @@ interface SaleItemInput {
   size?: string;
   category?: string;
   unitPrice?: number;
+  discountPercent?: number;
 }
 
 interface PaymentLineInput {
@@ -135,6 +141,17 @@ export async function POST(request: NextRequest) {
       if (!Number.isInteger(item.quantity) || item.quantity < 1) {
         return NextResponse.json({ error: "Invalid line item" }, { status: 400 });
       }
+      if (item.discountPercent !== undefined) {
+        if (!Number.isFinite(item.discountPercent) || item.discountPercent < 0 || item.discountPercent > 100) {
+          return NextResponse.json({ error: "Invalid discount percent" }, { status: 400 });
+        }
+        if (item.discountPercent > DISCOUNT_APPROVAL_THRESHOLD && session.user.role !== "admin") {
+          return NextResponse.json(
+            { error: `Discounts over ${DISCOUNT_APPROVAL_THRESHOLD}% need an admin logged into this terminal` },
+            { status: 403 }
+          );
+        }
+      }
       if (item.custom) {
         if (!item.itemName?.trim()) {
           return NextResponse.json({ error: "Custom item name is required" }, { status: 400 });
@@ -213,7 +230,9 @@ export async function POST(request: NextRequest) {
             const brand = item.brand!.trim();
             const size = item.size!.trim();
             const category = item.category as ProductCategory;
-            const unitPrice = round2(item.unitPrice as number);
+            const originalUnitPrice = round2(item.unitPrice as number);
+            const discountPercent = item.discountPercent || 0;
+            const unitPrice = round2(originalUnitPrice * (1 - discountPercent / 100));
             const lineTotal = round2(unitPrice * item.quantity);
             const unitCost = 0;
             const costTotal = 0;
@@ -233,11 +252,15 @@ export async function POST(request: NextRequest) {
               formQuantity: null,
               priceTierUsed: "custom",
               unitPrice,
+              originalUnitPrice: discountPercent > 0 ? originalUnitPrice : null,
+              discountPercent,
               lineTotal,
               unitCost,
               costTotal,
             });
-            customLines.push({ itemName, brand, size, category, unitPrice, quantity: item.quantity });
+            // Files at the item's real (pre-discount) price — a one-off discount on this
+            // sale shouldn't become the suggested catalog price when admin reviews this.
+            customLines.push({ itemName, brand, size, category, unitPrice: originalUnitPrice, quantity: item.quantity });
             continue;
           }
 
@@ -326,11 +349,22 @@ export async function POST(request: NextRequest) {
           // lane — quantity is always known, price isn't). Unlike the custom-item path
           // above, nothing here previously stopped that from ringing up as a free sale.
           // Blocks whether the missing price came from the product record or a cashier
-          // manually typing 0 into the per-line price override.
+          // manually typing 0 into the per-line price override. Checked against the
+          // ORIGINAL price (before any discount) — a deliberate discount reducing an
+          // already-real price toward zero is a business decision (and >25% of it already
+          // needs admin approval above); this guard exists to catch missing price DATA,
+          // not to second-guess an intentional discount.
           if (unitPrice <= 0) {
             throw new Error(
               `${formatProductLabel(existingProduct)} has no price set — enter a price for it before selling (or fix it in the catalog).`
             );
+          }
+
+          const discountPercent = item.discountPercent || 0;
+          const originalUnitPrice = unitPrice;
+          if (discountPercent > 0) {
+            unitPrice = round2(unitPrice * (1 - discountPercent / 100));
+            lineTotal = round2(lineTotal * (1 - discountPercent / 100));
           }
 
           const costTotal = round2(unitCost * baseQuantity);
@@ -345,6 +379,8 @@ export async function POST(request: NextRequest) {
             formQuantity,
             priceTierUsed: item.priceTier,
             unitPrice,
+            originalUnitPrice: discountPercent > 0 ? originalUnitPrice : null,
+            discountPercent,
             lineTotal,
             unitCost,
             costTotal,
