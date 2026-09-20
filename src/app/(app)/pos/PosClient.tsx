@@ -1047,13 +1047,23 @@ export default function PosClient({
               )}
             </div>
           </div>
-          <input
-            type="text"
-            placeholder="Search products..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="mb-2 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
-          />
+          <div className="relative mb-2">
+            <input
+              type="text"
+              placeholder="Search products..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 pr-16 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md bg-zinc-200 px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-300"
+              >
+                Clear
+              </button>
+            )}
+          </div>
 
           <button
             onClick={() => setCustomMode((v) => !v)}
