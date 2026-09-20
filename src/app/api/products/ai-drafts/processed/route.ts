@@ -5,9 +5,6 @@ import Product from "@/models/Product";
 import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 
-// Review log, not a live queue — capped rather than paginated.
-const PROCESSED_LIMIT = 250;
-
 // Feeds Panel 4 ("Processed Items") of Monak Triage: a pharmacy/branch-wide audit log of
 // drafts that were already confirmed into the catalog, merged with the resulting Product
 // so the UI can show what was saved and flag anything missing brand/size/expiry/price.
@@ -29,7 +26,6 @@ export async function GET(request: NextRequest) {
 
     const drafts = await AiDraftProduct.find(query)
       .sort({ createdAt: -1 })
-      .limit(PROCESSED_LIMIT)
       .lean();
 
     const productIds = drafts.map((d) => d.productId).filter(Boolean);
