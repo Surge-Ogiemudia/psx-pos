@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { formatProductLabel, type PaymentMethod, type ProductCategory, type ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
@@ -125,13 +125,32 @@ function lineCost(line: CartLine): number {
 // catalog items (with and without a unit hierarchy) and custom items alike. Enforces the
 // >25% admin-approval rule right here at the input level, not just on submit, so staff
 // get immediate feedback instead of a rejected sale later.
+// A boxed, labeled tile — used to give Qty/Price/Discount each their own clearly bounded
+// spot in the cart line instead of everything running together inline.
+function CartFieldTile({
+  label,
+  labelColor = "text-zinc-400",
+  borderColor = "border-zinc-200",
+  children,
+}: {
+  label: string;
+  labelColor?: string;
+  borderColor?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`rounded-lg border bg-white px-2 py-1.5 ${borderColor}`}>
+      <div className={`mb-1 text-[10px] font-bold uppercase tracking-wide ${labelColor}`}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
 function DiscountControl({
-  basePrice,
   value,
   onChange,
   isAdminSession,
 }: {
-  basePrice: number;
   value: number | undefined;
   onChange: (percent: number | undefined) => void;
   isAdminSession: boolean;
@@ -150,12 +169,12 @@ function DiscountControl({
   }
 
   return (
-    <div className="flex flex-col items-start">
+    <div>
       <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={() => apply((value ?? 0) - 1)}
-          className="flex h-6 w-6 items-center justify-center rounded border border-red-300 text-sm font-bold text-red-700 hover:bg-red-50"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-red-300 text-sm font-bold text-red-700 hover:bg-red-50"
         >
           −
         </button>
@@ -175,22 +194,21 @@ function DiscountControl({
             const val = parseNumeric(raw);
             if (!Number.isNaN(val)) apply(val);
           }}
-          className="w-10 rounded border border-red-300 px-1 py-0.5 text-center text-xs font-semibold text-red-700 focus:border-red-600 focus:outline-none focus:ring-1 focus:ring-red-600"
+          className="w-full min-w-0 rounded border border-red-300 px-1 py-1 text-center text-xs font-semibold text-red-700 focus:border-red-600 focus:outline-none focus:ring-1 focus:ring-red-600"
         />
-        <span className="text-xs font-bold text-red-600">%</span>
+        <span className="shrink-0 text-xs font-bold text-red-600">%</span>
         <button
           type="button"
           onClick={() => apply((value ?? 0) + 1)}
-          className="flex h-6 w-6 items-center justify-center rounded border border-red-300 text-sm font-bold text-red-700 hover:bg-red-50"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-red-300 text-sm font-bold text-red-700 hover:bg-red-50"
         >
           +
         </button>
       </div>
-      <span className="mt-0.5 text-[10px] font-semibold text-red-500">Discount</span>
       {blocked && (
-        <span className="mt-0.5 max-w-[8rem] text-[10px] leading-tight text-red-500">
+        <p className="mt-1 text-[10px] leading-tight text-red-500">
           Over 25% needs an admin logged in on this terminal.
-        </span>
+        </p>
       )}
     </div>
   );
@@ -1531,66 +1549,70 @@ export default function PosClient({
                         Remove
                       </button>
                     </div>
-                    <div className="mt-2 flex items-center gap-2">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={line.quantity === 0 ? "" : line.quantity}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => {
-                          const raw = e.target.value.trim();
-                          if (raw === "") {
-                            updateLine(line.key, { quantity: 0 });
-                            return;
-                          }
-                          const val = parseNumeric(raw);
-                          if (!Number.isNaN(val)) {
-                            updateLine(line.key, { quantity: Math.max(0, val) });
-                          }
-                        }}
-                        onBlur={() => {
-                          if (!line.quantity || line.quantity < 1) {
-                            updateLine(line.key, { quantity: 1 });
-                          }
-                        }}
-                        className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm text-center focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600 font-medium"
-                      />
-                      <div className="flex items-center gap-1">
-                        <span className="text-sm text-zinc-600">₦</span>
+                    <div className="mt-2 grid grid-cols-3 gap-2">
+                      <CartFieldTile label="Qty">
                         <input
                           type="text"
-                          inputMode="decimal"
-                          value={line.unitPrice === 0 ? "" : line.unitPrice}
+                          inputMode="numeric"
+                          value={line.quantity === 0 ? "" : line.quantity}
                           onFocus={(e) => e.target.select()}
                           onChange={(e) => {
                             const raw = e.target.value.trim();
                             if (raw === "") {
-                              updateLine(line.key, { unitPrice: 0 });
+                              updateLine(line.key, { quantity: 0 });
                               return;
                             }
                             const val = parseNumeric(raw);
                             if (!Number.isNaN(val)) {
-                              updateLine(line.key, { unitPrice: val });
+                              updateLine(line.key, { quantity: Math.max(0, val) });
                             }
                           }}
-                          className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                          onBlur={() => {
+                            if (!line.quantity || line.quantity < 1) {
+                              updateLine(line.key, { quantity: 1 });
+                            }
+                          }}
+                          className="w-full min-w-0 rounded border border-zinc-300 px-2 py-1 text-center text-sm font-medium focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
                         />
-                        <span className="text-sm text-zinc-600">each</span>
-                      </div>
-                      <DiscountControl
-                        basePrice={line.unitPrice}
-                        value={line.discountPercent}
-                        onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
-                        isAdminSession={isAdminSession}
-                      />
+                      </CartFieldTile>
+                      <CartFieldTile label="Price each">
+                        <div className="flex items-center gap-1">
+                          <span className="shrink-0 text-sm text-zinc-600">₦</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={line.unitPrice === 0 ? "" : line.unitPrice}
+                            onFocus={(e) => e.target.select()}
+                            onChange={(e) => {
+                              const raw = e.target.value.trim();
+                              if (raw === "") {
+                                updateLine(line.key, { unitPrice: 0 });
+                                return;
+                              }
+                              const val = parseNumeric(raw);
+                              if (!Number.isNaN(val)) {
+                                updateLine(line.key, { unitPrice: val });
+                              }
+                            }}
+                            className="w-full min-w-0 rounded border border-zinc-300 px-1 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                          />
+                        </div>
+                      </CartFieldTile>
+                      <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-200">
+                        <DiscountControl
+                          value={line.discountPercent}
+                          onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
+                          isAdminSession={isAdminSession}
+                        />
+                      </CartFieldTile>
                     </div>
                     {line.discountPercent ? (
-                      <div className="mt-1 text-right text-sm">
+                      <div className="mt-1.5 text-right text-sm">
                         <span className="text-zinc-400 line-through mr-1">₦{(line.unitPrice * line.quantity).toFixed(2)}</span>
                         <span className="font-bold text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
                       </div>
                     ) : (
-                      <div className="mt-1 text-right text-sm text-zinc-600">
+                      <div className="mt-1.5 text-right text-sm text-zinc-600">
                         ₦{(line.unitPrice * line.quantity).toFixed(2)}
                       </div>
                     )}
@@ -1637,87 +1659,97 @@ export default function PosClient({
                       Remove
                     </button>
                   </div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={line.quantity === 0 ? "" : line.quantity}
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => {
-                        const raw = e.target.value.trim();
-                        if (raw === "") {
-                          updateLine(line.key, { quantity: 0 });
-                          return;
-                        }
-                        const val = parseNumeric(raw);
-                        if (!Number.isNaN(val)) {
-                          updateLine(line.key, {
-                            quantity: Math.max(0, Math.min(val, maxQty)),
-                          });
-                        }
-                      }}
-                      onBlur={() => {
-                        if (!line.quantity || line.quantity < 1) {
-                          updateLine(line.key, { quantity: 1 });
-                        }
-                      }}
-                      className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm text-center focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600 font-medium"
-                    />
-                    {hierarchy && hierarchy.length > 0 ? (
-                      <select
-                        value={line.form}
+                  <div className={`mt-2 grid gap-2 ${hierarchy && hierarchy.length > 0 ? "grid-cols-2" : "grid-cols-3"}`}>
+                    <CartFieldTile label="Qty">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={line.quantity === 0 ? "" : line.quantity}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => {
-                          const newForm = e.target.value;
-                          const newMax = Math.floor(line.product.quantityInStock / piecesPerForm(line.product, newForm));
-                          updateLine(line.key, { form: newForm, quantity: Math.min(1, newMax) || 1 });
+                          const raw = e.target.value.trim();
+                          if (raw === "") {
+                            updateLine(line.key, { quantity: 0 });
+                            return;
+                          }
+                          const val = parseNumeric(raw);
+                          if (!Number.isNaN(val)) {
+                            updateLine(line.key, {
+                              quantity: Math.max(0, Math.min(val, maxQty)),
+                            });
+                          }
                         }}
-                        className="rounded border border-zinc-300 px-2 py-1 text-sm"
-                      >
-                        {hierarchy.map((level) => (
-                          <option key={level.unitName} value={level.unitName}>
-                            {pluralize(level.unitName, 2)}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        <span className="text-sm text-zinc-600">₦</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode)}
-                          onFocus={(e) => e.target.select()}
+                        onBlur={() => {
+                          if (!line.quantity || line.quantity < 1) {
+                            updateLine(line.key, { quantity: 1 });
+                          }
+                        }}
+                        className="w-full min-w-0 rounded border border-zinc-300 px-2 py-1 text-center text-sm font-medium focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                      />
+                    </CartFieldTile>
+                    {hierarchy && hierarchy.length > 0 ? (
+                      <CartFieldTile label="Unit">
+                        <select
+                          value={line.form}
                           onChange={(e) => {
-                            const raw = e.target.value.trim();
-                            if (raw === "") {
-                              updateLine(line.key, { customPrice: 0 });
-                              return;
-                            }
-                            const val = parseNumeric(raw);
-                            if (!Number.isNaN(val)) {
-                              updateLine(line.key, { customPrice: val });
-                            }
+                            const newForm = e.target.value;
+                            const newMax = Math.floor(line.product.quantityInStock / piecesPerForm(line.product, newForm));
+                            updateLine(line.key, { form: newForm, quantity: Math.min(1, newMax) || 1 });
                           }}
-                          onBlur={(e) => {
-                            if (!e.target.value.trim()) {
-                              updateLine(line.key, { customPrice: undefined });
-                            }
-                          }}
-                          className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
-                        />
-                        <span className="text-sm text-zinc-600">each</span>
-                        <DiscountControl
-                          basePrice={line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode)}
-                          value={line.discountPercent}
-                          onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
-                          isAdminSession={isAdminSession}
-                        />
-                      </div>
+                          className="w-full min-w-0 rounded border border-zinc-300 px-1 py-1 text-sm"
+                        >
+                          {hierarchy.map((level) => (
+                            <option key={level.unitName} value={level.unitName}>
+                              {pluralize(level.unitName, 2)}
+                            </option>
+                          ))}
+                        </select>
+                      </CartFieldTile>
+                    ) : (
+                      <>
+                        <CartFieldTile label="Price each">
+                          <div className="flex items-center gap-1">
+                            <span className="shrink-0 text-sm text-zinc-600">₦</span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode)}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const raw = e.target.value.trim();
+                                if (raw === "") {
+                                  updateLine(line.key, { customPrice: 0 });
+                                  return;
+                                }
+                                const val = parseNumeric(raw);
+                                if (!Number.isNaN(val)) {
+                                  updateLine(line.key, { customPrice: val });
+                                }
+                              }}
+                              onBlur={(e) => {
+                                if (!e.target.value.trim()) {
+                                  updateLine(line.key, { customPrice: undefined });
+                                }
+                              }}
+                              className="w-full min-w-0 rounded border border-zinc-300 px-1 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                            />
+                          </div>
+                        </CartFieldTile>
+                        <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-200">
+                          <DiscountControl
+                            value={line.discountPercent}
+                            onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
+                            isAdminSession={isAdminSession}
+                          />
+                        </CartFieldTile>
+                      </>
                     )}
                   </div>
                   {hierarchy && hierarchy.length > 0 && (
-                    <div className="mt-1 flex items-center gap-1 text-xs text-zinc-500">
-                      <span>₦</span>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                    <CartFieldTile label={`Price per ${line.form}`}>
+                      <div className="flex items-center gap-1">
+                      <span className="shrink-0 text-sm text-zinc-600">₦</span>
                       <input
                         type="text"
                         inputMode="decimal"
@@ -1739,18 +1771,20 @@ export default function PosClient({
                             updateLine(line.key, { customPrice: undefined });
                           }
                         }}
-                        className="w-16 rounded border border-zinc-200 px-1 py-0.5 text-xs text-zinc-700 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        className="w-full min-w-0 rounded border border-zinc-300 px-1 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
                       />
-                      <span>per {line.form}</span>
+                      </div>
+                    </CartFieldTile>
+                    <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-200">
                       <DiscountControl
-                        basePrice={priceForForm}
                         value={line.discountPercent}
                         onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
                         isAdminSession={isAdminSession}
                       />
+                    </CartFieldTile>
                     </div>
                   )}
-                  <div className="mt-1 text-right text-sm text-zinc-600">
+                  <div className="mt-2 text-right text-sm text-zinc-600">
                     {line.discountPercent ? (
                       <>
                         <span className="text-zinc-400 line-through mr-1">₦{(priceForForm * line.quantity).toFixed(2)}</span>
