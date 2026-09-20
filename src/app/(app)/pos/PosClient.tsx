@@ -1498,9 +1498,9 @@ export default function PosClient({
           </div>
         )}
 
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xl font-extrabold uppercase tracking-tight text-zinc-900">Current Sale</h2>
-          
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-y-2">
+          <h2 className="text-lg font-extrabold uppercase tracking-tight text-zinc-900 sm:text-xl">Current Sale</h2>
+
           <div className="flex items-center gap-4">
             <label className="hidden md:flex items-center gap-1.5 cursor-pointer rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-800 border border-teal-200">
               <input 
@@ -1576,7 +1576,7 @@ export default function PosClient({
                         ×
                       </button>
                     </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2">
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <CartFieldTile label="Qty">
                         <input
                           type="text"
@@ -1692,7 +1692,7 @@ export default function PosClient({
                       ×
                     </button>
                   </div>
-                  <div className={`mt-2 grid gap-2 ${hierarchy && hierarchy.length > 0 ? "grid-cols-2" : "grid-cols-3"}`}>
+                  <div className={`mt-2 grid grid-cols-1 gap-2 ${hierarchy && hierarchy.length > 0 ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
                     <CartFieldTile label="Qty">
                       <input
                         type="text"
@@ -1779,7 +1779,7 @@ export default function PosClient({
                     )}
                   </div>
                   {hierarchy && hierarchy.length > 0 && (
-                    <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <CartFieldTile label={`Price per ${line.form}`}>
                       <div className="flex items-center gap-1">
                       <span className="shrink-0 text-sm text-zinc-600">₦</span>
