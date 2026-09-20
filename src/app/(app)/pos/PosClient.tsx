@@ -170,14 +170,7 @@ function DiscountControl({
 
   return (
     <div>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          onClick={() => apply((value ?? 0) - 1)}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-red-300 text-sm font-bold text-red-700 hover:bg-red-50"
-        >
-          −
-        </button>
+      <div className="flex items-center justify-center gap-0.5">
         <input
           type="text"
           inputMode="numeric"
@@ -194,13 +187,22 @@ function DiscountControl({
             const val = parseNumeric(raw);
             if (!Number.isNaN(val)) apply(val);
           }}
-          className="w-full min-w-0 rounded border border-red-300 px-1 py-1 text-center text-xs font-semibold text-red-700 focus:border-red-600 focus:outline-none focus:ring-1 focus:ring-red-600"
+          className="w-full min-w-0 rounded border border-red-300 px-1 py-1 text-center text-base font-bold text-red-700 focus:border-red-600 focus:outline-none focus:ring-1 focus:ring-red-600"
         />
-        <span className="shrink-0 text-xs font-bold text-red-600">%</span>
+        <span className="shrink-0 text-base font-bold text-red-600">%</span>
+      </div>
+      <div className="mt-1 grid grid-cols-2 gap-1">
+        <button
+          type="button"
+          onClick={() => apply((value ?? 0) - 1)}
+          className="flex h-7 items-center justify-center rounded border border-red-300 text-base font-bold leading-none text-red-700 hover:bg-red-50"
+        >
+          −
+        </button>
         <button
           type="button"
           onClick={() => apply((value ?? 0) + 1)}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-red-300 text-sm font-bold text-red-700 hover:bg-red-50"
+          className="flex h-7 items-center justify-center rounded border border-red-300 text-base font-bold leading-none text-red-700 hover:bg-red-50"
         >
           +
         </button>
