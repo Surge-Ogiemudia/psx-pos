@@ -1425,22 +1425,40 @@ export default function PosClient({
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-zinc-50 to-transparent" />
             )}
             {scrollMetrics.height > scrollMetrics.clientHeight && (
-              <div
-                onPointerDown={handleScrollTrackPointerDown}
-                className="absolute inset-y-0 right-0 w-5 cursor-pointer rounded-full bg-emerald-100 border border-emerald-200"
-              >
+              <>
+                <button
+                  type="button"
+                  onClick={() => productListRef.current?.scrollBy({ top: -160, behavior: "smooth" })}
+                  aria-label="Scroll up"
+                  className="absolute top-0 right-0 flex h-7 w-5 items-center justify-center rounded-t-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700"
+                >
+                  ▲
+                </button>
                 <div
-                  ref={scrollThumbRef}
-                  className="absolute left-0 right-0 rounded-full bg-emerald-700 shadow-sm"
-                  style={{
-                    height: `${Math.max(10, (scrollMetrics.clientHeight / scrollMetrics.height) * 100)}%`,
-                    top: `${
-                      (scrollMetrics.top / (scrollMetrics.height - scrollMetrics.clientHeight)) *
-                      (100 - Math.max(10, (scrollMetrics.clientHeight / scrollMetrics.height) * 100))
-                    }%`,
-                  }}
-                />
-              </div>
+                  onPointerDown={handleScrollTrackPointerDown}
+                  className="absolute top-8 bottom-8 right-0 w-5 cursor-pointer rounded-full bg-emerald-100 border border-emerald-200"
+                >
+                  <div
+                    ref={scrollThumbRef}
+                    className="absolute left-0 right-0 rounded-full bg-emerald-700 shadow-sm"
+                    style={{
+                      height: `${Math.max(10, (scrollMetrics.clientHeight / scrollMetrics.height) * 100)}%`,
+                      top: `${
+                        (scrollMetrics.top / (scrollMetrics.height - scrollMetrics.clientHeight)) *
+                        (100 - Math.max(10, (scrollMetrics.clientHeight / scrollMetrics.height) * 100))
+                      }%`,
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => productListRef.current?.scrollBy({ top: 160, behavior: "smooth" })}
+                  aria-label="Scroll down"
+                  className="absolute bottom-0 right-0 flex h-7 w-5 items-center justify-center rounded-b-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700"
+                >
+                  ▼
+                </button>
+              </>
             )}
           </div>
         </div>
