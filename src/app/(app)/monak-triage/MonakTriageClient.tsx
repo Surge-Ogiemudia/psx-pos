@@ -382,8 +382,17 @@ export default function MonakTriageClient({ branchId }: Props) {
 
   // --------------- Apply Excel2 result ---------------
   function applyExcel2(result: Excel2Result) {
+    const normalizedCategory = result.category?.trim().toLowerCase();
+    const validCategory =
+      normalizedCategory === "medicine" ||
+      normalizedCategory === "non-medicine" ||
+      normalizedCategory === "supermarket"
+        ? (normalizedCategory as ProductForm["category"])
+        : undefined;
     setForm((f) => ({
       ...f,
+      itemName: result.itemName,
+      ...(validCategory ? { category: validCategory } : {}),
       retailPrice: result.retailPrice,
       wholesalePrice: result.wholesalePrice,
       distributorPrice: result.distributorPrice,
