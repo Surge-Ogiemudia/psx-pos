@@ -31,6 +31,31 @@ body {
   }
 }
 
+/* Product search results on POS — made deliberately thick and high-contrast so staff who
+   aren't very computer-literate can tell at a glance that the list keeps going and they
+   need to scroll, rather than assuming a short visible list means "that's everything" or
+   "out of stock". Firefox uses scrollbar-color; Chrome/Edge (what these terminals run)
+   need the ::-webkit-scrollbar rules. */
+.pos-results-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: #047857 #ecfdf5;
+}
+.pos-results-scroll::-webkit-scrollbar {
+  width: 16px;
+}
+.pos-results-scroll::-webkit-scrollbar-track {
+  background: #ecfdf5;
+  border-radius: 8px;
+}
+.pos-results-scroll::-webkit-scrollbar-thumb {
+  background-color: #047857;
+  border-radius: 8px;
+  border: 3px solid #ecfdf5;
+}
+.pos-results-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #065f46;
+}
+
 @media print {
   @page {
     margin: 0; /* Removes browser headers and footers */

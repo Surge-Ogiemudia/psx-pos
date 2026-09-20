@@ -9,6 +9,7 @@ import ReceiptTemplate, { type ReceiptSale } from "./ReceiptTemplate";
 import { usePosOfflineSync } from "./usePosOfflineSync";
 import { db } from "@/lib/db";
 import { POS_SALE_MODE_KEY, type PosSaleMode } from "@/lib/posSaleMode";
+import { fuzzyRank } from "@/lib/fuzzyMatch";
 
 type CartLine =
   | { kind: "catalog"; key: string; product: ProductJSON; form: string; quantity: number; instruction?: string; customPrice?: number }
@@ -462,13 +463,29 @@ export default function PosClient({
 
   useEffect(() => {
     const fetchProducts = async () => {
-      const query = debouncedSearch.toLowerCase();
+      const trimmedSearch = debouncedSearch.trim();
       const allProducts = await db.products.toArray();
-      const filtered = allProducts.filter(p =>
-        (p.itemName && p.itemName.toLowerCase().includes(query)) ||
-        (p.brand && p.brand.toLowerCase().includes(query)) ||
-        (p.barcode && p.barcode.includes(query))
-      );
+
+      // Ranked, not just filtered — was a literal substring match with results sliced to
+      // 50 in whatever order came back, unranked. That meant a broad query with >50
+      // matches could bury the exact item you wanted, and typing MORE of its name (which
+      // should only ever narrow an already-good result set) was sometimes the only way to
+      // get it under the cap — the opposite of how search should behave. Fixed with the
+      // same fuzzy approach already proven in triage: strip spaces/punctuation/case before
+      // comparing, then rank by similarity so the best 50 matches always win the cutoff,
+      // not an arbitrary 50. Barcode stays an exact/literal check — fuzzy-matching a scan
+      // code is how you ring up the wrong item.
+      const barcodeMatches = trimmedSearch
+        ? allProducts.filter((p) => p.barcode && p.barcode.includes(trimmedSearch))
+        : [];
+      const ranked = trimmedSearch
+        ? fuzzyRank(trimmedSearch, allProducts, (p) => `${p.itemName ?? ""} ${p.brand ?? ""}`, {
+            limit: 50,
+            minScore: 0.2,
+          })
+        : [...allProducts].sort((a, b) => (a.itemName || "").localeCompare(b.itemName || "")).slice(0, 50);
+      const seenIds = new Set(barcodeMatches.map((p) => p._id));
+      const filtered = [...barcodeMatches, ...ranked.filter((p) => !seenIds.has(p._id))].slice(0, 50);
 
       // The local IndexedDB cache only refreshes on mount/branch-change/reconnect (see
       // usePosOfflineSync) — a product added moments ago (e.g. a bulk catalog publish)
@@ -476,7 +493,7 @@ export default function PosClient({
       // Same fallback the barcode-scanner path already uses below: a cache miss on a
       // real search term also checks the live server before giving up, so a cashier
       // never sees "not found" for something that genuinely exists.
-      if (filtered.length === 0 && debouncedSearch.trim() && navigator.onLine) {
+      if (filtered.length === 0 && trimmedSearch && navigator.onLine) {
         try {
           const params = new URLSearchParams({ search: debouncedSearch });
           if (branchId) params.set("branchId", branchId);
@@ -491,7 +508,7 @@ export default function PosClient({
         }
       }
 
-      setProducts(filtered.slice(0, 50) as unknown as ProductJSON[]);
+      setProducts(filtered as unknown as ProductJSON[]);
     };
     fetchProducts();
   }, [debouncedSearch, branchId]);
@@ -1137,10 +1154,13 @@ export default function PosClient({
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 shadow-inner">
           <div className="mb-2 flex items-center justify-between text-xs font-medium text-zinc-500">
             <span>{products.length} product{products.length === 1 ? "" : "s"}</span>
-            {products.length > 4 && <span>Scroll for more ↓</span>}
+            {products.length > 4 && <span className="font-bold text-emerald-700">▼ Scroll for more — this list keeps going</span>}
           </div>
           <div className="relative">
-            <div ref={productListRef} className="grid max-h-96 grid-cols-1 gap-2 overflow-y-auto pb-1 sm:grid-cols-2">
+            <div
+              ref={productListRef}
+              className="pos-results-scroll grid max-h-[70vh] grid-cols-1 gap-2 overflow-y-auto pb-1 pr-2 sm:grid-cols-2"
+            >
               {/* Hardcoded Treatment Item */}
               <button
                 onClick={handleAddTreatment}
