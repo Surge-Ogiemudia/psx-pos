@@ -31,29 +31,17 @@ body {
   }
 }
 
-/* Product search results on POS — made deliberately thick and high-contrast so staff who
-   aren't very computer-literate can tell at a glance that the list keeps going and they
-   need to scroll, rather than assuming a short visible list means "that's everything" or
-   "out of stock". Firefox uses scrollbar-color; Chrome/Edge (what these terminals run)
-   need the ::-webkit-scrollbar rules. */
+/* Product search results on POS. The native scrollbar rendered inconsistently across
+   browsers/OS settings even when styled, so it's hidden here in favor of a custom-drawn
+   scroll thumb (see the results box JSX) whose appearance is guaranteed rather than left
+   up to how each browser feels like honoring ::-webkit-scrollbar that day. Scrolling
+   itself (wheel/touch/keyboard) still works fine on the element — only the native bar's
+   own rendering is suppressed. */
 .pos-results-scroll {
-  scrollbar-width: auto;
-  scrollbar-color: #047857 #ecfdf5;
+  scrollbar-width: none;
 }
 .pos-results-scroll::-webkit-scrollbar {
-  width: 16px;
-}
-.pos-results-scroll::-webkit-scrollbar-track {
-  background: #ecfdf5;
-  border-radius: 8px;
-}
-.pos-results-scroll::-webkit-scrollbar-thumb {
-  background-color: #047857;
-  border-radius: 8px;
-  border: 3px solid #ecfdf5;
-}
-.pos-results-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: #065f46;
+  display: none;
 }
 
 @media print {
