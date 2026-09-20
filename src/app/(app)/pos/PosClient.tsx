@@ -1116,7 +1116,7 @@ export default function PosClient({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:items-start">
       {effectiveSaleMode === "wholesale" && (
         <div className="lg:col-span-3 rounded-xl border-2 border-amber-400 bg-amber-100 px-4 py-2.5 flex items-center justify-between">
           <span className="text-sm font-bold text-amber-900">📦 WHOLESALE MODE — every sale on this screen charges wholesale price</span>
@@ -1201,7 +1201,7 @@ export default function PosClient({
           </div>
         </>
       )}
-      <div className="lg:col-span-2">
+      <div className="lg:col-span-3">
         <div className="sticky top-16 z-20 border-b border-zinc-100 bg-white pb-3 pt-1 md:top-[6.5rem]">
           <div className="mb-2 flex items-center justify-between">
             <h1 className="text-lg font-semibold text-zinc-900">Product catalog</h1>
