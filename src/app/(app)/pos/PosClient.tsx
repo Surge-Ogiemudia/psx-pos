@@ -129,8 +129,8 @@ function lineCost(line: CartLine): number {
 // spot in the cart line instead of everything running together inline.
 function CartFieldTile({
   label,
-  labelColor = "text-zinc-400",
-  borderColor = "border-zinc-200",
+  labelColor = "text-stone-500",
+  borderColor = "border-stone-300",
   children,
 }: {
   label: string;
@@ -139,7 +139,7 @@ function CartFieldTile({
   children: ReactNode;
 }) {
   return (
-    <div className={`rounded-lg border bg-white px-2 py-1.5 ${borderColor}`}>
+    <div className={`rounded-lg border-2 bg-stone-50 px-2 py-1.5 ${borderColor}`}>
       <div className={`mb-1 text-[10px] font-bold uppercase tracking-wide ${labelColor}`}>{label}</div>
       {children}
     </div>
@@ -1215,7 +1215,7 @@ export default function PosClient({
               placeholder="Search products..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-zinc-300 px-3 py-2 pr-16 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+              className="w-full rounded-lg border-2 border-stone-300 bg-white px-3 py-2 pr-16 text-sm font-medium focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
             />
             {search && (
               <button
@@ -1323,10 +1323,10 @@ export default function PosClient({
           </div>
         )}
 
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 shadow-inner">
-          <div className="mb-2 flex items-center justify-between text-xs font-medium text-zinc-500">
+        <div className="rounded-xl border-2 border-stone-300 bg-stone-100 p-3 shadow-sm">
+          <div className="mb-2 flex items-center justify-between text-xs font-bold uppercase tracking-wide text-stone-500">
             <span>{products.length} product{products.length === 1 ? "" : "s"}</span>
-            {products.length > 4 && <span className="font-bold text-emerald-700">▼ Scroll for more — this list keeps going</span>}
+            {products.length > 4 && <span className="font-bold text-emerald-700 normal-case tracking-normal">▼ Scroll for more — this list keeps going</span>}
           </div>
           <div className="relative">
             <div
@@ -1337,7 +1337,7 @@ export default function PosClient({
               {/* Hardcoded Treatment Item */}
               <button
                 onClick={handleAddTreatment}
-                className="flex flex-col rounded-lg border border-teal-200 bg-teal-50 p-3 text-left shadow-sm hover:border-teal-600 transition-colors"
+                className="flex flex-col rounded-lg border-2 border-teal-300 bg-teal-50 p-3 text-left shadow-sm hover:border-teal-600 transition-colors"
               >
                 <span className="text-sm font-semibold text-teal-900">Treatment</span>
                 <span className="mt-1 text-xs text-teal-700">Non-medicine</span>
@@ -1359,7 +1359,7 @@ export default function PosClient({
                       scrollToCart();
                     }}
                     disabled={product.quantityInStock < 1}
-                    className="flex flex-col rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-sm hover:border-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex flex-col rounded-lg border-2 border-stone-300 bg-white p-3 text-left shadow-sm hover:border-teal-600 hover:shadow-md transition-all disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
@@ -1433,7 +1433,10 @@ export default function PosClient({
         </div>
       </div>
 
-      <div ref={cartSectionRef} className="scroll-mt-20 md:scroll-mt-32">
+      <div
+        ref={cartSectionRef}
+        className="scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm"
+      >
         {heldSales.length > 0 && (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
             <button
@@ -1536,7 +1539,7 @@ export default function PosClient({
             {cart.map((line) => {
               if (line.kind === "custom") {
                 return (
-                  <div key={line.key} className="border-b border-zinc-100 pb-3 last:border-0">
+                  <div key={line.key} className="border-b-2 border-stone-200 pb-3 last:border-0">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex flex-col">
                         <span className="text-sm font-medium text-zinc-900">
@@ -1600,7 +1603,7 @@ export default function PosClient({
                           />
                         </div>
                       </CartFieldTile>
-                      <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-200">
+                      <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-300">
                         <DiscountControl
                           value={line.discountPercent}
                           onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
@@ -1627,7 +1630,7 @@ export default function PosClient({
               const maxQty = Math.max(1, Math.floor(line.product.quantityInStock / perForm));
               const priceForForm = line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode) * perForm;
               return (
-                <div key={line.key} className="border-b border-zinc-100 pb-3 last:border-0">
+                <div key={line.key} className="border-b-2 border-stone-200 pb-3 last:border-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
@@ -1737,7 +1740,7 @@ export default function PosClient({
                             />
                           </div>
                         </CartFieldTile>
-                        <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-200">
+                        <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-300">
                           <DiscountControl
                             value={line.discountPercent}
                             onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
@@ -1777,7 +1780,7 @@ export default function PosClient({
                       />
                       </div>
                     </CartFieldTile>
-                    <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-200">
+                    <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-300">
                       <DiscountControl
                         value={line.discountPercent}
                         onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
@@ -1811,9 +1814,9 @@ export default function PosClient({
 
           {cart.length > 0 && (
             <>
-              <div className="mt-3 flex items-center justify-between border-t border-zinc-200 pt-3">
-                <span className="font-semibold text-zinc-900">Total</span>
-                <span className="text-lg font-bold text-zinc-900">₦{total.toFixed(2)}</span>
+              <div className="mt-3 flex items-center justify-between border-t-2 border-stone-300 pt-3">
+                <span className="text-base font-bold uppercase tracking-wide text-zinc-900">Total</span>
+                <span className="text-xl font-extrabold text-zinc-900">₦{total.toFixed(2)}</span>
               </div>
 
               <div className="mt-3">
