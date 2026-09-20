@@ -581,6 +581,7 @@ export default function MonakTriageClient({ branchId }: Props) {
   const laneCounts = [0, 1, 2].map((lane) => pendingSnaps.filter((s) => laneOf(s._id) === lane).length);
   const visibleSnaps = viewFilter === "all" ? snaps : snaps.filter((s) => laneOf(s._id) === viewFilter);
   const visibleSkipped = viewFilter === "all" ? skippedSnaps : skippedSnaps.filter((s) => laneOf(s._id) === viewFilter);
+  const aiReadCount = visibleSnaps.filter((s) => s.status === "extracted").length;
 
   // Panel 4 lists — pharmacy/branch-wide, deliberately not lane-filtered (see fetchProcessed).
   const cleanProcessedItems = processedItems.filter((i) => !i.needsReviewReason || i.needsReviewReason.length === 0);
@@ -630,6 +631,11 @@ export default function MonakTriageClient({ branchId }: Props) {
                 >
                   {`🗑 Dismissed (${dismissedSnaps.length})`}
                 </button>
+              )}
+              {queueView === "active" && aiReadCount > 0 && (
+                <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">
+                  🤖 {aiReadCount} AI-read
+                </span>
               )}
               {queueView === "active" && (
                 <span className="text-xs bg-zinc-200 text-zinc-600 rounded-full px-2 py-0.5 font-normal">
@@ -772,6 +778,11 @@ export default function MonakTriageClient({ branchId }: Props) {
                             </span>
                             <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
                           </div>
+                          {snap.status === "extracted" && snap.extractedItemName && (
+                            <span className="text-xs bg-purple-100 text-purple-700 rounded-full px-2 py-0.5 font-medium w-fit mt-0.5">
+                              🤖 AI read: {snap.extractedItemName}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex gap-2">
