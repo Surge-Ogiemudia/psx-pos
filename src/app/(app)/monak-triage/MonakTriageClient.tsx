@@ -463,6 +463,7 @@ export default function MonakTriageClient({ branchId }: Props) {
       retailPrice: result.retailPrice,
       wholesalePrice: result.wholesalePrice,
     }));
+    setP2Results([]);
   }
 
   // --------------- Apply Excel2 result ---------------
@@ -488,6 +489,7 @@ export default function MonakTriageClient({ branchId }: Props) {
         distributorPrice: result.distributorPrice,
       };
     });
+    setP3Results([]);
   }
 
   function updateForm<K extends keyof ProductForm>(key: K, value: ProductForm[K]) {
