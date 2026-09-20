@@ -13,6 +13,11 @@ import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
 import { formatProductLabel } from "@/lib/types";
 import { syncProductsToPsx, deleteProductsFromPsx, getPharmacySlug } from "@/lib/psxSync";
+import { fuzzyRank } from "@/lib/fuzzyMatch";
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -49,28 +54,49 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      query.$or = [
-        { itemName: { $regex: search, $options: 'i' } },
-        { brand: { $regex: search, $options: 'i' } },
-        { barcode: search }
-      ];
+      // Was a literal whole-string substring match with no ranking — cheap to break in two
+      // ways: (1) "Panadol Extra" vs "PanadolExtra"/"panadol-extra" never matched at all
+      // (spaces/punctuation/case all had to line up exactly), and (2) results were sliced
+      // to 50 in whatever order Mongo happened to return them, not ranked by relevance —
+      // so a broad query with >50 matches could bury the exact item you typed, and typing
+      // MORE of its name (which should only ever narrow an already-good result set) was
+      // sometimes the only way to get it under the 50-item cap. Fixed by widening DB
+      // candidates on a per-word basis (same pattern as monak-excel1/2), then ranking by
+      // Dice-coefficient similarity over a symbols/spaces/case-stripped comparison — same
+      // proven approach already used for triage's price matching and duplicate detection.
+      const exactBarcodeQuery = { ...query, barcode: search };
+      const barcodeMatches = await Product.find(exactBarcodeQuery).limit(5).lean();
+
+      const words = search
+        .split(/[^a-zA-Z0-9]+/)
+        .map((w) => w.trim())
+        .filter((w) => w.length > 1);
+
+      const candidateQuery =
+        words.length > 0
+          ? { ...query, $or: words.map((w) => ({ itemName: { $regex: escapeRegex(w), $options: "i" } })) }
+          : { ...query, itemName: { $regex: escapeRegex(search), $options: "i" } };
+
+      const candidates = await Product.find(candidateQuery).limit(300).lean();
+
+      const ranked = fuzzyRank(search, candidates, (p) => `${p.itemName} ${p.brand}`, {
+        limit: 50,
+        minScore: 0.2,
+      });
+
+      const seenIds = new Set(barcodeMatches.map((p) => String(p._id)));
+      const products = [...barcodeMatches, ...ranked.filter((p) => !seenIds.has(String(p._id)))].slice(0, 50);
+
+      return NextResponse.json({ products });
     }
 
     let productsQuery = Product.find(query).sort({ itemName: 1, brand: 1 });
-    
-    if (search) {
-      productsQuery = productsQuery.limit(50);
-    } else if (limit) {
+    if (limit) {
       productsQuery = productsQuery.limit(parseInt(limit, 10));
     }
-
     const products = await productsQuery.lean();
 
-    if (!search) {
-      return NextResponse.json({ products, fullSyncRequired, timestamp: serverTime });
-    }
-
-    return NextResponse.json({ products });
+    return NextResponse.json({ products, fullSyncRequired, timestamp: serverTime });
   } catch (error) {
     return handleApiError(error);
   }
