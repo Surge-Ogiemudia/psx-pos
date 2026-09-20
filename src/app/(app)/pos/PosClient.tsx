@@ -1448,7 +1448,7 @@ export default function PosClient({
 
       <div
         ref={cartSectionRef}
-        className="lg:col-span-2 scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto"
+        className="lg:col-span-2 scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm lg:sticky lg:top-20 lg:self-start"
       >
         {heldSales.length > 0 && (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
