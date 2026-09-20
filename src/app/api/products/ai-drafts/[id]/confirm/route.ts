@@ -48,9 +48,9 @@ export async function POST(
       frontImageUrl,
     } = body;
 
-    if (!itemName || !brand || !size || !category) {
+    if (!itemName?.trim()) {
       return NextResponse.json(
-        { error: "itemName, brand, size, and category are required" },
+        { error: "itemName is required" },
         { status: 400 }
       );
     }
@@ -82,6 +82,15 @@ export async function POST(
     const parsedExpiry = expiryDate ? new Date(expiryDate) : null;
     const parsedQty = Number(quantity);
 
+    // Computed from the RAW client input, before any storage fallback is applied below,
+    // so the flag accurately reflects what the operator actually left blank rather than
+    // the placeholder value that ends up stored.
+    const needsReviewReason: string[] = [];
+    if (!brand?.trim()) needsReviewReason.push("missing_brand");
+    if (!size?.trim()) needsReviewReason.push("missing_size");
+    if (!parsedExpiry) needsReviewReason.push("missing_expiry");
+    if (!retailPrice || Number(retailPrice) <= 0) needsReviewReason.push("missing_price");
+
     const dbSession = await mongoose.startSession();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let product: any = null;
@@ -94,19 +103,24 @@ export async function POST(
               pharmacyId,
               branchId,
               itemName: itemName.trim(),
-              brand: brand.trim(),
-              size: size.trim() || "Standard",
+              // Product.brand has a strict minlength:1 validator, so an empty/missing brand
+              // can't be stored as "" — fall back to a placeholder, same idea as size's
+              // "Standard" below. The missing_brand flag (computed above, pre-fallback) is
+              // what actually records that it wasn't known.
+              brand: brand?.trim() || "Unknown",
+              size: size?.trim() || "Standard",
               category,
               imageUrl: frontImageUrl || null,
               quantityInStock: parsedQty,
               alertQuantity,
-              retailPrice: Number(retailPrice),
-              wholesalePrice: Number(wholesalePrice),
-              distributorPrice: Number(distributorPrice),
+              retailPrice: Number(retailPrice) || 0,
+              wholesalePrice: Number(wholesalePrice) || 0,
+              distributorPrice: Number(distributorPrice) || 0,
               costPrice: 0,
               expiryDate: parsedExpiry,
               barcode: "",
               unitHierarchy: [],
+              needsReviewReason,
             },
           ],
           { session: dbSession }

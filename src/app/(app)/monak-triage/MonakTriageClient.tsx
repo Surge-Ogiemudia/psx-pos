@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import ResilientThumb from "@/components/ResilientThumb";
 
 interface AiDraft {
@@ -45,6 +46,32 @@ interface CatalogMatch {
   imageUrl: string | null;
   quantityInStock: number;
 }
+
+// A completed AiDraftProduct merged with the Product it produced — feeds the "Processed
+// Items" review log (Panel 4). needsReviewReason mirrors the flags set at save time when
+// brand/size/expiry/price weren't actually known.
+type ReviewReason = "missing_brand" | "missing_size" | "missing_expiry" | "missing_price";
+
+interface ProcessedItem {
+  _id: string;
+  productId: string;
+  itemName: string;
+  brand: string;
+  size: string;
+  imageUrl: string | null;
+  retailPrice: number;
+  category: "medicine" | "non-medicine" | "supermarket";
+  expiryDate: string | null;
+  needsReviewReason: string[];
+  createdAt: string;
+}
+
+const REASON_LABELS: Record<string, string> = {
+  missing_brand: "Missing Brand",
+  missing_size: "Missing Size",
+  missing_expiry: "Missing Expiry",
+  missing_price: "Missing Price",
+};
 
 interface ProductForm {
   itemName: string;
@@ -164,8 +191,15 @@ export default function MonakTriageClient({ branchId }: Props) {
   const debouncedP2 = useDebounce(p2Search, 300);
   const debouncedP3 = useDebounce(p3Search, 300);
 
+  // Panel 4 — Processed Items (review log) state
+  const [processedItems, setProcessedItems] = useState<ProcessedItem[]>([]);
+  const [processedExpanded, setProcessedExpanded] = useState(false);
+  const [processedTab, setProcessedTab] = useState<"clean" | "flagged">("clean");
+  const [flaggedReasonFilter, setFlaggedReasonFilter] = useState<"all" | ReviewReason>("all");
+
   // Polling ref
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const processedPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Scroll target for the "Continue to Price Matching" button (Panel 2 -> Panel 3).
   // Panel 3 is already live as soon as a snap is selected — this button is purely
@@ -194,6 +228,29 @@ export default function MonakTriageClient({ branchId }: Props) {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [fetchSnaps]);
+
+  // --------------- Fetch processed items (Panel 4 — review log, pharmacy/branch-wide) ---------------
+  // Not lane-filtered — this is an audit log across every operator's work, same as the
+  // existing Dismissed bucket. Fetched on mount (and lightly refreshed) so the collapsed
+  // header's count stays accurate even before the panel is expanded.
+  const fetchProcessed = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/products/ai-drafts/processed?branchId=${branchId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setProcessedItems(data.items ?? []);
+    } catch {
+      // silent
+    }
+  }, [branchId]);
+
+  useEffect(() => {
+    fetchProcessed();
+    processedPollingRef.current = setInterval(fetchProcessed, 30000);
+    return () => {
+      if (processedPollingRef.current) clearInterval(processedPollingRef.current);
+    };
+  }, [fetchProcessed]);
 
   // --------------- Panel 2 Search ---------------
   useEffect(() => {
@@ -524,6 +581,15 @@ export default function MonakTriageClient({ branchId }: Props) {
   const laneCounts = [0, 1, 2].map((lane) => pendingSnaps.filter((s) => laneOf(s._id) === lane).length);
   const visibleSnaps = viewFilter === "all" ? snaps : snaps.filter((s) => laneOf(s._id) === viewFilter);
   const visibleSkipped = viewFilter === "all" ? skippedSnaps : skippedSnaps.filter((s) => laneOf(s._id) === viewFilter);
+
+  // Panel 4 lists — pharmacy/branch-wide, deliberately not lane-filtered (see fetchProcessed).
+  const cleanProcessedItems = processedItems.filter((i) => !i.needsReviewReason || i.needsReviewReason.length === 0);
+  const flaggedProcessedItems = processedItems.filter((i) => i.needsReviewReason && i.needsReviewReason.length > 0);
+  const visibleFlaggedItems =
+    flaggedReasonFilter === "all"
+      ? flaggedProcessedItems
+      : flaggedProcessedItems.filter((i) => i.needsReviewReason.includes(flaggedReasonFilter));
+  const visibleProcessedItems = processedTab === "clean" ? cleanProcessedItems : visibleFlaggedItems;
 
   return (
     // Break out of the layout's max-w-6xl by using negative margins
@@ -1013,10 +1079,12 @@ export default function MonakTriageClient({ branchId }: Props) {
                   </div>
                 </div>
 
-                {/* Confirm button */}
+                {/* Confirm button — only item name is actually required now; anything else
+                    missing (brand/size/expiry/price) gets flagged on the saved product
+                    instead of blocking the save. */}
                 <button
                   onClick={() => { setSaveError(""); setShowModal(true); }}
-                  disabled={!form.itemName || !form.brand}
+                  disabled={!form.itemName}
                   className="w-full py-3 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed mt-auto"
                 >
                   ✅ Confirm &amp; Save
@@ -1025,6 +1093,107 @@ export default function MonakTriageClient({ branchId }: Props) {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* PANEL 4 — Processed Items (review log)                        */}
+      {/* Full-width, collapsible strip below the 3-panel grid. Pharmacy/branch-wide, not   */}
+      {/* filtered by operator lane — an audit log across everyone's work, same as Dismissed. */}
+      {/* ============================================================ */}
+      <div className="mx-4 mb-4 rounded-xl border border-zinc-200 bg-white shadow overflow-hidden">
+        <button
+          onClick={() => setProcessedExpanded((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-zinc-50 border-b border-zinc-200 font-semibold text-zinc-700 hover:bg-zinc-100"
+        >
+          <span>📋 Processed Items ({processedItems.length})</span>
+          <span className={`text-xs text-zinc-400 transition-transform ${processedExpanded ? "rotate-180" : ""}`}>
+            ▼
+          </span>
+        </button>
+
+        {processedExpanded && (
+          <div className="p-4 flex flex-col gap-3">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setProcessedTab("clean")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  processedTab === "clean" ? "bg-green-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                }`}
+              >
+                ✅ Clean ({cleanProcessedItems.length})
+              </button>
+              <button
+                onClick={() => setProcessedTab("flagged")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  processedTab === "flagged" ? "bg-red-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                }`}
+              >
+                🚩 Flagged ({flaggedProcessedItems.length})
+              </button>
+            </div>
+
+            {processedTab === "flagged" && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+                <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">Reason:</span>
+                {(["all", "missing_brand", "missing_size", "missing_expiry", "missing_price"] as const).map(
+                  (reason) => (
+                    <label key={reason} className="flex items-center gap-1.5 text-xs text-zinc-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="flaggedReasonFilter"
+                        checked={flaggedReasonFilter === reason}
+                        onChange={() => setFlaggedReasonFilter(reason)}
+                        className="accent-red-600"
+                      />
+                      {reason === "all" ? "All flagged" : REASON_LABELS[reason]}
+                    </label>
+                  )
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              {visibleProcessedItems.length === 0 && (
+                <div className="col-span-full text-zinc-400 text-sm text-center py-6">
+                  {processedTab === "clean" ? "No clean processed items yet." : "No flagged items match this filter."}
+                </div>
+              )}
+              {visibleProcessedItems.map((item) => (
+                <Link
+                  key={item._id}
+                  href="/products"
+                  title="Open the Catalog to fix this item"
+                  className="flex flex-col gap-1.5 rounded-lg border border-zinc-200 bg-white p-2 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                >
+                  <ResilientThumb
+                    src={item.imageUrl}
+                    alt={item.itemName}
+                    className="h-16 w-16 mx-auto"
+                    size={64}
+                  />
+                  <div className="text-xs font-medium text-zinc-800 leading-tight truncate" title={item.itemName}>
+                    {item.itemName}
+                  </div>
+                  <div className="text-[11px] text-zinc-500 truncate">
+                    {item.brand} · {item.size}
+                  </div>
+                  {item.needsReviewReason.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {item.needsReviewReason.map((reason) => (
+                        <span
+                          key={reason}
+                          className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700"
+                        >
+                          {REASON_LABELS[reason] ?? reason}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ================================================================ */}
@@ -1078,7 +1247,7 @@ export default function MonakTriageClient({ branchId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Brand *</label>
+                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Brand</label>
                   <input
                     type="text"
                     value={form.brand}
@@ -1175,7 +1344,7 @@ export default function MonakTriageClient({ branchId }: Props) {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !form.itemName || !form.brand}
+                disabled={saving || !form.itemName}
                 className="flex-1 py-2.5 rounded-xl bg-green-600 text-white font-bold text-sm hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {saving ? "Saving…" : "💾 Save to Catalog"}

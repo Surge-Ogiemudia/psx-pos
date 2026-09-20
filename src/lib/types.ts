@@ -23,6 +23,7 @@ export interface ProductJSON {
   barcode?: string;
   imageUrl?: string | null;
   costPrice: number;
+  needsReviewReason?: string[];
 }
 
 export interface ProductBatchJSON {
