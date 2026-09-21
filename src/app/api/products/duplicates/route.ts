@@ -6,26 +6,21 @@ import DuplicateReviewDecision from "@/models/DuplicateReviewDecision";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { cleanStr, diceSimilarity } from "@/lib/fuzzyMatch";
+import { DUPLICATE_FUZZY_THRESHOLD, extractNumbers, sameNumbers } from "@/lib/duplicateDetection";
 
 // Feeds Panel 4's "Possible Duplicates" tab in Monak Triage: live Products (already in the
 // catalog) that look like the same physical item photographed on more than one shelf during
 // the stock-take. Detected fresh on every request — nothing here is hardcoded or cached.
 
-const FUZZY_THRESHOLD = 0.75;
+// extractNumbers/sameNumbers now live in duplicateDetection.ts so the exact same
+// strength/pack-size guard is shared with Monak Triage's Panel 1->2 sibling-draft check —
+// see that file for why (e.g. "Cloflam 100" vs "Cloflam 50" must never match).
+const FUZZY_THRESHOLD = DUPLICATE_FUZZY_THRESHOLD;
 // Duplicates are near-identical normalized strings, so once every product is sorted by its
 // normalized name, true duplicates always land within a few slots of each other. Comparing
 // each item only to its next COMPARE_WINDOW neighbors (instead of every other product) keeps
 // this roughly O(n) instead of O(n^2) on a multi-thousand-product branch catalog.
 const COMPARE_WINDOW = 40;
-
-function extractNumbers(s: string): string[] {
-  return (s.match(/\d+/g) || []).slice().sort();
-}
-
-function sameNumbers(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((n, i) => n === b[i]);
-}
 
 // Simple union-find (disjoint set) so an N-way cluster (e.g. the same item photographed on
 // 3 shelves) collapses into one group instead of only ever pairing items two at a time.
