@@ -454,6 +454,42 @@ export default function PosClient({
     window.addEventListener("pointerup", onUp);
   }
 
+  // Same custom-drawn-scrollbar treatment as the product list above, and for the same
+  // reason — the cart's item list has no height cap at all right now, so it just grows
+  // forever instead of scrolling within its own space.
+  const cartListRef = useRef<HTMLDivElement>(null);
+  const [cartScrollMetrics, setCartScrollMetrics] = useState({ top: 0, height: 0, clientHeight: 0 });
+  function syncCartScrollMetrics() {
+    const el = cartListRef.current;
+    if (!el) return;
+    setCartScrollMetrics({ top: el.scrollTop, height: el.scrollHeight, clientHeight: el.clientHeight });
+  }
+  useEffect(() => {
+    syncCartScrollMetrics();
+  }, [cart]);
+  const cartScrollThumbRef = useRef<HTMLDivElement>(null);
+  function handleCartScrollTrackPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    const track = e.currentTarget;
+    const el = cartListRef.current;
+    if (!el) return;
+    (e.target as Element).setPointerCapture(e.pointerId);
+
+    const scrollToPointer = (clientY: number) => {
+      const rect = track.getBoundingClientRect();
+      const ratio = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
+      el.scrollTop = ratio * (el.scrollHeight - el.clientHeight);
+    };
+    scrollToPointer(e.clientY);
+
+    const onMove = (moveEvent: PointerEvent) => scrollToPointer(moveEvent.clientY);
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
   // So staff get visual confirmation an item landed in the cart, instead of it silently
   // updating somewhere off-screen while the catalog list stays put.
   function scrollToCart() {
@@ -1625,7 +1661,12 @@ export default function PosClient({
           ) : cart.length === 0 ? (
             <p className="text-sm text-zinc-500">Cart is empty.</p>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div className="relative">
+            <div
+              ref={cartListRef}
+              onScroll={syncCartScrollMetrics}
+              className="pos-results-scroll flex flex-col gap-3 max-h-[45vh] overflow-y-auto pr-6"
+            >
             {cart.map((line) => {
               if (line.kind === "custom") {
                 return (
@@ -1914,6 +1955,43 @@ export default function PosClient({
                 </div>
               );
             })}
+            </div>
+            {cartScrollMetrics.height > cartScrollMetrics.clientHeight && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => cartListRef.current?.scrollBy({ top: -160, behavior: "smooth" })}
+                  aria-label="Scroll cart up"
+                  className="absolute top-0 right-0 flex h-7 w-5 items-center justify-center rounded-t-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700"
+                >
+                  ▲
+                </button>
+                <div
+                  onPointerDown={handleCartScrollTrackPointerDown}
+                  className="absolute top-8 bottom-8 right-0 w-5 cursor-pointer rounded-full bg-emerald-100 border border-emerald-200"
+                >
+                  <div
+                    ref={cartScrollThumbRef}
+                    className="absolute left-0 right-0 rounded-full bg-emerald-700 shadow-sm"
+                    style={{
+                      height: `${Math.max(10, (cartScrollMetrics.clientHeight / cartScrollMetrics.height) * 100)}%`,
+                      top: `${
+                        (cartScrollMetrics.top / (cartScrollMetrics.height - cartScrollMetrics.clientHeight)) *
+                        (100 - Math.max(10, (cartScrollMetrics.clientHeight / cartScrollMetrics.height) * 100))
+                      }%`,
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => cartListRef.current?.scrollBy({ top: 160, behavior: "smooth" })}
+                  aria-label="Scroll cart down"
+                  className="absolute bottom-0 right-0 flex h-7 w-5 items-center justify-center rounded-b-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700"
+                >
+                  ▼
+                </button>
+              </>
+            )}
           </div>
           )}
 
