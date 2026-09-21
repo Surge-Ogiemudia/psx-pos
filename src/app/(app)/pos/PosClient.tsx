@@ -411,6 +411,40 @@ export default function PosClient({
   const cartSectionRef = useRef<HTMLDivElement>(null);
   const productListRef = useRef<HTMLDivElement>(null);
 
+  // A flat vh guess (e.g. max-h-[65vh]) doesn't account for how much space the sticky
+  // header/search box above actually take up, which varies by screen size — on a shorter
+  // screen the panel (and its bottom scroll arrow) can end up pushed below the fold,
+  // needing an outer page scroll to even see the down arrow, defeating the whole point of
+  // having one. Measuring each panel's own top position and sizing its max-height to
+  // whatever room is actually left to the bottom of the viewport fixes that regardless of
+  // header height or screen size.
+  const [catalogMaxHeight, setCatalogMaxHeight] = useState<number | null>(null);
+  const [cartMaxHeight, setCartMaxHeight] = useState<number | null>(null);
+  useEffect(() => {
+    function updateHeights() {
+      const bottomMargin = 16;
+      const catalogEl = productListRef.current;
+      if (catalogEl) {
+        const top = catalogEl.getBoundingClientRect().top;
+        setCatalogMaxHeight(Math.max(240, window.innerHeight - top - bottomMargin));
+      }
+      const cartEl = cartListRef.current;
+      if (cartEl) {
+        const top = cartEl.getBoundingClientRect().top;
+        setCartMaxHeight(Math.max(160, window.innerHeight - top - bottomMargin));
+      }
+    }
+    updateHeights();
+    window.addEventListener("resize", updateHeights);
+    // Sticky headers can still be settling into place right after mount/navigation —
+    // a second pass shortly after catches that instead of measuring mid-transition.
+    const settleTimer = setTimeout(updateHeights, 300);
+    return () => {
+      window.removeEventListener("resize", updateHeights);
+      clearTimeout(settleTimer);
+    };
+  }, []);
+
   // Typing a new search shouldn't leave the results list scrolled to wherever it happened to be
   // from browsing before — jump back to the top so the best matches are actually visible.
   // Keyed on `products` (the actual rendered result set), not the raw `search` keystroke —
@@ -1465,6 +1499,7 @@ export default function PosClient({
             <div
               ref={productListRef}
               onScroll={syncScrollMetrics}
+              style={catalogMaxHeight ? { maxHeight: `${catalogMaxHeight}px` } : undefined}
               className="pos-results-scroll grid max-h-[65vh] grid-cols-1 gap-2 overflow-y-auto pb-1 pr-6 sm:grid-cols-2"
             >
               {/* Hardcoded Treatment Item */}
@@ -1699,6 +1734,7 @@ export default function PosClient({
             <div
               ref={cartListRef}
               onScroll={syncCartScrollMetrics}
+              style={cartMaxHeight ? { maxHeight: `${cartMaxHeight}px` } : undefined}
               className="pos-results-scroll flex flex-col gap-3 max-h-[45vh] overflow-y-auto pr-6"
             >
             {cart.map((line) => {
