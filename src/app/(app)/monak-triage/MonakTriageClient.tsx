@@ -1147,7 +1147,15 @@ export default function MonakTriageClient({ branchId }: Props) {
   return (
     // Break out of the layout's max-w-6xl by using negative margins
     <div className="-mx-4 -my-6 sm:-mx-6">
-      <div className="grid grid-cols-3 gap-4 h-[calc(100vh-4rem)] p-4">
+      <div className="flex items-center justify-end px-4 pt-3 pb-1">
+        <Link
+          href="/monak-triage/mobile"
+          className="text-xs font-semibold rounded-full px-3 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-1.5"
+        >
+          📱 Switch to mobile view
+        </Link>
+      </div>
+      <div className="grid grid-cols-3 gap-4 h-[calc(100vh-8rem)] p-4">
 
         {/* ============================================================ */}
         {/* PANEL 1 — Live Queue                                          */}
@@ -1199,12 +1207,6 @@ export default function MonakTriageClient({ branchId }: Props) {
                   {visibleSnaps.length + visibleSkipped.length} pending
                 </span>
               )}
-              <Link
-                href="/monak-triage/mobile"
-                className="text-xs rounded-full px-2 py-0.5 font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-              >
-                📱 Mobile view
-              </Link>
             </div>
           </div>
           {queueView === "active" && totalAiReadCount > 0 && (
