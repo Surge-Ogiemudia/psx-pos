@@ -133,7 +133,9 @@ function matchPct(query: string, candidate: string): number {
 // full-bleed layout/toggle instead of ResilientThumb's fixed thumbnail chrome.
 function imgSrc(url: string | null | undefined, size: number): string | null {
   if (!url) return null;
-  return url.startsWith("http") ? `/_next/image?url=${encodeURIComponent(url)}&w=${size}&q=80` : url;
+  // q must be in next.config.ts's allowed images.qualities list — no explicit list is
+  // configured, so Next 16 defaults to only allowing q=75; anything else 400s.
+  return url.startsWith("http") ? `/_next/image?url=${encodeURIComponent(url)}&w=${size}&q=75` : url;
 }
 
 function timeAgo(dateStr: string): string {
