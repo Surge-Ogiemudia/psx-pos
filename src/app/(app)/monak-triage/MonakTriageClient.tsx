@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import ResilientThumb from "@/components/ResilientThumb";
 
 interface AiDraft {
@@ -1198,6 +1199,12 @@ export default function MonakTriageClient({ branchId }: Props) {
                   {visibleSnaps.length + visibleSkipped.length} pending
                 </span>
               )}
+              <Link
+                href="/monak-triage/mobile"
+                className="text-xs rounded-full px-2 py-0.5 font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+              >
+                📱 Mobile view
+              </Link>
             </div>
           </div>
           {queueView === "active" && totalAiReadCount > 0 && (
