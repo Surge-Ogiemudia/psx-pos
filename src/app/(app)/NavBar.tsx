@@ -19,15 +19,21 @@ const RETAIL_LINKS = [
   { href: "/products", label: "Catalog" },
 ];
 
-// Monak Snap, Monak Triage, and Physical Stock Reconciler were Monak-Pharmacy-specific
-// tools that ended up visible to every pharmacy on the platform. Hidden here as a quick
-// front-end-only fix (no route/permission changes) — proper per-pharmacy scoping is a
-// separate follow-up, not done yet.
+// Monak Triage and Physical Stock Reconciler were Monak-Pharmacy-specific tools that ended
+// up visible to every pharmacy on the platform. Physical Stock Reconciler stays hidden here
+// as a quick front-end-only fix (no route/permission changes) — proper per-pharmacy feature
+// scoping is a separate follow-up, not done yet.
 const ADMIN_LINKS = [
   { href: "/reports", label: "Reports" },
   { href: "/staff", label: "Staff" },
   { href: "/locations", label: "Locations" },
 ];
+
+// Stopgap allowlist, not a real permissions system — restores the Monak Triage nav link for
+// Monak Pharmacy only, since it's Monak-specific and shouldn't show for every pharmacy on the
+// platform. Proper per-pharmacy feature scoping is a separate future task.
+const MONAK_PHARMACY_ID = "6a5f61da9e1719c3b02842ae";
+const MONAK_TRIAGE_LINK = { href: "/monak-triage", label: "Monak Triage" };
 const STORE_LINKS = [
   { href: "/store", label: "Bulk Store" },
 ];
@@ -44,6 +50,7 @@ export default function NavBar({
   logoUrl,
   userName,
   userRole,
+  pharmacyId,
   branches,
   activeBranchId,
   stores,
@@ -55,6 +62,7 @@ export default function NavBar({
   logoUrl: string;
   userName: string;
   userRole: UserRole;
+  pharmacyId?: string;
   branches: BranchOption[];
   activeBranchId: string | null;
   stores: StoreOption[];
@@ -85,6 +93,7 @@ export default function NavBar({
   const links = [
     ...(userRole === "admin" || userRole === "staff" ? RETAIL_LINKS : []),
     ...(userRole === "admin" ? ADMIN_LINKS : []),
+    ...(userRole === "admin" && pharmacyId === MONAK_PHARMACY_ID ? [MONAK_TRIAGE_LINK] : []),
     ...(userRole === "admin" || userRole === "store_manager" || userRole === "store_keeper" ? STORE_LINKS : []),
   ];
 

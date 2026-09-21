@@ -39,6 +39,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         logoUrl={logoUrl}
         userName={session.user.name ?? ""}
         userRole={session.user.role}
+        pharmacyId={session.user.pharmacyId}
         branches={branches}
         activeBranchId={activeBranchId}
         stores={canSwitchStore ? stores : []}
