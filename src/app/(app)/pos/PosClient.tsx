@@ -413,9 +413,15 @@ export default function PosClient({
 
   // Typing a new search shouldn't leave the results list scrolled to wherever it happened to be
   // from browsing before — jump back to the top so the best matches are actually visible.
+  // Keyed on `products` (the actual rendered result set), not the raw `search` keystroke —
+  // search is debounced 300ms before it drives a refetch, so resetting on every keystroke
+  // reset the scroll well before the new results actually landed in the DOM. If the cashier
+  // scrolled again in that gap (e.g. right after their last keystroke, before the debounce
+  // fired), `search` had already stopped changing and this effect never ran again, so the
+  // list quietly kept whatever scroll position it had when the new results finally swapped in.
   useEffect(() => {
     productListRef.current?.scrollTo(0, 0);
-  }, [search]);
+  }, [products]);
 
   // A native scrollbar — even styled via CSS — rendered inconsistently across
   // browsers/OS scrollbar settings and was still easy for less computer-literate staff to

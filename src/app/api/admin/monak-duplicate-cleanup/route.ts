@@ -20,7 +20,7 @@ const MONAK_PHARMACY_ID = "6a5f61da9e1719c3b02842ae";
 const MONAK_SYSTEM_USER_ID = "6a5f61da9e1719c3b02842ae"; // Monak's own generic owner account
 const SYSTEM_NAME = "System (duplicate reconciliation cleanup)";
 const SINCE_DATE = new Date("2026-09-20T00:00:00.000Z");
-const BATCH_SIZE = 400; // stays comfortably inside the 300s function budget per call
+const BATCH_SIZE = 150; // ~1s/item observed in practice, stays comfortably inside the 300s function budget
 
 export async function POST(request: NextRequest) {
   try {
