@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback } from "react";
+import { compressImage } from "@/lib/compressImage";
 
 interface Props {
   branchId: string;
@@ -78,9 +79,13 @@ export default function MonakSnapClient({ branchId }: Props) {
 
     setLoading(true);
     try {
+      const [compressedFront, compressedExpiry] = await Promise.all([
+        compressImage(frontFile),
+        compressImage(expiryFile),
+      ]);
       const [frontImageUrl, expiryImageUrl] = await Promise.all([
-        uploadImage(frontFile),
-        uploadImage(expiryFile),
+        uploadImage(compressedFront),
+        uploadImage(compressedExpiry),
       ]);
 
       const res = await fetch("/api/monak-snaps", {

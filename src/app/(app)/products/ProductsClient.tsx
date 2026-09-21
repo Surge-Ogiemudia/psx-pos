@@ -12,6 +12,7 @@ import {
 } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_ROW_CLASS, EXPIRY_TEXT_CLASS } from "@/lib/expiry";
 import { parseNumeric } from "@/lib/numberInput";
+import { compressImage } from "@/lib/compressImage";
 import { parseCsv } from "@/lib/csv";
 import IncomingBanner from "@/components/IncomingBanner";
 import AlertFilterButton from "@/components/AlertFilterButton";
@@ -282,8 +283,9 @@ export default function ProductsClient({
     if (!file) return;
     setImageUploading(true);
     try {
+      const compressed = await compressImage(file);
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", compressed);
       const res = await fetch("/api/products/upload", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);

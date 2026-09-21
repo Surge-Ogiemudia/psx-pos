@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { compressImage } from "@/lib/compressImage";
 
 interface AiProductAssistantProps {
   onClose: () => void;
@@ -68,7 +69,8 @@ export default function AiProductAssistant({ onClose, onSave }: AiProductAssista
     setErrorMsg(null);
     startProgress();
     try {
-      const uploadedUrl = await handleUploadImage(file);
+      const compressed = await compressImage(file);
+      const uploadedUrl = await handleUploadImage(compressed);
       
       if (step === "scan_front") {
         setForm((prev: any) => ({ ...prev, imageUrl: uploadedUrl }));

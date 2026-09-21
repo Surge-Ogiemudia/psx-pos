@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { compressImage } from "@/lib/compressImage";
 
 interface AiFastEntryProps {
   onClose: () => void;
@@ -64,7 +65,8 @@ export default function AiFastEntry({ onClose, branchId }: AiFastEntryProps) {
     else setUploadingBack(true);
 
     try {
-      const uploadedUrl = await handleUploadImage(file);
+      const compressed = await compressImage(file);
+      const uploadedUrl = await handleUploadImage(compressed);
       setForm(prev => ({ ...prev, [side === "front" ? "frontImageUrl" : "backImageUrl"]: uploadedUrl }));
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to upload image.");
