@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
-import { cleanStr, diceSimilarity } from "@/lib/fuzzyMatch";
 import { laneOf, VIEW_STORAGE_KEY } from "@/lib/triageLanes";
 
 // ---------------------------------------------------------------------------
@@ -25,14 +24,6 @@ interface AiDraft {
   extractedSize?: string | null;
   extractedExpiryDate?: string | null;
   productId?: string | null;
-}
-
-interface Excel1Result {
-  _id: string;
-  itemName: string;
-  expiryDate?: string;
-  retailPrice: number;
-  wholesalePrice: number;
 }
 
 interface CatalogMatch {
@@ -90,22 +81,6 @@ const EMPTY_FORM: ProductForm = {
   distributorPrice: 0,
 };
 
-// Same Excel-serial-date guard as desktop (MonakTriageClient.tsx normalizeExpiryDate) —
-// monak-excel1's expiryDate field sometimes holds a raw Excel serial number as a string.
-function normalizeExpiryDate(raw: string | null | undefined): string {
-  if (!raw) return "";
-  const trimmed = raw.trim();
-  if (/^\d{4,6}$/.test(trimmed)) {
-    const serial = Number(trimmed);
-    if (serial > 32000 && serial < 73000) {
-      const excelEpoch = Date.UTC(1899, 11, 30);
-      return new Date(excelEpoch + serial * 86400000).toISOString().slice(0, 10);
-    }
-    return "";
-  }
-  return trimmed.slice(0, 10);
-}
-
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState<T>(value);
   useEffect(() => {
@@ -113,19 +88,6 @@ function useDebounce<T>(value: T, delay: number): T {
     return () => clearTimeout(timer);
   }, [value, delay]);
   return debounced;
-}
-
-// Display-only match confidence — mirrors the same clean+Dice algorithm the
-// monak-excel1 API uses server-side (lib/fuzzyMatch.ts) to rank results, since the
-// API itself doesn't ship the numeric score back to the client.
-function matchPct(query: string, candidate: string): number {
-  const cleanQuery = cleanStr(query);
-  const cleanCandidate = cleanStr(candidate);
-  let score = diceSimilarity(cleanQuery, cleanCandidate);
-  if (cleanQuery && cleanCandidate === cleanQuery) score = 1;
-  else if (cleanQuery && cleanCandidate.startsWith(cleanQuery)) score = Math.max(score, 0.97);
-  else if (cleanQuery && cleanCandidate.includes(cleanQuery)) score = Math.max(score, 0.9);
-  return Math.round(score * 100);
 }
 
 // Vercel Edge WebP thumbnail URL — same trick as ResilientThumb.tsx, reimplemented
@@ -291,46 +253,8 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  // ------------------------------------------------------- suggestions (P2)
   const searchTerm = form.itemName;
   const debouncedSearch = useDebounce(searchTerm, 300);
-  const [suggestions, setSuggestions] = useState<Excel1Result[]>([]);
-
-  useEffect(() => {
-    if (!debouncedSearch.trim() || !currentDraft) {
-      setSuggestions([]);
-      return;
-    }
-    let cancelled = false;
-    fetch(`/api/monak-excel1?search=${encodeURIComponent(debouncedSearch)}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (!cancelled) setSuggestions(d.results ?? []);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedSearch, currentDraft?._id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const rankedSuggestions = useMemo(
-    () =>
-      suggestions
-        .map((s) => ({ ...s, pct: matchPct(debouncedSearch, s.itemName) }))
-        .sort((a, b) => b.pct - a.pct)
-        .slice(0, 5),
-    [suggestions, debouncedSearch]
-  );
-
-  function applySuggestion(r: Excel1Result) {
-    setForm((f) => ({
-      ...f,
-      itemName: r.itemName,
-      expiryDate: normalizeExpiryDate(r.expiryDate) || f.expiryDate,
-      retailPrice: r.retailPrice,
-      wholesalePrice: r.wholesalePrice,
-    }));
-  }
 
   // ------------------------------------------------- catalog duplicate check
   const [catalogMatches, setCatalogMatches] = useState<CatalogMatch[]>([]);
@@ -686,58 +610,55 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
             </button>
           </div>
 
-          {/* Identity card */}
-          <div className="rounded-3xl bg-zinc-900 border border-zinc-800 p-4">
-            <div className="flex items-start justify-between gap-2">
-              <h1 className="text-[19px] font-extrabold leading-tight text-white">
-                {form.itemName || "Unnamed item"}
-              </h1>
-              <button
-                onClick={() => setShowEditSheet(true)}
-                className="shrink-0 text-[11px] font-bold text-zinc-400 hover:text-zinc-200 px-0.5"
+          {/* Identity card — mirrors desktop Panel 2's form fields exactly (same order,
+              same fields), directly editable inline rather than behind an Edit button. */}
+          <div className="rounded-3xl bg-zinc-900 border border-zinc-800 p-4 flex flex-col gap-3">
+            <Field label="Item Name">
+              <input
+                type="text"
+                value={form.itemName}
+                onChange={(e) => updateForm("itemName", e.target.value)}
+                placeholder="e.g. Amoxicillin"
+                className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+              />
+            </Field>
+            <Field label="Size / Strength">
+              <input
+                type="text"
+                value={form.size}
+                onChange={(e) => updateForm("size", e.target.value)}
+                placeholder="e.g. 500mg, 1L, Standard"
+                className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+              />
+            </Field>
+            <Field label="Brand">
+              <input
+                type="text"
+                value={form.brand}
+                onChange={(e) => updateForm("brand", e.target.value)}
+                placeholder="e.g. Emzor, Beecham"
+                className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+              />
+            </Field>
+            <Field label="Category">
+              <select
+                value={form.category}
+                onChange={(e) => updateForm("category", e.target.value as ProductForm["category"])}
+                className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
               >
-                ✏️ Edit
-              </button>
-            </div>
-            <div className="mt-1.5 flex gap-1.5 flex-wrap">
-              {form.brand && (
-                <span className="rounded-md bg-zinc-800 px-2 py-1 text-[11px] font-semibold text-zinc-200">{form.brand}</span>
-              )}
-              {form.size && (
-                <span className="rounded-md bg-zinc-800 px-2 py-1 text-[11px] font-semibold text-zinc-200">{form.size}</span>
-              )}
-              {!form.brand && !form.size && (
-                <span className="text-[11px] text-zinc-500">No brand/size yet — tap a match below or Edit</span>
-              )}
-            </div>
-
-            <div className="mt-3.5 pt-3 border-t border-zinc-800">
-              <div className="text-[10px] font-extrabold uppercase tracking-wide text-zinc-500 mb-2">
-                Tap to match — no typing
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {rankedSuggestions.length === 0 && (
-                  <div className="text-[11px] text-zinc-500">
-                    {form.itemName.trim() ? "No matches in the stock list — use Edit to type it manually." : "Waiting for a name to search…"}
-                  </div>
-                )}
-                {rankedSuggestions.map((s) => {
-                  const active = s.itemName === form.itemName;
-                  return (
-                    <button
-                      key={s._id}
-                      onClick={() => applySuggestion(s)}
-                      className={`text-left flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 border ${
-                        active ? "bg-emerald-500/10 border-emerald-500/40" : "bg-zinc-800 border-zinc-700"
-                      }`}
-                    >
-                      <span className="text-xs font-bold text-zinc-200 leading-tight">{s.itemName}</span>
-                      <span className="text-[11px] font-extrabold text-emerald-400 shrink-0">{s.pct}%</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+                <option value="medicine">Medicine</option>
+                <option value="non-medicine">Non-Medicine</option>
+                <option value="supermarket">Supermarket</option>
+              </select>
+            </Field>
+            <Field label="Expiry Date">
+              <input
+                type="date"
+                value={form.expiryDate}
+                onChange={(e) => updateForm("expiryDate", e.target.value)}
+                className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+              />
+            </Field>
           </div>
 
           {/* Already-in-catalog warning — same "review, don't blindly trust" pattern as
