@@ -1439,7 +1439,7 @@ export default function PosClient({
             <div
               ref={productListRef}
               onScroll={syncScrollMetrics}
-              className="pos-results-scroll grid h-full min-h-[70vh] grid-cols-1 gap-2 overflow-y-auto pb-1 pr-6 sm:grid-cols-2"
+              className="pos-results-scroll grid max-h-[65vh] grid-cols-1 gap-2 overflow-y-auto pb-1 pr-6 sm:grid-cols-2"
             >
               {/* Hardcoded Treatment Item */}
               <button
