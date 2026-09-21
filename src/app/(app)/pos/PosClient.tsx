@@ -449,7 +449,11 @@ export default function PosClient({
       window.removeEventListener("resize", updateHeights);
       settleTimers.forEach(clearTimeout);
     };
-  }, []);
+    // Re-measure whenever the cart or catalog actually change, not just on mount/resize —
+    // adding items to the cart changes the page's real layout (the panel's own top position
+    // can shift), so a mount-only measurement goes stale the moment the cart grows, which is
+    // exactly the "works at first, breaks once you add items" bug this was causing.
+  }, [cart, products]);
 
   // Typing a new search shouldn't leave the results list scrolled to wherever it happened to be
   // from browsing before — jump back to the top so the best matches are actually visible.
