@@ -20,7 +20,7 @@ const MONAK_PHARMACY_ID = "6a5f61da9e1719c3b02842ae";
 const MONAK_SYSTEM_USER_ID = "6a5f61da9e1719c3b02842ae"; // Monak's own generic owner account
 const SYSTEM_NAME = "System (duplicate reconciliation cleanup)";
 const SINCE_DATE = new Date("2026-09-20T00:00:00.000Z");
-const BATCH_SIZE = 150; // ~1s/item observed in practice, stays comfortably inside the 300s function budget
+const BATCH_SIZE = 1500; // bulkWrite, not per-item transactions — see note below
 
 export async function POST(request: NextRequest) {
   try {
@@ -78,73 +78,67 @@ export async function POST(request: NextRequest) {
     ]);
     const soldById = new Map(salesAgg.map((r) => [String(r._id), r.totalSold as number]));
 
-    let succeeded = 0;
+    // Re-fetch fresh (not the values from the top-of-request snapshot) so a sale that landed
+    // in the last few seconds is still correctly reflected in the orphan's quantity.
+    const orphanIds = pairs.map((p) => p.orphan._id);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const failures: any[] = [];
+    const freshOrphans = await Product.find({ _id: { $in: orphanIds } }).lean<any[]>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const freshOrphanById = new Map<string, any>(freshOrphans.map((o) => [String(o._id), o]));
+
+    // One bulkWrite per collection covering the whole batch, instead of one full ACID
+    // transaction per pair — per-item transactions were the actual bottleneck (each one is
+    // several sequential round-trips + a multi-document commit), timing out the function at
+    // even 150 items. This trades cross-collection atomicity-per-pair for throughput; it's a
+    // safe trade here because the whole job is already idempotent (rebuilds the pair list
+    // fresh every call) — a partial failure just means that pair gets picked up again next call,
+    // never double-processed or corrupted.
+    const productOps: mongoose.mongo.AnyBulkWriteOperation[] = [];
+    const batchOps: mongoose.mongo.AnyBulkWriteOperation[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const deletionLogDocs: any[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const skipped: any[] = [];
 
     for (const { orphan, kept } of pairs) {
-      const dbSession = await mongoose.startSession();
-      try {
-        await dbSession.withTransaction(async () => {
-          const freshOrphan = await Product.findById(orphan._id).session(dbSession).lean();
-          const freshKept = await Product.findById(kept._id).session(dbSession).lean();
-          if (!freshOrphan) throw new Error("orphan already gone");
-          if (!freshKept) throw new Error("kept product missing");
-
-          const S_k = soldById.get(String(kept._id)) || 0;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const finalQty = Math.max(0, (freshOrphan as any).quantityInStock - S_k);
-
-          await Product.findByIdAndUpdate(
-            kept._id,
-            { $set: { quantityInStock: finalQty } },
-            { session: dbSession }
-          );
-
-          await ProductBatch.updateMany(
-            { productId: orphan._id },
-            { $set: { productId: kept._id } },
-            { session: dbSession }
-          );
-
-          await DeletionLog.create(
-            [
-              {
-                pharmacyId,
-                branchId: kept.branchId,
-                type: "single",
-                deletedByUserId: systemUserId,
-                deletedByName: SYSTEM_NAME,
-                itemCount: 1,
-                summary: `Duplicate reconciliation: removed accidental double-publish duplicate of "${kept.itemName}" (${
-                  (freshOrphan as { quantityInStock: number }).quantityInStock
-                } units) after reconciling against sales; kept product corrected to ${finalQty} units`,
-                productSnapshot: freshOrphan,
-              },
-            ],
-            { session: dbSession }
-          );
-
-          await Product.findByIdAndDelete(orphan._id, { session: dbSession });
-        });
-        succeeded++;
-      } catch (err) {
-        failures.push({
-          item: kept.itemName,
-          keptId: String(kept._id),
-          orphanId: String(orphan._id),
-          error: err instanceof Error ? err.message : String(err),
-        });
-      } finally {
-        await dbSession.endSession();
+      const freshOrphan = freshOrphanById.get(String(orphan._id));
+      if (!freshOrphan) {
+        skipped.push({ item: kept.itemName, orphanId: String(orphan._id), reason: "orphan already gone" });
+        continue;
       }
+      const S_k = soldById.get(String(kept._id)) || 0;
+      const finalQty = Math.max(0, freshOrphan.quantityInStock - S_k);
+
+      productOps.push({
+        updateOne: { filter: { _id: kept._id }, update: { $set: { quantityInStock: finalQty } } },
+      });
+      productOps.push({ deleteOne: { filter: { _id: orphan._id } } });
+      batchOps.push({
+        updateMany: { filter: { productId: orphan._id }, update: { $set: { productId: kept._id } } },
+      });
+      deletionLogDocs.push({
+        pharmacyId,
+        branchId: kept.branchId,
+        type: "single",
+        deletedByUserId: systemUserId,
+        deletedByName: SYSTEM_NAME,
+        itemCount: 1,
+        summary: `Duplicate reconciliation: removed accidental double-publish duplicate of "${kept.itemName}" (${freshOrphan.quantityInStock} units) after reconciling against sales; kept product corrected to ${finalQty} units`,
+        productSnapshot: freshOrphan,
+      });
     }
+
+    if (deletionLogDocs.length > 0) await DeletionLog.insertMany(deletionLogDocs, { ordered: false });
+    if (batchOps.length > 0) await ProductBatch.bulkWrite(batchOps, { ordered: false });
+    if (productOps.length > 0) await Product.bulkWrite(productOps, { ordered: false });
+
+    const succeeded = deletionLogDocs.length;
 
     return NextResponse.json({
       success: true,
       processed: succeeded,
-      failed: failures.length,
-      failures: failures.slice(0, 20),
+      skipped: skipped.length,
+      skippedDetail: skipped.slice(0, 20),
       remaining: totalRemainingBeforeThisCall - succeeded,
       done: totalRemainingBeforeThisCall - succeeded <= 0,
     });

@@ -434,8 +434,19 @@ export default function PosClient({
     if (!el) return;
     setScrollMetrics({ top: el.scrollTop, height: el.scrollHeight, clientHeight: el.clientHeight });
   }
+  // ResizeObserver instead of a `[products]`-keyed effect — the effect fired on the state
+  // change, not on the actual DOM reflow, so it could read a stale scrollHeight (e.g. images
+  // still loading, grid not yet re-laid-out) and leave the scrollbar thinking there's more
+  // content below than there really is, letting staff scroll into empty space past the last
+  // real result. Watching the element itself keeps metrics accurate to what's really rendered.
   useEffect(() => {
+    const el = productListRef.current;
+    if (!el) return;
     syncScrollMetrics();
+    const observer = new ResizeObserver(() => syncScrollMetrics());
+    observer.observe(el);
+    for (const child of Array.from(el.children)) observer.observe(child);
+    return () => observer.disconnect();
   }, [products]);
   const scrollThumbRef = useRef<HTMLDivElement>(null);
   function handleScrollTrackPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
@@ -470,8 +481,17 @@ export default function PosClient({
     if (!el) return;
     setCartScrollMetrics({ top: el.scrollTop, height: el.scrollHeight, clientHeight: el.clientHeight });
   }
+  // Same ResizeObserver reasoning as the product list — watches the actual rendered content
+  // instead of guessing from a state-change effect, so the scrollbar can never think there's
+  // more below than what's really there.
   useEffect(() => {
+    const el = cartListRef.current;
+    if (!el) return;
     syncCartScrollMetrics();
+    const observer = new ResizeObserver(() => syncCartScrollMetrics());
+    observer.observe(el);
+    for (const child of Array.from(el.children)) observer.observe(child);
+    return () => observer.disconnect();
   }, [cart]);
   const cartScrollThumbRef = useRef<HTMLDivElement>(null);
   function handleCartScrollTrackPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
@@ -1525,13 +1545,14 @@ export default function PosClient({
             {products.length > 4 && (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-zinc-50 to-transparent" />
             )}
-            {scrollMetrics.height > scrollMetrics.clientHeight && (
+            {products.length > 0 && (
               <>
                 <button
                   type="button"
+                  disabled={scrollMetrics.top <= 1}
                   onClick={() => productListRef.current?.scrollBy({ top: -160, behavior: "smooth" })}
                   aria-label="Scroll up"
-                  className="absolute top-0 right-0 flex h-7 w-5 items-center justify-center rounded-t-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700"
+                  className="absolute top-0 right-0 flex h-7 w-5 items-center justify-center rounded-t-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-emerald-600"
                 >
                   ▲
                 </button>
@@ -1543,19 +1564,26 @@ export default function PosClient({
                     ref={scrollThumbRef}
                     className="absolute left-0 right-0 rounded-full bg-emerald-700 shadow-sm"
                     style={{
-                      height: `${Math.max(10, (scrollMetrics.clientHeight / scrollMetrics.height) * 100)}%`,
+                      height: `${
+                        scrollMetrics.height > scrollMetrics.clientHeight
+                          ? Math.max(10, (scrollMetrics.clientHeight / scrollMetrics.height) * 100)
+                          : 100
+                      }%`,
                       top: `${
-                        (scrollMetrics.top / (scrollMetrics.height - scrollMetrics.clientHeight)) *
-                        (100 - Math.max(10, (scrollMetrics.clientHeight / scrollMetrics.height) * 100))
+                        scrollMetrics.height > scrollMetrics.clientHeight
+                          ? (scrollMetrics.top / (scrollMetrics.height - scrollMetrics.clientHeight)) *
+                            (100 - Math.max(10, (scrollMetrics.clientHeight / scrollMetrics.height) * 100))
+                          : 0
                       }%`,
                     }}
                   />
                 </div>
                 <button
                   type="button"
+                  disabled={scrollMetrics.height - scrollMetrics.clientHeight - scrollMetrics.top <= 1}
                   onClick={() => productListRef.current?.scrollBy({ top: 160, behavior: "smooth" })}
                   aria-label="Scroll down"
-                  className="absolute bottom-0 right-0 flex h-7 w-5 items-center justify-center rounded-b-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700"
+                  className="absolute bottom-0 right-0 flex h-7 w-5 items-center justify-center rounded-b-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-emerald-600"
                 >
                   ▼
                 </button>
@@ -1962,13 +1990,14 @@ export default function PosClient({
               );
             })}
             </div>
-            {cartScrollMetrics.height > cartScrollMetrics.clientHeight && (
+            {cart.length > 0 && (
               <>
                 <button
                   type="button"
+                  disabled={cartScrollMetrics.top <= 1}
                   onClick={() => cartListRef.current?.scrollBy({ top: -160, behavior: "smooth" })}
                   aria-label="Scroll cart up"
-                  className="absolute top-0 right-0 flex h-7 w-5 items-center justify-center rounded-t-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700"
+                  className="absolute top-0 right-0 flex h-7 w-5 items-center justify-center rounded-t-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-emerald-600"
                 >
                   ▲
                 </button>
@@ -1980,19 +2009,26 @@ export default function PosClient({
                     ref={cartScrollThumbRef}
                     className="absolute left-0 right-0 rounded-full bg-emerald-700 shadow-sm"
                     style={{
-                      height: `${Math.max(10, (cartScrollMetrics.clientHeight / cartScrollMetrics.height) * 100)}%`,
+                      height: `${
+                        cartScrollMetrics.height > cartScrollMetrics.clientHeight
+                          ? Math.max(10, (cartScrollMetrics.clientHeight / cartScrollMetrics.height) * 100)
+                          : 100
+                      }%`,
                       top: `${
-                        (cartScrollMetrics.top / (cartScrollMetrics.height - cartScrollMetrics.clientHeight)) *
-                        (100 - Math.max(10, (cartScrollMetrics.clientHeight / cartScrollMetrics.height) * 100))
+                        cartScrollMetrics.height > cartScrollMetrics.clientHeight
+                          ? (cartScrollMetrics.top / (cartScrollMetrics.height - cartScrollMetrics.clientHeight)) *
+                            (100 - Math.max(10, (cartScrollMetrics.clientHeight / cartScrollMetrics.height) * 100))
+                          : 0
                       }%`,
                     }}
                   />
                 </div>
                 <button
                   type="button"
+                  disabled={cartScrollMetrics.height - cartScrollMetrics.clientHeight - cartScrollMetrics.top <= 1}
                   onClick={() => cartListRef.current?.scrollBy({ top: 160, behavior: "smooth" })}
                   aria-label="Scroll cart down"
-                  className="absolute bottom-0 right-0 flex h-7 w-5 items-center justify-center rounded-b-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700"
+                  className="absolute bottom-0 right-0 flex h-7 w-5 items-center justify-center rounded-b-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-emerald-600"
                 >
                   ▼
                 </button>
