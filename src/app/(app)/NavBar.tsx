@@ -19,16 +19,17 @@ const RETAIL_LINKS = [
   { href: "/products", label: "Catalog" },
 ];
 
+// Monak Snap, Monak Triage, and Physical Stock Reconciler were Monak-Pharmacy-specific
+// tools that ended up visible to every pharmacy on the platform. Hidden here as a quick
+// front-end-only fix (no route/permission changes) — proper per-pharmacy scoping is a
+// separate follow-up, not done yet.
 const ADMIN_LINKS = [
   { href: "/reports", label: "Reports" },
   { href: "/staff", label: "Staff" },
   { href: "/locations", label: "Locations" },
-  { href: "/monak-snap", label: "Monak Snap" },
-  { href: "/monak-triage", label: "Monak Triage" },
 ];
 const STORE_LINKS = [
   { href: "/store", label: "Bulk Store" },
-  { href: "/store/reconcile", label: "Physical Stock Reconciler" },
 ];
 
 interface Pending {
