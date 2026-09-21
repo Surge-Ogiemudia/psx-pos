@@ -422,7 +422,12 @@ export default function PosClient({
   const [cartMaxHeight, setCartMaxHeight] = useState<number | null>(null);
   useEffect(() => {
     function updateHeights() {
-      const bottomMargin = 16;
+      // Generous margin on purpose — the panel's own bottom padding/border (~14px) eats
+      // into whatever's left below the scrollable area, and a first attempt at 16px left
+      // almost no real slack, so the down arrow still poked out past the panel's edge on
+      // some screens. This leaves real room rather than a razor-thin margin that any minor
+      // measurement drift (scrollbar width, sub-pixel rounding, a late reflow) can eat into.
+      const bottomMargin = 48;
       const catalogEl = productListRef.current;
       if (catalogEl) {
         const top = catalogEl.getBoundingClientRect().top;
@@ -436,12 +441,13 @@ export default function PosClient({
     }
     updateHeights();
     window.addEventListener("resize", updateHeights);
-    // Sticky headers can still be settling into place right after mount/navigation —
-    // a second pass shortly after catches that instead of measuring mid-transition.
-    const settleTimer = setTimeout(updateHeights, 300);
+    // Sticky headers, async image loads, and the catalog's own fetch can all still be
+    // settling into their final layout right after mount — a few repeated passes catch
+    // whatever a single early measurement would miss instead of guessing one delay is enough.
+    const settleTimers = [100, 500, 1200, 2500].map((ms) => setTimeout(updateHeights, ms));
     return () => {
       window.removeEventListener("resize", updateHeights);
-      clearTimeout(settleTimer);
+      settleTimers.forEach(clearTimeout);
     };
   }, []);
 
