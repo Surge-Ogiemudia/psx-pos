@@ -41,6 +41,11 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const branchId = searchParams.get("branchId");
+    // Optional — omitted entirely keeps the old unlimited-fetch behavior (desktop still
+    // relies on seeing the true full queue for its lane counts). Mobile passes this to
+    // avoid re-transferring thousands of drafts (image URLs included) on every 5s poll.
+    const limitParam = searchParams.get("limit");
+    const limit = limitParam ? Math.min(500, Math.max(1, parseInt(limitParam, 10) || 0)) : null;
 
     await dbConnect();
 
@@ -52,14 +57,19 @@ export async function GET(req: NextRequest) {
     // Trimmed to exactly what the Live Queue UI reads — drops branchId/pharmacyId,
     // internal confirm-flow flags, and other fields that were being shipped over the
     // wire on every poll but never used client-side.
-    const drafts = await AiDraftProduct.find(query)
+    let cursor = AiDraftProduct.find(query)
       .select(
         "frontImageUrl backImageUrl quantityInStock retailPrice category status createdAt extractedItemName extractedBrand extractedSize extractedExpiryDate productId"
       )
-      .sort({ createdAt: -1 })
-      .lean();
+      .sort({ createdAt: -1 });
+    if (limit) cursor = cursor.limit(limit);
+    const drafts = await cursor.lean();
 
-    return NextResponse.json({ success: true, drafts });
+    // Only computed when a limit was actually requested — an extra count() on every
+    // unlimited desktop poll would be pure overhead for a number nothing there reads.
+    const total = limit ? await AiDraftProduct.countDocuments(query) : drafts.length;
+
+    return NextResponse.json({ success: true, drafts, total });
   } catch (error: any) {
     console.error("Failed to fetch AI Drafts:", error);
     return NextResponse.json({ error: error.message || "Failed to fetch drafts" }, { status: 500 });

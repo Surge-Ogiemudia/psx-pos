@@ -137,10 +137,22 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The true count across the whole branch, even though only a batch of it is actually
+  // fetched below — so the UI can say "showing 150 of 2,765" instead of quietly implying
+  // the queue only has 150 items in it.
+  const [queueTotalOnServer, setQueueTotalOnServer] = useState(0);
+
+  // Fetching the entire active queue (thousands of drafts, each carrying image URLs) on
+  // every 5s poll was a real, measured cost and latency problem — this caps each fetch to
+  // the newest 150 instead. Lane (View 1/2/3) counts below are computed only from what's
+  // actually fetched, so they can undercount relative to desktop's full-queue view when
+  // the true backlog is larger than one batch; that's an explicit, known trade-off being
+  // tried here, not an oversight.
+  const QUEUE_BATCH_LIMIT = 150;
 
   const fetchQueue = useCallback(async () => {
     try {
-      const res = await fetch(`/api/products/ai-drafts?branchId=${branchId}`);
+      const res = await fetch(`/api/products/ai-drafts?branchId=${branchId}&limit=${QUEUE_BATCH_LIMIT}`);
       if (!res.ok) return;
       const data = await res.json();
       const all: AiDraft[] = data.drafts ?? [];
@@ -148,6 +160,7 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
         (d) => d.status !== "completed" && d.status !== "dismissed" && d.status !== "skipped" && d.status !== "confirming"
       );
       setRawQueue(active);
+      setQueueTotalOnServer(data.total ?? active.length);
       setQueueLoaded(true);
     } catch {
       // silent — keep whatever we already had
@@ -254,23 +267,42 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
   // check replaces what used to be two separate lookups (still-queued siblings vs catalog).
   const [duplicateCandidates, setDuplicateCandidates] = useState<DuplicateCandidate[]>([]);
   const [dupeIndex, setDupeIndex] = useState(0);
+  // Tracked separately from the candidates array itself — an empty array must never be
+  // ambiguous between "checked, genuinely none" and "the check failed/never finished", or
+  // a slow/failed connection would silently look identical to "no duplicates found" and
+  // let a real duplicate slip through unseen.
+  const [dupeCheckStatus, setDupeCheckStatus] = useState<"loading" | "done" | "error">("loading");
 
-  useEffect(() => {
-    setDupeIndex(0);
+  const runDuplicateCheck = useCallback(() => {
     if (!currentDraft?.productId) {
       setDuplicateCandidates([]);
-      return;
+      setDupeCheckStatus("done");
+      return () => {};
     }
     let cancelled = false;
+    setDupeCheckStatus("loading");
     fetch(`/api/products/${currentDraft.productId}/possible-duplicates`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (!cancelled) setDuplicateCandidates(d.candidates ?? []);
+      .then((r) => {
+        if (!r.ok) throw new Error("Duplicate check failed");
+        return r.json();
       })
-      .catch(() => {});
+      .then((d) => {
+        if (cancelled) return;
+        setDuplicateCandidates(d.candidates ?? []);
+        setDupeCheckStatus("done");
+      })
+      .catch(() => {
+        if (!cancelled) setDupeCheckStatus("error");
+      });
     return () => {
       cancelled = true;
     };
+  }, [currentDraft?.productId]);
+
+  useEffect(() => {
+    setDupeIndex(0);
+    return runDuplicateCheck();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDraft?._id, currentDraft?.productId]);
 
   const currentDupe = duplicateCandidates[dupeIndex] ?? null;
@@ -408,18 +440,34 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
   const debouncedPriceSearch = useDebounce(priceSearch, 300);
 
   const [priceMatches, setPriceMatches] = useState<PriceMatch[]>([]);
+  const [priceSearchLoading, setPriceSearchLoading] = useState(false);
+  const [priceSearchError, setPriceSearchError] = useState(false);
   useEffect(() => {
     if (stage !== "price" || !debouncedPriceSearch.trim()) {
       setPriceMatches([]);
+      setPriceSearchLoading(false);
+      setPriceSearchError(false);
       return;
     }
     let cancelled = false;
+    setPriceSearchLoading(true);
+    setPriceSearchError(false);
     fetch(`/api/monak-excel2?search=${encodeURIComponent(debouncedPriceSearch)}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (!cancelled) setPriceMatches(d.results ?? []);
+      .then((r) => {
+        if (!r.ok) throw new Error("Search failed");
+        return r.json();
       })
-      .catch(() => {});
+      .then((d) => {
+        if (cancelled) return;
+        setPriceMatches(d.results ?? []);
+        setPriceSearchLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPriceSearchLoading(false);
+          setPriceSearchError(true);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -496,6 +544,9 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
             <div className="rounded-full bg-zinc-900 border border-zinc-800 px-2.5 py-1 text-xs font-bold text-zinc-300">
               {position}
               <span className="text-zinc-500"> / {total}</span>
+              {queueTotalOnServer > rawQueue.length && (
+                <span className="text-zinc-600"> (of {queueTotalOnServer} total)</span>
+              )}
             </div>
             <button
               aria-label="Switch view"
@@ -722,6 +773,10 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               placeholder="Search price list…"
               className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
             />
+            {priceSearchLoading && <span className="text-[11px] text-zinc-500">Searching…</span>}
+            {priceSearchError && (
+              <span className="text-[11px] text-red-400">⚠️ Price search failed — check connection and try again.</span>
+            )}
             {priceMatches.length > 0 && (
               <div className="flex flex-col gap-1.5 max-h-[220px] overflow-y-auto">
                 {priceMatches.map((m) => (
@@ -828,13 +883,22 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               {skipping ? "Skipping…" : "Skip →"}
             </button>
             {stage === "identity" ? (
-              <button
-                onClick={() => setStage(duplicateCandidates.length > 0 ? "duplicates" : "price")}
-                disabled={!form.itemName.trim()}
-                className="flex-1 h-[50px] rounded-2xl bg-emerald-500 disabled:opacity-40 text-[13px] font-extrabold text-emerald-950 flex items-center justify-center gap-1.5"
-              >
-                Proceed →
-              </button>
+              dupeCheckStatus === "error" ? (
+                <button
+                  onClick={runDuplicateCheck}
+                  className="flex-1 h-[50px] rounded-2xl bg-red-500/15 border border-red-500/40 text-[12px] font-extrabold text-red-300 flex items-center justify-center gap-1.5"
+                >
+                  ⚠️ Duplicate check failed — tap to retry
+                </button>
+              ) : (
+                <button
+                  onClick={() => setStage(duplicateCandidates.length > 0 ? "duplicates" : "price")}
+                  disabled={!form.itemName.trim() || dupeCheckStatus === "loading"}
+                  className="flex-1 h-[50px] rounded-2xl bg-emerald-500 disabled:opacity-40 text-[13px] font-extrabold text-emerald-950 flex items-center justify-center gap-1.5"
+                >
+                  {dupeCheckStatus === "loading" ? "Checking for duplicates…" : "Proceed →"}
+                </button>
+              )
             ) : (
               <button
                 onClick={handleSaveAndNext}
