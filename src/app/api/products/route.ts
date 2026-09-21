@@ -90,7 +90,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ products });
     }
 
+    // skip is opt-in and only used by the POS offline sync's chunked fetch (see
+    // usePosOfflineSync.ts) — every other caller (admin Catalog listing, the "Delete All"
+    // confirmation count) keeps its existing unbounded-unless-limit-passed behavior
+    // untouched, since that count in particular needs to stay a true total.
+    const skip = request.nextUrl.searchParams.get("skip");
     let productsQuery = Product.find(query).sort({ itemName: 1, brand: 1 });
+    if (skip) {
+      productsQuery = productsQuery.skip(parseInt(skip, 10));
+    }
     if (limit) {
       productsQuery = productsQuery.limit(parseInt(limit, 10));
     }
