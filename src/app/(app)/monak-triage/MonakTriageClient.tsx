@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import ResilientThumb from "@/components/ResilientThumb";
+import { laneOf, VIEW_STORAGE_KEY } from "@/lib/triageLanes";
 
 interface AiDraft {
   _id: string;
@@ -192,15 +193,8 @@ function useDebounce<T>(value: T, delay: number): T {
 
 // Stable 3-way split so 3 operators can each work a fixed lane without colliding.
 // Based on the item's own id (not its position in the list), so an item never jumps
-// lanes as new snaps arrive and the newest-first order shifts underneath it.
-const LANE_COUNT = 3;
-function laneOf(id: string): number {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  }
-  return hash % LANE_COUNT;
-}
+// lanes as new snaps arrive and the newest-first order shifts underneath it. Shared with
+// the mobile tool (src/lib/triageLanes.ts) so "View 1/2/3" means the same items on both.
 
 // Panel 1 instant search — matches case-insensitively against whatever the AI extraction
 // sweep has filled in (name/brand/size, which may still be blank for un-swept items) plus
@@ -212,8 +206,6 @@ function matchesQueueSearch(snap: AiDraft, query: string): boolean {
     .toLowerCase();
   return haystack.includes(query);
 }
-
-const VIEW_STORAGE_KEY = "psx_monak_triage_view";
 
 interface Props {
   branchId: string;

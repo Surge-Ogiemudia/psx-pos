@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
 import { cleanStr, diceSimilarity } from "@/lib/fuzzyMatch";
+import { laneOf, VIEW_STORAGE_KEY } from "@/lib/triageLanes";
 
 // ---------------------------------------------------------------------------
 // Mobile "one card at a time" view of Monak Triage — built from the same live
@@ -145,13 +146,40 @@ function timeAgo(dateStr: string): string {
 
 const PRICE_CHIPS = [500, 1000, 2000, 5000];
 
+// The Next.js image optimizer occasionally fails on these (large raw camera photos) —
+// falls back to the original, unoptimized URL rather than sitting on a broken image icon.
+// Same resilience pattern as ResilientThumb.tsx. Keyed by rawSrc so it resets per photo.
+function TriagePhoto({
+  optimizedSrc,
+  rawSrc,
+  alt,
+  className,
+}: {
+  optimizedSrc: string;
+  rawSrc: string;
+  alt: string;
+  className?: string;
+}) {
+  const [hasError, setHasError] = useState(false);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      key={rawSrc}
+      src={hasError ? rawSrc : optimizedSrc}
+      alt={alt}
+      className={className}
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 interface Props {
   branchId: string;
 }
 
 export default function MonakTriageMobileClient({ branchId }: Props) {
   // ------------------------------------------------------------------ queue
-  const [queue, setQueue] = useState<AiDraft[]>([]);
+  const [rawQueue, setRawQueue] = useState<AiDraft[]>([]);
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -165,7 +193,7 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
       const active = all.filter(
         (d) => d.status !== "completed" && d.status !== "dismissed" && d.status !== "skipped" && d.status !== "confirming"
       );
-      setQueue(active);
+      setRawQueue(active);
       setQueueLoaded(true);
     } catch {
       // silent — keep whatever we already had
@@ -180,8 +208,26 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
     };
   }, [fetchQueue]);
 
-  // Land on the first item once the queue first loads, and follow along if the
-  // current item disappears from underneath us (e.g. another operator took it).
+  // Which lane this operator/phone is working — "all" or 0/1/2. Same partitioning and
+  // same localStorage key as the desktop tool (src/lib/triageLanes.ts), so "View 1" means
+  // the identical set of items on both. Persists across refresh until changed here.
+  const [viewFilter, setViewFilter] = useState<"all" | number>("all");
+  useEffect(() => {
+    const saved = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (saved === "0" || saved === "1" || saved === "2") setViewFilter(Number(saved));
+  }, []);
+  function chooseView(v: "all" | number) {
+    setViewFilter(v);
+    localStorage.setItem(VIEW_STORAGE_KEY, String(v));
+  }
+  const laneCounts = [0, 1, 2].map((lane) => rawQueue.filter((d) => laneOf(d._id) === lane).length);
+  const queue = useMemo(
+    () => (viewFilter === "all" ? rawQueue : rawQueue.filter((d) => laneOf(d._id) === viewFilter)),
+    [rawQueue, viewFilter]
+  );
+
+  // Land on the first item once the queue first loads, and follow along if the current
+  // item disappears from underneath us (e.g. another operator took it, or the view just changed).
   useEffect(() => {
     if (!queueLoaded) return;
     if (currentId && queue.some((d) => d._id === currentId)) return;
@@ -199,7 +245,7 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
   // Removes the just-processed item(s) from the live queue and advances to whichever
   // remaining item was sitting immediately after the current one.
   function goNext(removeIds: string[]) {
-    setQueue((prev) => prev.filter((d) => !removeIds.includes(d._id)));
+    setRawQueue((prev) => prev.filter((d) => !removeIds.includes(d._id)));
     const remaining = queue.filter((d) => !removeIds.includes(d._id));
     const nextAfterCurrent = remaining.find((d) => queue.indexOf(d) > currentIndex);
     setCurrentId(nextAfterCurrent?._id ?? remaining[0]?._id ?? null);
@@ -515,6 +561,7 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
   const frontUrl = currentDraft ? imgSrc(currentDraft.frontImageUrl, 640) : null;
   const backUrl = currentDraft ? imgSrc(currentDraft.backImageUrl, 640) : null;
   const activeUrl = activePhoto === "front" ? frontUrl : backUrl;
+  const activeRawUrl = currentDraft ? (activePhoto === "front" ? currentDraft.frontImageUrl : currentDraft.backImageUrl) : null;
 
   const categoryLabel =
     form.category === "medicine" ? "💊 Medicine" : form.category === "supermarket" ? "🛒 Supermarket" : "📦 Non-Medicine";
@@ -560,12 +607,17 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {viewFilter !== "all" && (
+              <div className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 text-xs font-bold text-emerald-400">
+                View {(viewFilter as number) + 1}
+              </div>
+            )}
             <div className="rounded-full bg-zinc-900 border border-zinc-800 px-2.5 py-1 text-xs font-bold text-zinc-300">
               {position}
               <span className="text-zinc-500"> / {total}</span>
             </div>
             <button
-              aria-label="Browse queue"
+              aria-label="Switch view"
               onClick={() => setShowQueueBrowser(true)}
               className="w-8 h-8 rounded-[10px] bg-zinc-900 border border-zinc-800 text-zinc-300 flex items-center justify-center"
             >
@@ -615,9 +667,13 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               className="h-[190px] w-full flex items-center justify-center bg-zinc-950"
               onClick={() => activeUrl && setZoomImage(activePhoto === "front" ? currentDraft.frontImageUrl : currentDraft.backImageUrl)}
             >
-              {activeUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={activeUrl} alt={activePhoto} className="h-full w-full object-contain" />
+              {activeUrl && activeRawUrl ? (
+                <TriagePhoto
+                  optimizedSrc={activeUrl}
+                  rawSrc={activeRawUrl}
+                  alt={activePhoto}
+                  className="h-full w-full object-contain"
+                />
               ) : (
                 <div className="w-20 h-20 rounded-2xl bg-zinc-800 flex items-center justify-center text-zinc-500 text-[11px] text-center">
                   No {activePhoto}
@@ -856,6 +912,28 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               <button onClick={() => setShowQueueBrowser(false)} className="text-zinc-400 text-xl leading-none px-1">
                 ✕
               </button>
+            </div>
+            <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-zinc-800 shrink-0 overflow-x-auto">
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide mr-0.5 shrink-0">View:</span>
+              <button
+                onClick={() => chooseView("all")}
+                className={`shrink-0 text-xs rounded-full px-2.5 py-1 font-bold ${
+                  viewFilter === "all" ? "bg-emerald-500 text-emerald-950" : "bg-zinc-900 border border-zinc-700 text-zinc-300"
+                }`}
+              >
+                All ({rawQueue.length})
+              </button>
+              {[0, 1, 2].map((lane) => (
+                <button
+                  key={lane}
+                  onClick={() => chooseView(lane)}
+                  className={`shrink-0 text-xs rounded-full px-2.5 py-1 font-bold ${
+                    viewFilter === lane ? "bg-emerald-500 text-emerald-950" : "bg-zinc-900 border border-zinc-700 text-zinc-300"
+                  }`}
+                >
+                  View {lane + 1} ({laneCounts[lane]})
+                </button>
+              ))}
             </div>
             <div className="overflow-y-auto p-3 flex flex-col gap-2">
               {queue.map((d, idx) => {
