@@ -1392,16 +1392,6 @@ export default function MonakTriageClient({ branchId }: Props) {
                             </span>
                             <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
                           </div>
-                          {snap.status === "extracted" && snap.extractedItemName && (
-                            <span className="text-xs bg-purple-100 text-purple-700 rounded-full px-2 py-0.5 font-medium w-fit mt-0.5">
-                              🤖 AI read: {snap.extractedItemName}
-                            </span>
-                          )}
-                          {snap.productId && (
-                            <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-medium w-fit mt-0.5">
-                              🟢 Already live in POS — this just edits it
-                            </span>
-                          )}
                         </div>
                       </div>
                       <div className="flex gap-2">
