@@ -99,6 +99,34 @@ interface DuplicateGroup {
   products: DuplicateProduct[];
 }
 
+// A DIFFERENT still-"extracted" draft sitting elsewhere in the Panel 1 queue that fuzzy-
+// matches the one just opened — e.g. bulk-publish created 3 separate live Products for 3
+// duplicate "CoQ10 Softgels" drafts. Distinct from CatalogMatch: this isn't something
+// already fully processed, it's something ELSE still waiting untouched in the queue.
+interface SiblingDraft {
+  draftId: string;
+  productId: string;
+  itemName: string;
+  brand: string;
+  size: string;
+  imageUrl: string | null;
+  frontImageUrl: string | null;
+  backImageUrl: string | null;
+  quantityInStock: number;
+  createdAt: string;
+}
+
+// The currently-open draft's own live product — fetched alongside siblings so the merge
+// confirm modal can show/default an accurate combined quantity.
+interface SiblingKeptProduct {
+  _id: string;
+  itemName: string;
+  brand: string;
+  size: string;
+  imageUrl: string | null;
+  quantityInStock: number;
+}
+
 interface ProductForm {
   itemName: string;
   brand: string;
@@ -250,6 +278,22 @@ export default function MonakTriageClient({ branchId }: Props) {
   const [mergeExpiryDate, setMergeExpiryDate] = useState("");
   const [merging, setMerging] = useState(false);
   const [mergeError, setMergeError] = useState("");
+
+  // Sibling-draft duplicate check — OTHER still-"extracted" drafts in the queue that look
+  // like the same physical item as the one just opened (see siblings/route.ts). Fetched
+  // automatically the instant a draft is selected, independent of anything typed into
+  // Panel 2's search box (unlike catalogMatches). Detection only — nothing is merged until
+  // the operator explicitly confirms in the modal below.
+  const [siblingDrafts, setSiblingDrafts] = useState<SiblingDraft[]>([]);
+  const [siblingKeptProduct, setSiblingKeptProduct] = useState<SiblingKeptProduct | null>(null);
+  const [showSiblingConfirm, setShowSiblingConfirm] = useState(false);
+  // Which candidates are actually included in the merge — defaults to "all selected" for
+  // convenience but every entry is a real, individually-uncheckable toggle so the operator
+  // can drop any that turn out to be genuinely different items.
+  const [siblingSelection, setSiblingSelection] = useState<Record<string, boolean>>({});
+  const [siblingFinalQty, setSiblingFinalQty] = useState(0);
+  const [siblingMerging, setSiblingMerging] = useState(false);
+  const [siblingMergeError, setSiblingMergeError] = useState("");
 
   // Panel 3 state
   const [p3Search, setP3Search] = useState("");
@@ -470,6 +514,30 @@ export default function MonakTriageClient({ branchId }: Props) {
     };
   }, [debouncedP2, branchId]);
 
+  // --------------- Panel 1 -> 2: sibling-draft duplicate check ---------------
+  // Fires the moment a draft is opened — not tied to typing, unlike catalogMatches above.
+  // Detection only; the confirm modal (openSiblingMergeConfirm/handleSiblingMergeConfirm
+  // below) is the only thing that ever writes anything.
+  useEffect(() => {
+    if (!selectedSnap) {
+      setSiblingDrafts([]);
+      setSiblingKeptProduct(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/products/ai-drafts/${selectedSnap._id}/siblings`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        setSiblingDrafts(d.siblings ?? []);
+        setSiblingKeptProduct(d.keptProduct ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSnap?._id]);
+
   // --------------- Panel 3 Search ---------------
   useEffect(() => {
     if (!debouncedP3) {
@@ -520,6 +588,9 @@ export default function MonakTriageClient({ branchId }: Props) {
     setMergeError("");
     setSaveError("");
     setAiScanError("");
+    setShowSiblingConfirm(false);
+    setSiblingSelection({});
+    setSiblingMergeError("");
   }
 
   // --------------- Open the merge-confirm view for a possible catalog duplicate ---------------
@@ -559,10 +630,90 @@ export default function MonakTriageClient({ branchId }: Props) {
       setP2Results([]);
       setP3Results([]);
       setCatalogMatches([]);
+      setShowSiblingConfirm(false);
+      setSiblingSelection({});
+      setSiblingMergeError("");
     } catch (err) {
       setMergeError(err instanceof Error ? err.message : "Merge failed");
     } finally {
       setMerging(false);
+    }
+  }
+
+  // --------------- Open the confirm view for merging sibling drafts still in the queue ---------------
+  // Detection (siblingDrafts) already ran automatically on select — this only opens the
+  // confirm UI. Every candidate starts pre-checked for convenience, but it's a real
+  // per-item toggle (toggleSiblingSelection below), not a fait accompli, and nothing is
+  // written until handleSiblingMergeConfirm's explicit submit.
+  function openSiblingMergeConfirm() {
+    if (siblingDrafts.length === 0) return;
+    const initialSelection: Record<string, boolean> = {};
+    for (const s of siblingDrafts) initialSelection[s.draftId] = true;
+    setSiblingSelection(initialSelection);
+    const baseQty = siblingKeptProduct?.quantityInStock ?? 0;
+    setSiblingFinalQty(baseQty + siblingDrafts.reduce((sum, s) => sum + s.quantityInStock, 0));
+    setSiblingMergeError("");
+    setShowSiblingConfirm(true);
+  }
+
+  // --------------- Toggle one candidate in/out of the pending sibling merge ---------------
+  function toggleSiblingSelection(draftId: string) {
+    setSiblingSelection((prev) => ({ ...prev, [draftId]: !prev[draftId] }));
+  }
+
+  // --------------- Commit the sibling-duplicate merge — the ONLY action that writes anything ---------------
+  // Saves the currently-open draft with whatever the operator confirmed in Panel 2/3 (same
+  // fields as a normal Save) AND folds every checked sibling into the same product in one
+  // atomic transaction, then marks every involved draft "completed".
+  async function handleSiblingMergeConfirm() {
+    if (!selectedSnap) return;
+    const selectedIds = siblingDrafts.filter((s) => siblingSelection[s.draftId]).map((s) => s.draftId);
+    if (selectedIds.length === 0) {
+      setSiblingMergeError("Select at least one duplicate to merge, or close this and save normally.");
+      return;
+    }
+    setSiblingMerging(true);
+    setSiblingMergeError("");
+    try {
+      const res = await fetch(`/api/products/ai-drafts/${selectedSnap._id}/merge-duplicates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          siblingDraftIds: selectedIds,
+          finalQuantity: siblingFinalQty,
+          itemName: form.itemName,
+          brand: form.brand,
+          size: form.size || "Standard",
+          category: form.category,
+          expiryDate: form.expiryDate || null,
+          retailPrice: form.retailPrice,
+          wholesalePrice: form.wholesalePrice,
+          distributorPrice: form.distributorPrice,
+          frontImageUrl: selectedSnap.frontImageUrl,
+          backImageUrl: selectedSnap.backImageUrl,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Merge failed");
+
+      const mergedIds = new Set<string>([selectedSnap._id, ...selectedIds]);
+      setSnaps((prev) => prev.filter((s) => !mergedIds.has(s._id)));
+      setSelectedSnap(null);
+      setForm({ ...EMPTY_FORM });
+      setShowSiblingConfirm(false);
+      setSiblingDrafts([]);
+      setSiblingKeptProduct(null);
+      setSiblingSelection({});
+      setP2Search("");
+      setP3Search("");
+      setP2Results([]);
+      setP3Results([]);
+      setCatalogMatches([]);
+      fetchProcessed();
+    } catch (err) {
+      setSiblingMergeError(err instanceof Error ? err.message : "Merge failed");
+    } finally {
+      setSiblingMerging(false);
     }
   }
 
@@ -754,6 +905,9 @@ export default function MonakTriageClient({ branchId }: Props) {
       setP3Search("");
       setP2Results([]);
       setP3Results([]);
+      setShowSiblingConfirm(false);
+      setSiblingSelection({});
+      setSiblingMergeError("");
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -791,6 +945,9 @@ export default function MonakTriageClient({ branchId }: Props) {
     setSaveError("");
     setEditSaveError("");
     setAiScanError("");
+    setShowSiblingConfirm(false);
+    setSiblingSelection({});
+    setSiblingMergeError("");
     // Panel 2 lives above Panel 4 in the layout, so scroll it into view the same way
     // the "Continue to Price Matching" button jumps down to Panel 3.
     requestAnimationFrame(() => {
@@ -890,6 +1047,9 @@ export default function MonakTriageClient({ branchId }: Props) {
       if (selectedSnap?._id === snap._id) {
         setSelectedSnap(null);
         setForm({ ...EMPTY_FORM });
+        setShowSiblingConfirm(false);
+        setSiblingSelection({});
+        setSiblingMergeError("");
       }
     } catch {
       // silent
@@ -919,6 +1079,9 @@ export default function MonakTriageClient({ branchId }: Props) {
       setCatalogMatches([]);
       setSaveError("");
       setMergeError("");
+      setShowSiblingConfirm(false);
+      setSiblingSelection({});
+      setSiblingMergeError("");
     } catch {
       // silent
     }
@@ -1372,6 +1535,21 @@ export default function MonakTriageClient({ branchId }: Props) {
                       </button>
                     ))}
                   </div>
+                )}
+
+                {/* Still waiting elsewhere in the queue — OTHER un-processed drafts that look
+                    like the same item. Clicking this only OPENS the review/confirm modal —
+                    see the modal below for the actual (explicit, per-item) merge decision. */}
+                {siblingDrafts.length > 0 && (
+                  <button
+                    onClick={openSiblingMergeConfirm}
+                    className="shrink-0 rounded-lg border-2 border-sky-300 bg-sky-50 text-left hover:bg-sky-100"
+                  >
+                    <div className="px-3 py-2 text-xs font-bold text-sky-800">
+                      ⏳ {siblingDrafts.length} more of {siblingDrafts.length === 1 ? "this" : "these"} still waiting in
+                      the queue — review &amp; merge?
+                    </div>
+                  </button>
                 )}
 
                 {/* Results */}
@@ -2064,6 +2242,127 @@ export default function MonakTriageClient({ branchId }: Props) {
                 className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {merging ? "Adding…" : `✅ Add ${mergeQuantity} to existing stock`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* SIBLING-DRAFT MERGE CONFIRM MODAL — fold OTHER still-"extracted"    */}
+      {/* drafts still sitting in the queue into the one just opened. Fuzzy   */}
+      {/* detection (siblingDrafts) only ever PROPOSES candidates — every     */}
+      {/* candidate is pre-checked for convenience but individually          */}
+      {/* uncheckable, the final quantity is editable, and nothing is        */}
+      {/* written to the database until "Merge N items" below is clicked.    */}
+      {/* ================================================================ */}
+      {showSiblingConfirm && selectedSnap && (
+        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
+            <div className="bg-sky-50 px-5 py-4 border-b border-sky-200 flex items-center justify-between">
+              <h2 className="font-bold text-sky-900 text-lg">
+                ⏳ {siblingDrafts.length} more like this still in the queue
+              </h2>
+              <button
+                onClick={() => setShowSiblingConfirm(false)}
+                className="text-zinc-400 hover:text-zinc-700 text-xl font-bold leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-5 flex flex-col gap-5">
+              <p className="text-sm text-zinc-600">
+                These look like the same physical item, still sitting unprocessed elsewhere in
+                Panel 1. Uncheck any that are actually a different product — everything you
+                leave checked will be merged into <span className="font-semibold">this</span> item
+                (using whatever name/brand/size/price you confirm below) and removed from the
+                queue for good. This cannot be undone from here.
+              </p>
+
+              <div className="flex flex-col gap-2">
+                {siblingDrafts.map((s) => {
+                  const checked = !!siblingSelection[s.draftId];
+                  return (
+                    <label
+                      key={s.draftId}
+                      onClick={() => toggleSiblingSelection(s.draftId)}
+                      className={`flex items-center gap-3 rounded-lg border p-2 cursor-pointer ${
+                        checked ? "border-sky-400 bg-sky-50" : "border-zinc-200"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSiblingSelection(s.draftId)}
+                        className="accent-sky-600 h-4 w-4 shrink-0"
+                      />
+                      <ResilientThumb
+                        src={s.frontImageUrl || s.imageUrl}
+                        alt={s.itemName}
+                        className="h-12 w-12 shrink-0"
+                        size={96}
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-medium text-zinc-800 leading-tight truncate">
+                          {s.itemName} · {s.size}
+                        </span>
+                        <span className="block text-xs text-zinc-500 truncate">{s.brand}</span>
+                      </span>
+                      <span className="text-xs font-semibold text-sky-700 shrink-0">
+                        {s.quantityInStock} in stock
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                  Final Quantity In Stock
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={siblingFinalQty}
+                  onChange={(e) => setSiblingFinalQty(Math.max(0, Number(e.target.value)))}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                />
+                <p className="mt-1 text-[11px] text-zinc-400">
+                  Defaults to this item&apos;s current stock ({siblingKeptProduct?.quantityInStock ?? 0}) plus every
+                  currently-checked duplicate&apos;s stock (
+                  {siblingDrafts
+                    .filter((s) => siblingSelection[s.draftId])
+                    .reduce((sum, s) => sum + s.quantityInStock, 0)}
+                  ) — adjust if the real count differs.
+                </p>
+              </div>
+
+              {siblingMergeError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
+                  ⚠️ {siblingMergeError}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-4 border-t border-zinc-200 flex gap-3">
+              <button
+                onClick={() => setShowSiblingConfirm(false)}
+                disabled={siblingMerging}
+                className="flex-1 py-2.5 rounded-xl border border-zinc-300 text-zinc-700 font-semibold text-sm hover:bg-zinc-50 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSiblingMergeConfirm}
+                disabled={siblingMerging || Object.values(siblingSelection).every((v) => !v)}
+                className="flex-1 py-2.5 rounded-xl bg-sky-600 text-white font-bold text-sm hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {siblingMerging
+                  ? "Merging…"
+                  : `✅ Merge ${Object.values(siblingSelection).filter(Boolean).length} item${
+                      Object.values(siblingSelection).filter(Boolean).length === 1 ? "" : "s"
+                    }`}
               </button>
             </div>
           </div>
