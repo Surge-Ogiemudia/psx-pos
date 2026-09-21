@@ -1394,10 +1394,11 @@ export default function PosClient({
         )}
 
         <div className="flex flex-1 flex-col rounded-xl border-2 border-stone-300 bg-stone-100 p-3 shadow-sm">
-          <div className="mb-2 flex items-center justify-between text-xs font-bold uppercase tracking-wide text-stone-500">
-            <span>{products.length} product{products.length === 1 ? "" : "s"}</span>
-            {products.length > 4 && <span className="font-bold text-emerald-700 normal-case tracking-normal">▼ Scroll for more — this list keeps going</span>}
-          </div>
+          {products.length > 4 && (
+            <div className="mb-2 flex items-center justify-end text-xs font-bold uppercase tracking-wide text-stone-500">
+              <span className="font-bold text-emerald-700 normal-case tracking-normal">▼ Scroll for more — this list keeps going</span>
+            </div>
+          )}
           <div className="relative flex-1">
             <div
               ref={productListRef}
