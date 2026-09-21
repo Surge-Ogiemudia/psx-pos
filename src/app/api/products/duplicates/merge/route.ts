@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import ProductBatch from "@/models/ProductBatch";
+import DeletionLog from "@/models/DeletionLog";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
@@ -92,6 +93,30 @@ export async function POST(request: NextRequest) {
           refCollection: "Product",
           refId: keptProductId,
         });
+
+        // Every POS terminal caches the catalog locally (IndexedDB) and only knows to force
+        // a full resync — rather than a normal incremental delta — when it sees a
+        // DeletionLog entry newer than its last sync. Deleting these products without one
+        // left merged-away duplicates as permanent "ghosts" in that local cache: POS kept
+        // showing the old count/copies forever, no refresh would ever clear them, because
+        // nothing ever told it something was deleted.
+        await DeletionLog.create(
+          [
+            {
+              pharmacyId: scope.pharmacyId,
+              branchId: scope.branchId,
+              type: mergedAwayProducts.length > 1 ? "batch" : "single",
+              deletedByUserId: session.user.id,
+              deletedByName: session.user.name ?? "Unknown",
+              itemCount: mergedAwayProducts.length,
+              summary: `Merged ${mergedAwayProducts.length + 1} duplicate listings of ${formatProductLabel(
+                keptProduct
+              )} into one — removed: ${mergedAwayProducts.map((p) => formatProductLabel(p)).join(", ")}`,
+              productSnapshot: mergedAwayProducts.length === 1 ? mergedAwayProducts[0] : null,
+            },
+          ],
+          { session: dbSession }
+        );
 
         // Delete every merged-away Product document — their batches were already
         // reassigned above, so nothing is lost, only the duplicate catalog entries.

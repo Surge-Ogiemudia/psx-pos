@@ -4,6 +4,7 @@ import { dbConnect } from "@/lib/mongodb";
 import { AiDraftProduct } from "@/models/AiDraftProduct";
 import Product from "@/models/Product";
 import ProductBatch from "@/models/ProductBatch";
+import DeletionLog from "@/models/DeletionLog";
 import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
@@ -98,6 +99,27 @@ export async function POST(
           await Product.findByIdAndUpdate(
             existingProduct._id,
             { $inc: { quantityInStock: alreadyPublishedProduct.quantityInStock } },
+            { session: dbSession }
+          );
+
+          // POS caches the catalog locally per terminal and only knows to force a full
+          // resync (instead of a normal incremental delta) when it sees a DeletionLog
+          // entry newer than its last sync — without one here, this retired duplicate
+          // would stay as a permanent "ghost" in every terminal's local cache forever,
+          // no refresh able to clear it since nothing ever recorded the deletion.
+          await DeletionLog.create(
+            [
+              {
+                pharmacyId,
+                branchId,
+                type: "single",
+                deletedByUserId: session.user.id,
+                deletedByName: session.user.name ?? "Unknown",
+                itemCount: 1,
+                summary: `Fast Mobile Entry (Triage): Retired duplicate ${formatProductLabel(alreadyPublishedProduct)} after merging it into ${formatProductLabel(existingProduct)}`,
+                productSnapshot: alreadyPublishedProduct,
+              },
+            ],
             { session: dbSession }
           );
 
