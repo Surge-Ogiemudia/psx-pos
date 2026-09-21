@@ -265,6 +265,15 @@ export default function PosClient({
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Set when a barcode scan finds no match locally or on the server — most of the
+  // catalog came from an AI photo-extraction pipeline with no barcode on file yet, so a
+  // miss is common and expected. Holding the scanned code here lets us link it to
+  // whatever product the cashier picks next via the normal name search, instead of the
+  // scan just silently doing nothing.
+  const [pendingScanBarcode, setPendingScanBarcode] = useState<string | null>(null);
+  const [barcodeLinkToast, setBarcodeLinkToast] = useState<string | null>(null);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -699,14 +708,17 @@ export default function PosClient({
         
         const allProducts = await db.products.toArray();
         const matchedProduct = allProducts.find(p => p.barcode === scannedCode);
-        
+
         if (matchedProduct) {
           addToCart(matchedProduct as unknown as ProductJSON);
           scrollToCart();
-        } else if (navigator.onLine) {
+          return;
+        }
+
+        if (navigator.onLine) {
           const params = new URLSearchParams({ search: scannedCode });
           if (branchId) params.set("branchId", branchId);
-          
+
           try {
             const res = await fetch(`/api/products?${params.toString()}`);
             if (res.ok) {
@@ -715,12 +727,21 @@ export default function PosClient({
               if (remoteMatch) {
                 addToCart(remoteMatch);
                 scrollToCart();
+                return;
               }
             }
           } catch (e) {
             console.error("Barcode remote fallback error", e);
           }
         }
+
+        // No match anywhere — don't fail silently. Let the cashier recover by finding
+        // the item by name (same search box, same addToCart flow), and remember the
+        // scanned code so it gets linked to whatever they pick.
+        setPendingScanBarcode(scannedCode);
+        setSearch("");
+        setBarcodeLinkToast(null);
+        searchInputRef.current?.focus();
         return;
       }
 
@@ -749,6 +770,30 @@ export default function PosClient({
       return [...prev, { kind: "catalog", key: product._id, product, form: baseUnitName(product), quantity: 1 }];
     });
     flashCartLine(product._id);
+  }
+
+  // Called alongside addToCart (never instead of it, and never blocking it) when the
+  // cashier picks a product from name search right after a barcode scan came up with no
+  // match. Links the originally-scanned code to that product so the same item scans
+  // directly next time — server write is fire-and-forget, local cache is updated right
+  // away so THIS device can re-scan it immediately without waiting on the next sync.
+  function linkPendingScanBarcode(product: ProductJSON) {
+    const scannedCode = pendingScanBarcode;
+    if (!scannedCode) return;
+    setPendingScanBarcode(null);
+
+    fetch(`/api/products/${product._id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ barcode: scannedCode, branchId }),
+    }).catch((e) => console.error("Barcode link save failed", e));
+
+    db.products.update(product._id, { barcode: scannedCode }).catch((e) =>
+      console.error("Barcode link local cache update failed", e)
+    );
+
+    setBarcodeLinkToast(`Barcode saved to ${product.itemName} — it'll scan directly next time.`);
+    window.setTimeout(() => setBarcodeLinkToast((t) => (t?.startsWith(`Barcode saved to ${product.itemName}`) ? null : t)), 3500);
   }
 
   // Cart sits sticky alongside the catalog now (see the grid wrapper below), so a click
@@ -1222,8 +1267,20 @@ export default function PosClient({
               )}
             </div>
           </div>
+          {pendingScanBarcode && (
+            <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+              <span>Scanned code &quot;{pendingScanBarcode}&quot; not recognized — search by name below to link it.</span>
+              <button
+                onClick={() => setPendingScanBarcode(null)}
+                className="shrink-0 rounded-md bg-amber-100 px-2 py-0.5 font-semibold text-amber-800 hover:bg-amber-200"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <div className="relative mb-2">
             <input
+              ref={searchInputRef}
               type="text"
               placeholder="Search products..."
               value={search}
@@ -1369,6 +1426,7 @@ export default function PosClient({
                     key={product._id}
                     onClick={() => {
                       addToCart(product);
+                      if (pendingScanBarcode) linkPendingScanBarcode(product);
                       scrollToCart();
                     }}
                     disabled={product.quantityInStock < 1}
@@ -2281,6 +2339,13 @@ export default function PosClient({
               {enlargedImage.name}
             </span>
           </div>
+        </div>
+      )}
+
+      {barcodeLinkToast && (
+        <div className="fixed top-6 right-6 z-[80] flex items-center gap-2 rounded-xl bg-teal-700 px-5 py-3 font-semibold text-white shadow-xl animate-in slide-in-from-top-2">
+          <span>✅</span>
+          <span>{barcodeLinkToast}</span>
         </div>
       )}
     </div>
