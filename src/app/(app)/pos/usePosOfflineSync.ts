@@ -58,34 +58,57 @@ export function usePosOfflineSync(branchId: string | null) {
   async function syncCatalog() {
     try {
       setSyncStatus("Syncing catalog...");
-      
+
       const meta = await db.syncMetadata.get("products");
       const lastSync = meta?.lastSyncedAt || "";
-      
-      const params = new URLSearchParams();
-      if (branchId) params.set("branchId", branchId);
-      if (lastSync) params.set("lastSyncedAt", lastSync);
 
-      const res = await fetch(`/api/products?${params.toString()}`);
-      if (!res.ok) throw new Error("Failed to fetch products");
+      // A first-ever sync (or one forced full after a deletion elsewhere) can be the whole
+      // catalog — thousands of products in one response. Paging it in chunks avoids one
+      // huge request/response and lets the local cache fill in incrementally instead of
+      // holding the whole thing in memory before writing anything. A normal delta sync
+      // (just recently-changed items) is small enough that this loop just does one page
+      // and stops — same cost as before for that case.
+      const PAGE_SIZE = 500;
+      let skip = 0;
+      let clearedForFullSync = false;
+      let firstPageTimestamp: number | null = null;
+      let totalSynced = 0;
 
-      const data = await res.json();
-      
-      if (data.fullSyncRequired) {
-        await db.products.clear();
+      for (;;) {
+        const params = new URLSearchParams();
+        if (branchId) params.set("branchId", branchId);
+        if (lastSync) params.set("lastSyncedAt", lastSync);
+        params.set("limit", String(PAGE_SIZE));
+        params.set("skip", String(skip));
+
+        const res = await fetch(`/api/products?${params.toString()}`);
+        if (!res.ok) throw new Error("Failed to fetch products");
+
+        const data = await res.json();
+        if (firstPageTimestamp === null && data.timestamp) firstPageTimestamp = data.timestamp;
+
+        if (data.fullSyncRequired && !clearedForFullSync) {
+          await db.products.clear();
+          clearedForFullSync = true;
+        }
+
+        const products: ProductJSON[] = data.products || [];
+        if (products.length > 0) {
+          await db.products.bulkPut(products);
+          totalSynced += products.length;
+          setSyncStatus(`Syncing catalog... (${totalSynced})`);
+        }
+
+        if (products.length < PAGE_SIZE) break; // last page
+        skip += PAGE_SIZE;
       }
 
-      const products: ProductJSON[] = data.products || [];
-      if (products.length > 0) {
-        await db.products.bulkPut(products);
-      }
-
-      if (data.timestamp) {
+      if (firstPageTimestamp) {
         await db.syncMetadata.put({
           id: "products",
-          lastSyncedAt: data.timestamp.toString(),
+          lastSyncedAt: firstPageTimestamp.toString(),
         });
-        setLastSyncedAt(new Date(data.timestamp));
+        setLastSyncedAt(new Date(firstPageTimestamp));
       }
 
       setSyncStatus("Fully synced");
