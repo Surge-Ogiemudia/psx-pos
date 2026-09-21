@@ -26,7 +26,10 @@ interface AiDraft {
   productId?: string | null;
 }
 
-interface CatalogMatch {
+// A duplicates step candidate — another live product (same branch) that looks like the
+// same physical item as the one currently being triaged. Product vs product: every draft
+// already has its own live product now, so there's no separate "still pending" case anymore.
+interface DuplicateCandidate {
   _id: string;
   itemName: string;
   brand: string;
@@ -35,26 +38,13 @@ interface CatalogMatch {
   quantityInStock: number;
 }
 
-interface SiblingDraft {
-  draftId: string;
-  productId: string;
-  itemName: string;
-  brand: string;
-  size: string;
-  imageUrl: string | null;
-  frontImageUrl: string | null;
-  backImageUrl: string | null;
-  quantityInStock: number;
-  createdAt: string;
-}
-
-interface SiblingKeptProduct {
+// A monak-excel2 price-list match — tapping one fills retail/wholesale/distributor at once.
+interface PriceMatch {
   _id: string;
   itemName: string;
-  brand: string;
-  size: string;
-  imageUrl: string | null;
-  quantityInStock: number;
+  retailPrice: number;
+  wholesalePrice: number;
+  distributorPrice: number;
 }
 
 interface ProductForm {
@@ -245,6 +235,7 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
       retailPrice: currentDraft.retailPrice || 0,
     });
     setActivePhoto("front");
+    setStage("identity");
     setSaveError("");
     setSkipError("");
   }, [currentDraft?._id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -253,159 +244,85 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  const searchTerm = form.itemName;
-  const debouncedSearch = useDebounce(searchTerm, 300);
+  // ------------------------------------------------------------- journey
+  // identity -> (duplicates, only if any exist) -> price. Resets to "identity" whenever a
+  // new draft loads, in the form-reset effect above.
+  const [stage, setStage] = useState<"identity" | "duplicates" | "price">("identity");
 
-  // ------------------------------------------------- catalog duplicate check
-  const [catalogMatches, setCatalogMatches] = useState<CatalogMatch[]>([]);
+  // --------------------------------------------------- possible duplicates
+  // Product vs product — every draft already has its own live product now, so this one
+  // check replaces what used to be two separate lookups (still-queued siblings vs catalog).
+  const [duplicateCandidates, setDuplicateCandidates] = useState<DuplicateCandidate[]>([]);
+  const [dupeIndex, setDupeIndex] = useState(0);
+
   useEffect(() => {
-    if (!debouncedSearch.trim() || !currentDraft) {
-      setCatalogMatches([]);
+    setDupeIndex(0);
+    if (!currentDraft?.productId) {
+      setDuplicateCandidates([]);
       return;
     }
     let cancelled = false;
-    fetch(`/api/monak-catalog-check?search=${encodeURIComponent(debouncedSearch)}&branchId=${branchId}`)
+    fetch(`/api/products/${currentDraft.productId}/possible-duplicates`)
       .then((r) => r.json())
       .then((d) => {
-        if (!cancelled) setCatalogMatches(d.products ?? []);
+        if (!cancelled) setDuplicateCandidates(d.candidates ?? []);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, branchId, currentDraft?._id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentDraft?._id, currentDraft?.productId]);
 
-  const [catalogSheetTarget, setCatalogSheetTarget] = useState<CatalogMatch | null>(null);
-  const [catalogMergeQty, setCatalogMergeQty] = useState(1);
-  const [catalogMergeExpiry, setCatalogMergeExpiry] = useState("");
-  const [catalogMerging, setCatalogMerging] = useState(false);
-  const [catalogMergeError, setCatalogMergeError] = useState("");
+  const currentDupe = duplicateCandidates[dupeIndex] ?? null;
+  const [dupeFinalQty, setDupeFinalQty] = useState(0);
+  const [dupeMerging, setDupeMerging] = useState(false);
+  const [dupeError, setDupeError] = useState("");
 
-  function openCatalogSheet(m: CatalogMatch) {
-    setCatalogSheetTarget(m);
-    setCatalogMergeQty(form.quantity || 1);
-    setCatalogMergeExpiry(form.expiryDate);
-    setCatalogMergeError("");
-  }
-
-  async function confirmCatalogMerge() {
-    if (!currentDraft || !catalogSheetTarget) return;
-    setCatalogMerging(true);
-    setCatalogMergeError("");
-    try {
-      const res = await fetch(`/api/products/ai-drafts/${currentDraft._id}/merge`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: catalogSheetTarget._id,
-          quantity: catalogMergeQty,
-          expiryDate: catalogMergeExpiry || null,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Merge failed" }));
-        throw new Error(err.error ?? "Merge failed");
-      }
-      setCatalogSheetTarget(null);
-      goNext([currentDraft._id]);
-    } catch (err) {
-      setCatalogMergeError(err instanceof Error ? err.message : "Merge failed");
-    } finally {
-      setCatalogMerging(false);
-    }
-  }
-
-  // --------------------------------------------------- sibling duplicates
-  // Detection only — nothing here writes anything. The explicit "Merge selected
-  // into this item" action below is the ONLY path that calls merge-duplicates,
-  // mirroring the hard rule from the desktop tool: nothing auto-merges.
-  const [siblingDrafts, setSiblingDrafts] = useState<SiblingDraft[]>([]);
-  const [siblingKeptProduct, setSiblingKeptProduct] = useState<SiblingKeptProduct | null>(null);
-  const [siblingPanelOpen, setSiblingPanelOpen] = useState(true);
-  const [siblingSelection, setSiblingSelection] = useState<Record<string, boolean>>({});
-  const [siblingFinalQty, setSiblingFinalQty] = useState(0);
-  const [siblingQtyTouched, setSiblingQtyTouched] = useState(false);
-  const [siblingMerging, setSiblingMerging] = useState(false);
-  const [siblingMergeError, setSiblingMergeError] = useState("");
-
+  // Default suggestion is the sum of both counts — but it's a suggestion, not the answer.
+  // Two real duplicate snaps can carry genuinely different counts (54 counted once, 20
+  // counted again later), and only an operator looking at both photos can say what's real.
   useEffect(() => {
-    if (!currentDraft) {
-      setSiblingDrafts([]);
-      setSiblingKeptProduct(null);
-      return;
-    }
-    let cancelled = false;
-    fetch(`/api/products/ai-drafts/${currentDraft._id}/siblings`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled) return;
-        const sibs: SiblingDraft[] = d.siblings ?? [];
-        setSiblingDrafts(sibs);
-        setSiblingKeptProduct(d.keptProduct ?? null);
-        const initialSelection: Record<string, boolean> = {};
-        for (const s of sibs) initialSelection[s.draftId] = true;
-        setSiblingSelection(initialSelection);
-        setSiblingQtyTouched(false);
-        setSiblingPanelOpen(true);
-        setSiblingMergeError("");
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [currentDraft?._id]);
-
-  const siblingCombinedQty =
-    (siblingKeptProduct?.quantityInStock ?? 0) +
-    siblingDrafts.filter((s) => siblingSelection[s.draftId]).reduce((sum, s) => sum + s.quantityInStock, 0);
-
-  // Live-recompute the suggested total whenever a checkbox is toggled, unless the
-  // operator has already typed their own number into the field.
-  useEffect(() => {
-    if (!siblingQtyTouched) setSiblingFinalQty(siblingCombinedQty);
+    setDupeError("");
+    if (currentDupe) setDupeFinalQty(form.quantity + currentDupe.quantityInStock);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [siblingCombinedQty]);
+  }, [currentDupe?._id]);
 
-  function toggleSibling(draftId: string) {
-    setSiblingSelection((prev) => ({ ...prev, [draftId]: !prev[draftId] }));
+  function handleDupeNotSame() {
+    setDupeError("");
+    if (dupeIndex + 1 < duplicateCandidates.length) {
+      setDupeIndex((i) => i + 1);
+    } else {
+      setStage("price");
+    }
   }
 
-  const selectedSiblingIds = siblingDrafts.filter((s) => siblingSelection[s.draftId]).map((s) => s.draftId);
-
-  async function handleSiblingMerge() {
-    if (!currentDraft) return;
-    if (selectedSiblingIds.length === 0) {
-      setSiblingMergeError("Select at least one duplicate, or leave them unchecked and Save & Next normally.");
-      return;
-    }
-    setSiblingMerging(true);
-    setSiblingMergeError("");
+  async function handleDupeMerge() {
+    if (!currentDraft?.productId || !currentDupe) return;
+    setDupeMerging(true);
+    setDupeError("");
     try {
-      const res = await fetch(`/api/products/ai-drafts/${currentDraft._id}/merge-duplicates`, {
+      const res = await fetch(`/api/products/merge-pair`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          siblingDraftIds: selectedSiblingIds,
-          finalQuantity: siblingFinalQty,
-          itemName: form.itemName,
-          brand: form.brand,
-          size: form.size || "Standard",
-          category: form.category,
-          expiryDate: form.expiryDate || null,
-          retailPrice: form.retailPrice,
-          wholesalePrice: form.wholesalePrice,
-          distributorPrice: form.distributorPrice,
-          frontImageUrl: currentDraft.frontImageUrl,
-          backImageUrl: currentDraft.backImageUrl,
+          keptProductId: currentDraft.productId,
+          retireProductId: currentDupe._id,
+          finalQuantity: dupeFinalQty,
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Merge failed");
-      goNext([currentDraft._id, ...selectedSiblingIds]);
+      updateForm("quantity", dupeFinalQty);
+      // The merged candidate drops out of the list; everything after it shifts down into
+      // this same index, so dupeIndex itself doesn't need to move — unless this was the
+      // last one, in which case there's nothing left to compare and we move on to price.
+      const remaining = duplicateCandidates.filter((c) => c._id !== currentDupe._id);
+      setDuplicateCandidates(remaining);
+      if (dupeIndex >= remaining.length) setStage("price");
     } catch (err) {
-      setSiblingMergeError(err instanceof Error ? err.message : "Merge failed");
+      setDupeError(err instanceof Error ? err.message : "Merge failed");
     } finally {
-      setSiblingMerging(false);
+      setDupeMerging(false);
     }
   }
 
@@ -477,6 +394,44 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
     } finally {
       setSaving(false);
     }
+  }
+
+  // -------------------------------------------------------- price match
+  // Independent from the item name so an operator can search the price list slightly
+  // differently if needed — starts pre-filled with the item name each time this stage
+  // is reached, same as desktop's Match Prices panel.
+  const [priceSearch, setPriceSearch] = useState("");
+  useEffect(() => {
+    if (stage === "price") setPriceSearch(form.itemName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
+  const debouncedPriceSearch = useDebounce(priceSearch, 300);
+
+  const [priceMatches, setPriceMatches] = useState<PriceMatch[]>([]);
+  useEffect(() => {
+    if (stage !== "price" || !debouncedPriceSearch.trim()) {
+      setPriceMatches([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/monak-excel2?search=${encodeURIComponent(debouncedPriceSearch)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setPriceMatches(d.results ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedPriceSearch, stage]);
+
+  function applyPriceMatch(m: PriceMatch) {
+    setForm((f) => ({
+      ...f,
+      retailPrice: m.retailPrice,
+      wholesalePrice: m.wholesalePrice,
+      distributorPrice: m.distributorPrice,
+    }));
   }
 
   // ------------------------------------------------------------- render
@@ -558,6 +513,8 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto px-4 pt-3.5 pb-3 flex flex-col gap-3">
+          {stage === "identity" && (
+          <>
           {/* Photo card */}
           <div className="relative rounded-3xl bg-zinc-900 border border-zinc-800 overflow-hidden">
             <div className="absolute top-2.5 left-2.5 right-2.5 z-10 flex items-center justify-between">
@@ -660,130 +617,187 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               />
             </Field>
           </div>
+          {skipError && (
+            <div className="rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 px-3.5 py-2.5 text-xs">
+              ⚠️ {skipError}
+            </div>
+          )}
+          </>
+          )}
 
-          {/* Already-in-catalog warning — same "review, don't blindly trust" pattern as
-              the sibling-duplicate banner below, driven by monak-catalog-check. */}
-          {catalogMatches.length > 0 && (
-            <div className="rounded-2xl bg-rose-500/10 border border-rose-500/40 overflow-hidden">
-              <div className="px-3.5 py-2 text-xs font-extrabold text-rose-300">⚠️ Already in your catalog?</div>
-              <div className="px-2 pb-2 flex flex-col gap-1.5">
-                {catalogMatches.map((m) => (
+          {/* Duplicates step — one comparison at a time, current item vs one candidate.
+              Nothing ever merges without this explicit choice; "not the same" just moves on. */}
+          {stage === "duplicates" && currentDupe && (() => {
+            const dupeThumb = imgSrc(currentDupe.imageUrl, 320);
+            return (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wide text-amber-400">
+                    Possible duplicate — {dupeIndex + 1} of {duplicateCandidates.length}
+                  </span>
+                  <button
+                    onClick={() => setStage("identity")}
+                    className="text-[11px] font-bold text-zinc-500 hover:text-zinc-300"
+                  >
+                    ← Back to item
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+                    <div className="h-[140px] flex items-center justify-center bg-zinc-950">
+                      {activeUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={activeUrl} alt={form.itemName} className="h-full w-full object-contain" />
+                      ) : (
+                        <span className="text-zinc-600 text-[11px]">No photo</span>
+                      )}
+                    </div>
+                    <div className="p-2.5">
+                      <span className="block text-xs font-bold text-zinc-100 truncate">{form.itemName || "This item"}</span>
+                      <span className="block text-[11px] text-zinc-500 truncate">{form.brand} · {form.size}</span>
+                      <span className="block text-[11px] font-bold text-emerald-400 mt-1">Qty: {form.quantity}</span>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+                    <div className="h-[140px] flex items-center justify-center bg-zinc-950">
+                      {dupeThumb ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={dupeThumb} alt={currentDupe.itemName} className="h-full w-full object-contain" />
+                      ) : (
+                        <span className="text-zinc-600 text-[11px]">No photo</span>
+                      )}
+                    </div>
+                    <div className="p-2.5">
+                      <span className="block text-xs font-bold text-zinc-100 truncate">{currentDupe.itemName}</span>
+                      <span className="block text-[11px] text-zinc-500 truncate">{currentDupe.brand} · {currentDupe.size}</span>
+                      <span className="block text-[11px] font-bold text-amber-400 mt-1">Qty: {currentDupe.quantityInStock}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5">
+                  <span className="text-[11px] font-bold text-emerald-200">If the same — combined quantity</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={dupeFinalQty}
+                    onChange={(e) => setDupeFinalQty(Math.max(0, Number(e.target.value)))}
+                    className="w-20 bg-transparent text-right text-[15px] font-extrabold text-emerald-400 outline-none"
+                  />
+                </div>
+
+                {dupeError && <div className="text-[11px] text-red-400">⚠️ {dupeError}</div>}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDupeNotSame}
+                    disabled={dupeMerging}
+                    className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-300 font-bold text-xs disabled:opacity-40"
+                  >
+                    ✕ Different — keep separate
+                  </button>
+                  <button
+                    onClick={handleDupeMerge}
+                    disabled={dupeMerging}
+                    className="flex-1 py-3 rounded-xl bg-amber-500 disabled:opacity-40 text-amber-950 font-extrabold text-xs"
+                  >
+                    {dupeMerging ? "Merging…" : "✓ Same item — merge"}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {stage === "price" && (
+          <>
+          {/* Match Prices — same idea as desktop's panel: search the price list, tap a
+              match to fill retail/wholesale/distributor at once, or type prices manually. */}
+          <div className="rounded-3xl bg-zinc-900 border border-zinc-800 p-4 flex flex-col gap-3">
+            <span className="text-[10px] font-extrabold uppercase tracking-wide text-amber-400">💰 Match Prices</span>
+            <input
+              type="text"
+              value={priceSearch}
+              onChange={(e) => setPriceSearch(e.target.value)}
+              placeholder="Search price list…"
+              className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+            />
+            {priceMatches.length > 0 && (
+              <div className="flex flex-col gap-1.5 max-h-[220px] overflow-y-auto">
+                {priceMatches.map((m) => (
                   <button
                     key={m._id}
-                    onClick={() => openCatalogSheet(m)}
-                    className="text-left flex items-center gap-2 rounded-xl bg-zinc-900 border border-zinc-800 px-3 py-2"
+                    onClick={() => applyPriceMatch(m)}
+                    className="text-left flex items-center justify-between gap-2 rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2"
                   >
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-xs font-bold text-zinc-200 truncate">
-                        {m.itemName} · {m.size}
-                      </span>
-                      <span className="block text-[11px] text-zinc-500 truncate">{m.brand}</span>
+                    <span className="text-xs font-bold text-zinc-200 leading-tight truncate">{m.itemName}</span>
+                    <span className="text-[11px] text-zinc-400 shrink-0">
+                      Ret: ₦{m.retailPrice.toLocaleString()}
+                      <span className="text-zinc-600"> · Dist: ₦{m.distributorPrice.toLocaleString()}</span>
                     </span>
-                    <span className="text-[11px] font-bold text-rose-300 shrink-0">{m.quantityInStock} in stock</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Price card */}
+          <div className="rounded-3xl bg-zinc-900 border border-zinc-800 p-[18px] flex flex-col gap-3">
+            <div>
+              <span className="text-[10px] font-extrabold uppercase tracking-wide text-emerald-400">Retail price</span>
+              <div className="mt-2 flex items-center rounded-2xl bg-zinc-950 border-2 border-emerald-500/40 px-4 py-3">
+                <span className="text-2xl font-extrabold text-emerald-500 mr-1.5">₦</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.retailPrice}
+                  onChange={(e) => updateForm("retailPrice", Math.max(0, Number(e.target.value)))}
+                  className="flex-1 bg-transparent text-[28px] font-extrabold text-white outline-none w-full"
+                />
+              </div>
+              <div className="mt-2.5 flex gap-1.5 flex-wrap">
+                {PRICE_CHIPS.map((amt) => (
+                  <button
+                    key={amt}
+                    onClick={() => updateForm("retailPrice", form.retailPrice + amt)}
+                    className="rounded-[10px] bg-zinc-800 border border-zinc-700 px-2.5 py-1.5 text-[11px] font-bold text-zinc-200"
+                  >
+                    +₦{amt.toLocaleString()}
                   </button>
                 ))}
               </div>
             </div>
-          )}
 
-          {/* Sibling-duplicate warning — still-pending queue items that look like the
-              same physical item. Nothing merges until the explicit button below is tapped. */}
-          {siblingDrafts.length > 0 && (
-            <div className="rounded-[20px] bg-amber-500/10 border border-amber-500/35 overflow-hidden">
-              <button
-                onClick={() => setSiblingPanelOpen((v) => !v)}
-                className="w-full text-left flex items-center justify-between gap-2 px-3.5 py-3"
-              >
-                <span className="text-xs font-extrabold text-amber-400">
-                  ⚠️ {siblingDrafts.length} more of {siblingDrafts.length === 1 ? "this" : "these"} still waiting in the queue
-                </span>
-                <span className="text-sm text-amber-400">{siblingPanelOpen ? "▲" : "▼"}</span>
-              </button>
-              {siblingPanelOpen && (
-                <div className="px-3.5 pb-3.5 flex flex-col gap-2.5">
-                  <div className="flex flex-col gap-1.5">
-                    {siblingDrafts.map((s) => {
-                      const checked = !!siblingSelection[s.draftId];
-                      const thumb = imgSrc(s.frontImageUrl || s.imageUrl, 96);
-                      return (
-                        <label
-                          key={s.draftId}
-                          onClick={() => toggleSibling(s.draftId)}
-                          className="flex items-center gap-2 rounded-xl bg-zinc-900 border border-zinc-700 px-2.5 py-2 cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleSibling(s.draftId)}
-                            className="w-4 h-4 accent-amber-500 shrink-0"
-                          />
-                          {thumb ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={thumb} alt={s.itemName} className="w-[30px] h-[30px] rounded-lg object-cover bg-zinc-800 shrink-0" />
-                          ) : (
-                            <div className="w-[30px] h-[30px] rounded-lg bg-zinc-800 shrink-0" />
-                          )}
-                          <span className="flex-1 min-w-0 text-[11px] text-zinc-300 truncate">
-                            {s.itemName} · {s.size}
-                          </span>
-                          <span className="text-[11px] font-extrabold text-amber-400 shrink-0">+{s.quantityInStock}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5">
-                    <span className="text-[11px] font-bold text-emerald-200">Combined quantity</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={siblingFinalQty}
-                      onChange={(e) => {
-                        setSiblingQtyTouched(true);
-                        setSiblingFinalQty(Math.max(0, Number(e.target.value)));
-                      }}
-                      className="w-20 bg-transparent text-right text-[15px] font-extrabold text-emerald-400 outline-none"
-                    />
-                  </div>
-
-                  {siblingMergeError && <div className="text-[11px] text-red-400">{siblingMergeError}</div>}
-
-                  <button
-                    onClick={handleSiblingMerge}
-                    disabled={siblingMerging || selectedSiblingIds.length === 0}
-                    className="w-full rounded-xl bg-amber-500 disabled:opacity-40 py-2.5 text-xs font-extrabold text-amber-950"
-                  >
-                    {siblingMerging ? "Merging…" : "Merge selected into this item →"}
-                  </button>
-                </div>
-              )}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Wholesale Price (₦)">
+                <input
+                  type="number"
+                  min={0}
+                  value={form.wholesalePrice}
+                  onChange={(e) => updateForm("wholesalePrice", Math.max(0, Number(e.target.value)))}
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+                />
+              </Field>
+              <Field label="Distributor Price (₦)">
+                <input
+                  type="number"
+                  min={0}
+                  value={form.distributorPrice}
+                  onChange={(e) => updateForm("distributorPrice", Math.max(0, Number(e.target.value)))}
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+                />
+              </Field>
             </div>
-          )}
 
-          {/* Price card */}
-          <div className="rounded-3xl bg-zinc-900 border border-zinc-800 p-[18px]">
-            <span className="text-[10px] font-extrabold uppercase tracking-wide text-emerald-400">Retail price</span>
-            <div className="mt-2 flex items-center rounded-2xl bg-zinc-950 border-2 border-emerald-500/40 px-4 py-3">
-              <span className="text-2xl font-extrabold text-emerald-500 mr-1.5">₦</span>
+            <Field label="Quantity">
               <input
                 type="number"
                 min={0}
-                value={form.retailPrice}
-                onChange={(e) => updateForm("retailPrice", Math.max(0, Number(e.target.value)))}
-                className="flex-1 bg-transparent text-[28px] font-extrabold text-white outline-none w-full"
+                value={form.quantity}
+                onChange={(e) => updateForm("quantity", Math.max(0, Number(e.target.value)))}
+                className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
               />
-            </div>
-            <div className="mt-2.5 flex gap-1.5 flex-wrap">
-              {PRICE_CHIPS.map((amt) => (
-                <button
-                  key={amt}
-                  onClick={() => updateForm("retailPrice", form.retailPrice + amt)}
-                  className="rounded-[10px] bg-zinc-800 border border-zinc-700 px-2.5 py-1.5 text-[11px] font-bold text-zinc-200"
-                >
-                  +₦{amt.toLocaleString()}
-                </button>
-              ))}
-            </div>
+            </Field>
           </div>
 
           {saveError && (
@@ -791,37 +805,47 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               ⚠️ {saveError}
             </div>
           )}
-          {skipError && (
-            <div className="rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 px-3.5 py-2.5 text-xs">
-              ⚠️ {skipError}
-            </div>
+          </>
           )}
         </div>
 
-        {/* Bottom action bar */}
-        <div className="flex items-center gap-2 px-4 py-3 border-t border-zinc-800 bg-zinc-950/95 shrink-0">
-          <button
-            onClick={goPrev}
-            disabled={currentIndex <= 0}
-            className="h-[50px] rounded-2xl bg-zinc-900 border border-zinc-800 px-3.5 text-[11px] font-bold text-zinc-300 disabled:opacity-30"
-          >
-            ← Prev
-          </button>
-          <button
-            onClick={handleSkip}
-            disabled={skipping}
-            className="h-[50px] rounded-2xl bg-zinc-900 border border-zinc-800 px-3.5 text-[11px] font-bold text-zinc-400 disabled:opacity-40"
-          >
-            {skipping ? "Skipping…" : "Skip →"}
-          </button>
-          <button
-            onClick={handleSaveAndNext}
-            disabled={saving || !form.itemName.trim()}
-            className="flex-1 h-[50px] rounded-2xl bg-emerald-500 disabled:opacity-40 text-[13px] font-extrabold text-emerald-950 flex items-center justify-center gap-1.5"
-          >
-            {saving ? "Saving…" : "Save & Next →"}
-          </button>
-        </div>
+        {/* Bottom action bar — hidden during the duplicates step, since the comparison
+            card above has its own two explicit actions (merge / not the same). */}
+        {stage !== "duplicates" && (
+          <div className="flex items-center gap-2 px-4 py-3 border-t border-zinc-800 bg-zinc-950/95 shrink-0">
+            <button
+              onClick={goPrev}
+              disabled={currentIndex <= 0}
+              className="h-[50px] rounded-2xl bg-zinc-900 border border-zinc-800 px-3.5 text-[11px] font-bold text-zinc-300 disabled:opacity-30"
+            >
+              ← Prev
+            </button>
+            <button
+              onClick={handleSkip}
+              disabled={skipping}
+              className="h-[50px] rounded-2xl bg-zinc-900 border border-zinc-800 px-3.5 text-[11px] font-bold text-zinc-400 disabled:opacity-40"
+            >
+              {skipping ? "Skipping…" : "Skip →"}
+            </button>
+            {stage === "identity" ? (
+              <button
+                onClick={() => setStage(duplicateCandidates.length > 0 ? "duplicates" : "price")}
+                disabled={!form.itemName.trim()}
+                className="flex-1 h-[50px] rounded-2xl bg-emerald-500 disabled:opacity-40 text-[13px] font-extrabold text-emerald-950 flex items-center justify-center gap-1.5"
+              >
+                Proceed →
+              </button>
+            ) : (
+              <button
+                onClick={handleSaveAndNext}
+                disabled={saving || !form.itemName.trim()}
+                className="flex-1 h-[50px] rounded-2xl bg-emerald-500 disabled:opacity-40 text-[13px] font-extrabold text-emerald-950 flex items-center justify-center gap-1.5"
+              >
+                {saving ? "Saving…" : "✓ Confirm & Save"}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ---------------------------------------------------------------- */}
@@ -968,65 +992,6 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
                 className="w-full py-3 rounded-xl bg-emerald-500 text-emerald-950 font-extrabold text-sm"
               >
                 Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ---------------------------------------------------------------- */}
-      {/* Catalog-duplicate merge sheet                                     */}
-      {/* ---------------------------------------------------------------- */}
-      {catalogSheetTarget && (
-        <div className="fixed inset-0 z-[60] bg-black/60 flex flex-col justify-end sm:items-center sm:justify-center">
-          <div className="w-full sm:max-w-md bg-zinc-950 border border-zinc-800 rounded-t-3xl sm:rounded-3xl max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-rose-500/30 bg-rose-500/10 rounded-t-3xl sm:rounded-t-3xl shrink-0">
-              <span className="text-sm font-bold text-rose-200">Is this the same item?</span>
-              <button onClick={() => setCatalogSheetTarget(null)} className="text-zinc-400 text-xl leading-none px-1">
-                ✕
-              </button>
-            </div>
-            <div className="overflow-y-auto p-4 flex flex-col gap-3">
-              <p className="text-xs text-zinc-400">
-                Already in the catalog as{" "}
-                <span className="font-semibold text-zinc-200">
-                  {catalogSheetTarget.itemName} · {catalogSheetTarget.size}
-                </span>{" "}
-                ({catalogSheetTarget.brand}), currently {catalogSheetTarget.quantityInStock} in stock. If this is the same
-                product found on another shelf, add these units to it instead of creating a duplicate.
-              </p>
-              <Field label="Additional Quantity Found">
-                <input
-                  type="number"
-                  min={1}
-                  value={catalogMergeQty}
-                  onChange={(e) => setCatalogMergeQty(Math.max(1, Number(e.target.value)))}
-                  className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-rose-400"
-                />
-              </Field>
-              <Field label="Expiry Date (this batch)">
-                <input
-                  type="date"
-                  value={catalogMergeExpiry}
-                  onChange={(e) => setCatalogMergeExpiry(e.target.value)}
-                  className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-rose-400"
-                />
-              </Field>
-              {catalogMergeError && <div className="text-[11px] text-red-400">{catalogMergeError}</div>}
-            </div>
-            <div className="p-4 border-t border-zinc-800 flex gap-2 shrink-0">
-              <button
-                onClick={() => setCatalogSheetTarget(null)}
-                className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-300 font-semibold text-sm"
-              >
-                Not the same
-              </button>
-              <button
-                onClick={confirmCatalogMerge}
-                disabled={catalogMerging || catalogMergeQty < 1}
-                className="flex-1 py-3 rounded-xl bg-rose-500 disabled:opacity-40 text-rose-950 font-extrabold text-sm"
-              >
-                {catalogMerging ? "Adding…" : `Add ${catalogMergeQty} to stock`}
               </button>
             </div>
           </div>
