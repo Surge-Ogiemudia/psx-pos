@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
         : { ...scope, itemName: { $regex: escapeRegex(search), $options: "i" } };
 
     const candidates = await Product.find(dbQuery)
-      .select("itemName brand size imageUrl quantityInStock")
+      .select("itemName brand size imageUrl quantityInStock retailPrice wholesalePrice")
       .limit(300)
       .lean();
 

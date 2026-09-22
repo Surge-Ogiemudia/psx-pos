@@ -49,6 +49,8 @@ interface CatalogMatch {
   size: string;
   imageUrl: string | null;
   quantityInStock: number;
+  retailPrice: number;
+  wholesalePrice: number;
 }
 
 // A completed AiDraftProduct merged with the Product it produced — feeds the "Processed
@@ -269,6 +271,12 @@ export default function MonakTriageClient({ branchId }: Props) {
   const [mergeTarget, setMergeTarget] = useState<CatalogMatch | null>(null);
   const [mergeQuantity, setMergeQuantity] = useState(1);
   const [mergeExpiryDate, setMergeExpiryDate] = useState("");
+  // Pre-filled from the existing product's current price so the operator sees exactly
+  // what they're about to keep — the merge previously never touched price at all, silently
+  // carrying forward whatever the existing item already had, good or stale, with no way
+  // to notice or correct it in the moment.
+  const [mergeRetailPrice, setMergeRetailPrice] = useState(0);
+  const [mergeWholesalePrice, setMergeWholesalePrice] = useState(0);
   const [merging, setMerging] = useState(false);
   const [mergeError, setMergeError] = useState("");
 
@@ -591,6 +599,8 @@ export default function MonakTriageClient({ branchId }: Props) {
     setMergeTarget(match);
     setMergeQuantity(form.quantity || 1);
     setMergeExpiryDate(form.expiryDate);
+    setMergeRetailPrice(match.retailPrice || 0);
+    setMergeWholesalePrice(match.wholesalePrice || 0);
     setMergeError("");
   }
 
@@ -607,6 +617,8 @@ export default function MonakTriageClient({ branchId }: Props) {
           productId: mergeTarget._id,
           quantity: mergeQuantity,
           expiryDate: mergeExpiryDate || null,
+          retailPrice: mergeRetailPrice,
+          wholesalePrice: mergeWholesalePrice,
         }),
       });
       if (!res.ok) {
@@ -2208,6 +2220,33 @@ export default function MonakTriageClient({ branchId }: Props) {
                     type="date"
                     value={mergeExpiryDate}
                     onChange={(e) => setMergeExpiryDate(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                    Retail Price (₦)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={mergeRetailPrice}
+                    onChange={(e) => setMergeRetailPrice(Math.max(0, Number(e.target.value)))}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                    Wholesale Price (₦)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={mergeWholesalePrice}
+                    onChange={(e) => setMergeWholesalePrice(Math.max(0, Number(e.target.value)))}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                   />
                 </div>
