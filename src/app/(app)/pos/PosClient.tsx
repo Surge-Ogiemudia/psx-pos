@@ -1431,7 +1431,7 @@ export default function PosClient({
         </>
       )}
       <div className="lg:col-span-3 flex flex-col lg:h-[calc(100vh-6.5rem)] lg:overflow-hidden">
-        <div className="sticky top-16 z-20 shrink-0 border-b border-zinc-100 bg-white pb-3 pt-1 md:top-[6.5rem]">
+        <div className="sticky top-16 lg:static z-20 shrink-0 border-b border-zinc-100 bg-white pb-3 pt-1 md:top-[6.5rem]">
           <div className="mb-2 flex items-center justify-between">
             <h1 className="text-lg font-semibold text-zinc-900">Product catalog</h1>
             <div className="flex items-center space-x-3 text-xs">
