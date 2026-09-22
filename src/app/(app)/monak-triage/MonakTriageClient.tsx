@@ -326,6 +326,11 @@ export default function MonakTriageClient({ branchId }: Props) {
   const [editSaving, setEditSaving] = useState(false);
   const [editSaveError, setEditSaveError] = useState("");
 
+  // Layout mode — "grid" (default, all 3 panels side-by-side) or "focus" (one panel
+  // full-screen at a time). Pure UI/navigation state; doesn't affect any business logic.
+  const [layoutMode, setLayoutMode] = useState<"grid" | "focus">("grid");
+  const [focusStage, setFocusStage] = useState<"queue" | "duplicates" | "price">("queue");
+
   // Debounced search terms
   const debouncedP2 = useDebounce(p2Search, 300);
   const debouncedP3 = useDebounce(p3Search, 300);
@@ -592,6 +597,7 @@ export default function MonakTriageClient({ branchId }: Props) {
     setShowSiblingConfirm(false);
     setSiblingSelection({});
     setSiblingMergeError("");
+    setFocusStage("duplicates");
   }
 
   // --------------- Open the merge-confirm view for a possible catalog duplicate ---------------
@@ -638,6 +644,7 @@ export default function MonakTriageClient({ branchId }: Props) {
       setShowSiblingConfirm(false);
       setSiblingSelection({});
       setSiblingMergeError("");
+      setFocusStage("queue");
     } catch (err) {
       setMergeError(err instanceof Error ? err.message : "Merge failed");
     } finally {
@@ -715,6 +722,7 @@ export default function MonakTriageClient({ branchId }: Props) {
       setP3Results([]);
       setCatalogMatches([]);
       fetchProcessed();
+      setFocusStage("queue");
     } catch (err) {
       setSiblingMergeError(err instanceof Error ? err.message : "Merge failed");
     } finally {
@@ -904,6 +912,7 @@ export default function MonakTriageClient({ branchId }: Props) {
       // Remove from queue
       setSnaps((prev) => prev.filter((s) => s._id !== selectedSnap._id));
       setSelectedSnap(null);
+      setFocusStage("queue");
       setForm({ ...EMPTY_FORM });
       setShowModal(false);
       setP2Search("");
@@ -958,6 +967,7 @@ export default function MonakTriageClient({ branchId }: Props) {
     requestAnimationFrame(() => {
       panel2Ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
     });
+    setFocusStage("duplicates");
   }
 
   // --------------- Cancel edit mode without saving ---------------
@@ -969,6 +979,28 @@ export default function MonakTriageClient({ branchId }: Props) {
     setP3Search("");
     setP2Results([]);
     setP3Results([]);
+    setFocusStage("queue");
+  }
+
+  // --------------- Back to queue without skip/dismiss/save — pure client-side navigation ---------------
+  function exitFocusToQueue() {
+    setSelectedSnap(null);
+    setEditingProduct(null);
+    setForm({ ...EMPTY_FORM });
+    setP2Search("");
+    setP3Search("");
+    setP2Results([]);
+    setP3Results([]);
+    setCatalogMatches([]);
+    setMergeTarget(null);
+    setMergeError("");
+    setSaveError("");
+    setEditSaveError("");
+    setAiScanError("");
+    setShowSiblingConfirm(false);
+    setSiblingSelection({});
+    setSiblingMergeError("");
+    setFocusStage("queue");
   }
 
   // --------------- Save an edit to an existing Product (Panel 4 edit mode) ---------------
@@ -1029,6 +1061,7 @@ export default function MonakTriageClient({ branchId }: Props) {
       setP3Search("");
       setP2Results([]);
       setP3Results([]);
+      setFocusStage("queue");
     } catch (err) {
       setEditSaveError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -1055,6 +1088,7 @@ export default function MonakTriageClient({ branchId }: Props) {
         setShowSiblingConfirm(false);
         setSiblingSelection({});
         setSiblingMergeError("");
+        setFocusStage("queue");
       }
     } catch {
       // silent
@@ -1076,6 +1110,7 @@ export default function MonakTriageClient({ branchId }: Props) {
       setSnaps((prev) => prev.filter((s) => s._id !== snap._id));
       setSkippedSnaps((prev) => [skipped, ...prev]);
       setSelectedSnap(null);
+      setFocusStage("queue");
       setForm({ ...EMPTY_FORM });
       setP2Search("");
       setP3Search("");
@@ -1148,10 +1183,657 @@ export default function MonakTriageClient({ branchId }: Props) {
       : flaggedProcessedItems.filter((i) => i.needsReviewReason.includes(flaggedReasonFilter));
   const visibleProcessedItems = processedTab === "clean" ? cleanProcessedItems : visibleFlaggedItems;
 
+  // Panel 1/2/3 JSX hoisted into local consts so the same markup can be rendered either
+  // in the default side-by-side grid or, in "focus" layout mode, one panel at a time
+  // full-screen. Purely a rendering/navigation change — no state shape, API call, or
+  // handler behavior differs between the two layout modes.
+  const panel1Node = (
+    <div className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
+      <div className="bg-zinc-50 px-4 py-3 border-b border-zinc-200 font-semibold text-zinc-700 flex items-center justify-between">
+        <span>📥 Live Queue</span>
+        <div className="flex items-center gap-2">
+          {queueView !== "active" && (
+            <button
+              onClick={() => setQueueView("active")}
+              className="text-xs rounded-full px-2 py-0.5 font-medium bg-zinc-700 text-white"
+            >
+              ← Back to queue
+            </button>
+          )}
+          {visibleSkipped.length > 0 && (
+            <button
+              onClick={() => setQueueView((v) => (v === "skipped" ? "active" : "skipped"))}
+              className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+                queueView === "skipped" ? "bg-purple-700 text-white" : "bg-purple-100 text-purple-700 hover:bg-purple-200"
+              }`}
+            >
+              {`⏭️ Needs AI (${queueView === "skipped" ? searchFilteredSkipped.length : visibleSkipped.length})`}
+            </button>
+          )}
+          {dismissedSnaps.length > 0 && (
+            <button
+              onClick={() => setQueueView((v) => (v === "dismissed" ? "active" : "dismissed"))}
+              className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+                queueView === "dismissed" ? "bg-zinc-700 text-white" : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300"
+              }`}
+            >
+              {`🗑 Dismissed (${queueView === "dismissed" ? searchFilteredDismissed.length : dismissedSnaps.length})`}
+            </button>
+          )}
+          {queueView === "active" && aiReadCount > 0 && (
+            <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">
+              🤖 {aiReadCount} AI-read
+            </span>
+          )}
+          {queueView === "active" && publishedCount > 0 && (
+            <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-medium">
+              🟢 {publishedCount} live in POS
+            </span>
+          )}
+          {queueView === "active" && (
+            <span className="text-xs bg-zinc-200 text-zinc-600 rounded-full px-2 py-0.5 font-normal">
+              {visibleSnaps.length + visibleSkipped.length} pending
+            </span>
+          )}
+        </div>
+      </div>
+      {queueView === "active" && totalAiReadCount > 0 && (
+        <div className="px-3 pt-2 bg-red-50 border-b border-red-100">
+          <button
+            onClick={() => {
+              setBulkConfirmError("");
+              setShowBulkConfirmModal(true);
+            }}
+            className="w-full py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
+          >
+            📤 Publish All AI-Read Items to POS ({totalAiReadCount})
+          </button>
+          {bulkConfirmSuccessMsg && (
+            <p className="text-xs text-green-700 font-medium py-1.5">{bulkConfirmSuccessMsg}</p>
+          )}
+        </div>
+      )}
+      {queueView === "active" && (
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-zinc-100 bg-white">
+          <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mr-1">Working:</span>
+          <button
+            onClick={() => chooseView("all")}
+            className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
+              viewFilter === "all" ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+            }`}
+          >
+            All ({pendingSnaps.length})
+          </button>
+          {[0, 1, 2].map((lane) => (
+            <button
+              key={lane}
+              onClick={() => chooseView(lane)}
+              className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
+                viewFilter === lane ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+              }`}
+            >
+              View {lane + 1} ({laneCounts[lane]})
+            </button>
+          ))}
+          <span className="ml-auto flex items-center gap-1.5">
+            <button
+              onClick={() => setAiReadOnly(true)}
+              className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
+                aiReadOnly ? "bg-purple-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+              }`}
+            >
+              🤖 AI-Read
+            </button>
+            <button
+              onClick={() => setAiReadOnly(false)}
+              className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
+                !aiReadOnly ? "bg-purple-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+              }`}
+            >
+              All
+            </button>
+          </span>
+        </div>
+      )}
+      <div className="px-3 pt-2 pb-1 border-b border-zinc-100 bg-white">
+        <input
+          type="text"
+          value={queueSearch}
+          onChange={(e) => setQueueSearch(e.target.value)}
+          placeholder="Search this queue by name, brand, size, or qty…"
+          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+      </div>
+      <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+        {queueView === "dismissed" ? (
+          <>
+            {searchFilteredDismissed.length === 0 && (
+              <div className="text-zinc-400 text-sm text-center mt-8">
+                {dismissedSnaps.length === 0 ? "Nothing dismissed." : "No matches for your search."}
+              </div>
+            )}
+            {searchFilteredDismissed.map((snap) => (
+              <div key={snap._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 flex flex-col gap-2 opacity-80">
+                <div className="flex gap-2 items-start">
+                  <ResilientThumb
+                    src={snap.frontImageUrl}
+                    alt="Front"
+                    className="w-20 h-20"
+                    size={96}
+                    onClick={() => setZoomImage(snap.frontImageUrl)}
+                  />
+                  <div className="flex flex-col gap-1 flex-1 min-w-0">
+                    <span className="text-xs bg-zinc-200 text-zinc-700 rounded-full px-2 py-0.5 font-medium w-fit">
+                      Qty: {snap.quantityInStock}
+                    </span>
+                    <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleRestore(snap)}
+                  className="w-full py-1.5 text-xs font-semibold rounded-lg bg-zinc-700 text-white hover:bg-zinc-800"
+                >
+                  ↩ Restore to queue
+                </button>
+              </div>
+            ))}
+          </>
+        ) : queueView === "skipped" ? (
+          <>
+            {searchFilteredSkipped.length === 0 && (
+              <div className="text-zinc-400 text-sm text-center mt-8">
+                {visibleSkipped.length === 0 ? "Nothing skipped in this view." : "No matches for your search."}
+              </div>
+            )}
+            {searchFilteredSkipped.map((snap) => (
+              <div key={snap._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 flex flex-col gap-2 opacity-80">
+                <div className="flex gap-2 items-start">
+                  <ResilientThumb
+                    src={snap.frontImageUrl}
+                    alt="Front"
+                    className="w-20 h-20"
+                    size={96}
+                    onClick={() => setZoomImage(snap.frontImageUrl)}
+                  />
+                  <div className="flex flex-col gap-1 flex-1 min-w-0">
+                    <span className="text-xs bg-zinc-200 text-zinc-700 rounded-full px-2 py-0.5 font-medium w-fit">
+                      Qty: {snap.quantityInStock}
+                    </span>
+                    <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleRestore(snap)}
+                  className="w-full py-1.5 text-xs font-semibold rounded-lg bg-zinc-700 text-white hover:bg-zinc-800"
+                >
+                  ↩ Restore to queue
+                </button>
+              </div>
+            ))}
+          </>
+        ) : (
+          <>
+            {searchFilteredSnaps.length === 0 && (
+              <div className="text-zinc-400 text-sm text-center mt-8">
+                {snaps.length === 0
+                  ? "No pending snaps. Waiting for new items…"
+                  : visibleSnaps.length === 0
+                  ? "Nothing in this view right now."
+                  : "No matches for your search."}
+              </div>
+            )}
+            {renderedSnaps.map((snap, idx) => {
+              const isSelected = selectedSnap?._id === snap._id;
+              const isPriority = idx < 4;
+              return (
+                <div
+                  key={snap._id}
+                  className={`rounded-lg border p-3 flex flex-col gap-2 cursor-pointer transition-all ${
+                    isSelected
+                      ? "border-blue-500 bg-blue-50 shadow-md"
+                      : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
+                  }`}
+                >
+                  <div className="flex gap-2 items-start">
+                    <ResilientThumb
+                      src={snap.frontImageUrl}
+                      alt="Front"
+                      className="w-20 h-20"
+                      size={96}
+                      priority={isPriority}
+                      onClick={() => setZoomImage(snap.frontImageUrl)}
+                    />
+                    <div className="flex flex-col gap-1 flex-1 min-w-0">
+                      {snap.backImageUrl && (
+                        <ResilientThumb
+                          src={snap.backImageUrl}
+                          alt="Back / Expiry"
+                          className="w-full h-12"
+                          size={128}
+                          priority={isPriority}
+                          onClick={() => setZoomImage(snap.backImageUrl)}
+                        />
+                      )}
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-xs bg-zinc-100 text-zinc-700 rounded-full px-2 py-0.5 font-medium">
+                          Qty: {snap.quantityInStock}
+                        </span>
+                        <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => selectSnap(snap)}
+                      className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      Triage →
+                    </button>
+                    <button
+                      onClick={() => handleDismiss(snap)}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {hasMoreSnaps && (
+              <button
+                onClick={() => setRenderLimit((n) => n + RENDER_BATCH)}
+                className="py-2 text-xs font-semibold rounded-lg border border-zinc-300 text-zinc-600 hover:bg-zinc-50"
+              >
+                Load {Math.min(RENDER_BATCH, searchFilteredSnaps.length - renderLimit)} more ({searchFilteredSnaps.length - renderLimit} left)
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  const panel2Node = (
+    <div ref={panel2Ref} className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
+      <div className="bg-zinc-50 px-4 py-3 border-b border-zinc-200 font-semibold text-zinc-700">
+        📋 Match from Stock List
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        {!selectedSnap && !editingProduct ? (
+          <div className="text-zinc-400 text-sm text-center mt-8">
+            Select a snap from the queue to begin triaging
+          </div>
+        ) : (
+          <>
+            {layoutMode === "focus" && (
+              <button onClick={exitFocusToQueue} className="text-xs font-semibold text-zinc-500 hover:text-zinc-700 self-start">
+                ← Back to Queue
+              </button>
+            )}
+            {editingProduct && (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+                <span className="text-xs font-semibold text-blue-800">
+                  ✏️ Editing catalog item: {editingProduct.itemName}
+                </span>
+                <button
+                  onClick={cancelEdit}
+                  className="text-xs font-semibold text-blue-700 hover:text-blue-900 shrink-0"
+                >
+                  ✕ Cancel edit
+                </button>
+              </div>
+            )}
+
+            {/* Images preview — tap to zoom in on the original full-res photo. Editing an
+                existing Product only ever has one image, so the Back slot is skipped. */}
+            <div className="flex gap-3">
+              <ResilientThumb
+                src={editingProduct ? editingProduct.imageUrl : selectedSnap?.frontImageUrl ?? null}
+                alt="Front"
+                label="Front"
+                className="flex-1 h-36"
+                size={256}
+                priority
+                onClick={() => {
+                  const url = editingProduct ? editingProduct.imageUrl : selectedSnap?.frontImageUrl;
+                  if (url) setZoomImage(url);
+                }}
+              />
+              {!editingProduct && selectedSnap && (
+                <ResilientThumb
+                  src={selectedSnap.backImageUrl}
+                  alt="Back / Expiry"
+                  label="Back"
+                  className="flex-1 h-36"
+                  size={256}
+                  priority
+                  onClick={() => selectedSnap.backImageUrl && setZoomImage(selectedSnap.backImageUrl)}
+                />
+              )}
+            </div>
+
+            {/* Search */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search stock list by name…"
+                value={p2Search}
+                onChange={(e) => {
+                  setP2Search(e.target.value);
+                  setP3Search(e.target.value);
+                }}
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              {p2Loading && (
+                <span className="absolute right-3 top-2 text-xs text-zinc-400">searching…</span>
+              )}
+            </div>
+
+            {/* Skip — always available, not gated behind "no results found". Fast, low-friction,
+                and reversible via Restore, so no confirm dialog. Draft-specific, so hidden
+                in edit mode where there's no queue snap to skip. */}
+            {selectedSnap && (
+              <button
+                onClick={handleSkip}
+                className="w-full py-2 text-xs font-semibold rounded-lg border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
+              >
+                ⏭️ Skip for later
+              </button>
+            )}
+
+            {/* Already in catalog — likely the same item re-photographed off another shelf */}
+            {catalogMatches.length > 0 && (
+              <div className="shrink-0 rounded-lg border-2 border-amber-300 bg-amber-50">
+                <div className="px-3 py-1.5 text-xs font-bold text-amber-800 bg-amber-100">
+                  ⚠️ Already in your catalog — same item?
+                </div>
+                {catalogMatches.map((m) => (
+                  <button
+                    key={m._id}
+                    onClick={() => openMergeConfirm(m)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-amber-100 border-t border-amber-200 flex items-center gap-2"
+                  >
+                    <ResilientThumb src={m.imageUrl} alt={m.itemName} className="h-10 w-10 shrink-0" size={64} />
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-medium text-zinc-800 leading-tight truncate">
+                        {m.itemName} · {m.size}
+                      </span>
+                      <span className="block text-xs text-zinc-500">{m.brand}</span>
+                    </span>
+                    <span className="text-xs font-semibold text-amber-700 shrink-0">
+                      {m.quantityInStock} in stock
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Still waiting elsewhere in the queue — OTHER un-processed drafts that look
+                like the same item. Clicking this only OPENS the review/confirm modal —
+                see the modal below for the actual (explicit, per-item) merge decision. */}
+            {siblingDrafts.length > 0 && (
+              <button
+                onClick={openSiblingMergeConfirm}
+                className="shrink-0 rounded-lg border-2 border-sky-300 bg-sky-50 text-left hover:bg-sky-100"
+              >
+                <div className="px-3 py-2 text-xs font-bold text-sky-800">
+                  ⏳ {siblingDrafts.length} more of {siblingDrafts.length === 1 ? "this" : "these"} still waiting in
+                  the queue — review &amp; merge?
+                </div>
+              </button>
+            )}
+
+            {/* Results */}
+            {p2Results.length > 0 && (
+              <div className="shrink-0 rounded-lg border border-zinc-200">
+                {p2Results.map((r) => (
+                  <button
+                    key={r._id}
+                    onClick={() => applyExcel1(r)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-zinc-100 last:border-b-0 flex justify-between items-start gap-2"
+                  >
+                    <span className="font-medium text-zinc-800 leading-tight">{r.itemName}</span>
+                    <span className="text-xs text-zinc-500 shrink-0 text-right">
+                      <span className="block">₦{r.retailPrice?.toLocaleString()}</span>
+                      {r.expiryDate && <span className="block text-zinc-400">{r.expiryDate}</span>}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* No match found — AI fallback, only shown once a search came up empty. Scans
+                the draft's own photo, so it's not applicable in edit mode. */}
+            {!editingProduct && p2Search.trim() && !p2Loading && p2Results.length === 0 && (
+              <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3 flex flex-col gap-2">
+                <span className="text-xs text-zinc-500">No matches in the stock list for &quot;{p2Search}&quot;.</span>
+                <button
+                  onClick={handleAiScan}
+                  disabled={aiScanning}
+                  className="py-2 text-xs font-semibold rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {aiScanning ? "🤖 Reading image…" : "🤖 Can't find it — scan the image"}
+                </button>
+                {aiScanError && <span className="text-xs text-red-600">{aiScanError}</span>}
+              </div>
+            )}
+
+            {/* Form fields - name side */}
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Item Name</label>
+                <input
+                  type="text"
+                  value={form.itemName}
+                  onChange={(e) => updateForm("itemName", e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="e.g. Amoxicillin"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Size / Strength</label>
+                <input
+                  type="text"
+                  value={form.size}
+                  onChange={(e) => updateForm("size", e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="e.g. 500mg, 1L, Standard"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Brand</label>
+                <input
+                  type="text"
+                  value={form.brand}
+                  onChange={(e) => updateForm("brand", e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="e.g. Emzor, Beecham"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Category</label>
+                <select
+                  value={form.category}
+                  onChange={(e) => updateForm("category", e.target.value as ProductForm["category"])}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                  <option value="medicine">Medicine</option>
+                  <option value="non-medicine">Non-Medicine</option>
+                  <option value="supermarket">Supermarket</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Expiry Date</label>
+                <input
+                  type="date"
+                  value={form.expiryDate}
+                  onChange={(e) => updateForm("expiryDate", e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setFocusStage("price");
+                panel3Ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+              }}
+              className="w-full py-2.5 rounded-xl border border-blue-300 bg-blue-50 text-blue-700 font-semibold text-sm hover:bg-blue-100"
+            >
+              Continue to Price Matching →
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  const panel3Node = (
+    <div ref={panel3Ref} className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
+      <div className="bg-zinc-50 px-4 py-3 border-b border-zinc-200 font-semibold text-zinc-700">
+        💰 Match Prices
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        {!selectedSnap && !editingProduct ? (
+          <div className="text-zinc-400 text-sm text-center mt-8">
+            Select a snap to match prices
+          </div>
+        ) : (
+          <>
+            {layoutMode === "focus" && (
+              <button onClick={exitFocusToQueue} className="text-xs font-semibold text-zinc-500 hover:text-zinc-700 self-start">
+                ← Back to Queue
+              </button>
+            )}
+            {layoutMode === "focus" && (
+              <button onClick={() => setFocusStage("duplicates")} className="text-xs font-semibold text-blue-600 hover:text-blue-800 self-start">
+                ← Back to Name Matching
+              </button>
+            )}
+            {/* Search */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search price list by name…"
+                value={p3Search}
+                onChange={(e) => setP3Search(e.target.value)}
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              {p3Loading && (
+                <span className="absolute right-3 top-2 text-xs text-zinc-400">searching…</span>
+              )}
+            </div>
+
+            {/* Results */}
+            {p3Results.length > 0 && (
+              <div className="shrink-0 rounded-lg border border-zinc-200">
+                {p3Results.map((r) => (
+                  <button
+                    key={r._id}
+                    onClick={() => applyExcel2(r)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-zinc-100 last:border-b-0 flex justify-between items-start gap-2"
+                  >
+                    <span className="font-medium text-zinc-800 leading-tight">{r.itemName}</span>
+                    <span className="text-xs text-zinc-500 shrink-0 text-right">
+                      <span className="block">Ret: ₦{r.retailPrice?.toLocaleString()}</span>
+                      <span className="block text-zinc-400">Dist: ₦{r.distributorPrice?.toLocaleString()}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Price fields */}
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                  Retail Price (₦)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.retailPrice}
+                  onChange={(e) => updateForm("retailPrice", Number(e.target.value))}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                  Wholesale Price (₦)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.wholesalePrice}
+                  onChange={(e) => updateForm("wholesalePrice", Number(e.target.value))}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                  Distributor Price (₦)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.distributorPrice}
+                  onChange={(e) => updateForm("distributorPrice", Number(e.target.value))}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Quantity</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.quantity}
+                  onChange={(e) => updateForm("quantity", Math.max(1, Number(e.target.value)))}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+            </div>
+
+            {editSaveError && (
+              <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
+                ⚠️ {editSaveError}
+              </div>
+            )}
+
+            {/* Confirm button — only item name is actually required now; anything else
+                missing (brand/size/expiry/price) gets flagged on the saved product
+                instead of blocking the save. In edit mode there's no draft-review step —
+                Panel 2/3 already show the real fields being changed — so this PATCHes
+                the existing Product directly instead of opening the confirm modal. */}
+            <button
+              onClick={() => {
+                if (editingProduct) {
+                  handleSaveEdit();
+                } else {
+                  setSaveError("");
+                  setShowModal(true);
+                }
+              }}
+              disabled={!form.itemName || editSaving}
+              className="w-full py-3 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed mt-auto"
+            >
+              {editingProduct ? (editSaving ? "Saving…" : "✅ Confirm & Save") : "✅ Confirm & Save"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     // Break out of the layout's max-w-6xl by using negative margins
     <div className="-mx-4 -my-6 sm:-mx-6">
       <div className="flex items-center justify-end px-4 pt-3 pb-1">
+        <button
+          onClick={() => setLayoutMode((m) => (m === "grid" ? "focus" : "grid"))}
+          className="text-xs font-semibold rounded-full px-3 py-1.5 bg-zinc-700 text-white hover:bg-zinc-800 inline-flex items-center gap-1.5 mr-2"
+        >
+          {layoutMode === "grid" ? "🖥️ Focus view" : "⊞ Grid view"}
+        </button>
         <Link
           href="/monak-triage/mobile"
           className="text-xs font-semibold rounded-full px-3 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-1.5"
@@ -1159,630 +1841,20 @@ export default function MonakTriageClient({ branchId }: Props) {
           📱 Switch to mobile view
         </Link>
       </div>
-      <div className="grid grid-cols-3 gap-4 h-[calc(100vh-8rem)] p-4">
-
-        {/* ============================================================ */}
-        {/* PANEL 1 — Live Queue                                          */}
-        {/* ============================================================ */}
-        <div className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
-          <div className="bg-zinc-50 px-4 py-3 border-b border-zinc-200 font-semibold text-zinc-700 flex items-center justify-between">
-            <span>📥 Live Queue</span>
-            <div className="flex items-center gap-2">
-              {queueView !== "active" && (
-                <button
-                  onClick={() => setQueueView("active")}
-                  className="text-xs rounded-full px-2 py-0.5 font-medium bg-zinc-700 text-white"
-                >
-                  ← Back to queue
-                </button>
-              )}
-              {visibleSkipped.length > 0 && (
-                <button
-                  onClick={() => setQueueView((v) => (v === "skipped" ? "active" : "skipped"))}
-                  className={`text-xs rounded-full px-2 py-0.5 font-medium ${
-                    queueView === "skipped" ? "bg-purple-700 text-white" : "bg-purple-100 text-purple-700 hover:bg-purple-200"
-                  }`}
-                >
-                  {`⏭️ Needs AI (${queueView === "skipped" ? searchFilteredSkipped.length : visibleSkipped.length})`}
-                </button>
-              )}
-              {dismissedSnaps.length > 0 && (
-                <button
-                  onClick={() => setQueueView((v) => (v === "dismissed" ? "active" : "dismissed"))}
-                  className={`text-xs rounded-full px-2 py-0.5 font-medium ${
-                    queueView === "dismissed" ? "bg-zinc-700 text-white" : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300"
-                  }`}
-                >
-                  {`🗑 Dismissed (${queueView === "dismissed" ? searchFilteredDismissed.length : dismissedSnaps.length})`}
-                </button>
-              )}
-              {queueView === "active" && aiReadCount > 0 && (
-                <span className="text-xs bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 font-medium">
-                  🤖 {aiReadCount} AI-read
-                </span>
-              )}
-              {queueView === "active" && publishedCount > 0 && (
-                <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-medium">
-                  🟢 {publishedCount} live in POS
-                </span>
-              )}
-              {queueView === "active" && (
-                <span className="text-xs bg-zinc-200 text-zinc-600 rounded-full px-2 py-0.5 font-normal">
-                  {visibleSnaps.length + visibleSkipped.length} pending
-                </span>
-              )}
-            </div>
-          </div>
-          {queueView === "active" && totalAiReadCount > 0 && (
-            <div className="px-3 pt-2 bg-red-50 border-b border-red-100">
-              <button
-                onClick={() => {
-                  setBulkConfirmError("");
-                  setShowBulkConfirmModal(true);
-                }}
-                className="w-full py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
-              >
-                📤 Publish All AI-Read Items to POS ({totalAiReadCount})
-              </button>
-              {bulkConfirmSuccessMsg && (
-                <p className="text-xs text-green-700 font-medium py-1.5">{bulkConfirmSuccessMsg}</p>
-              )}
-            </div>
-          )}
-          {queueView === "active" && (
-            <div className="flex items-center gap-1.5 px-3 py-2 border-b border-zinc-100 bg-white">
-              <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mr-1">Working:</span>
-              <button
-                onClick={() => chooseView("all")}
-                className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
-                  viewFilter === "all" ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                }`}
-              >
-                All ({pendingSnaps.length})
-              </button>
-              {[0, 1, 2].map((lane) => (
-                <button
-                  key={lane}
-                  onClick={() => chooseView(lane)}
-                  className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
-                    viewFilter === lane ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                  }`}
-                >
-                  View {lane + 1} ({laneCounts[lane]})
-                </button>
-              ))}
-              <span className="ml-auto flex items-center gap-1.5">
-                <button
-                  onClick={() => setAiReadOnly(true)}
-                  className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
-                    aiReadOnly ? "bg-purple-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                  }`}
-                >
-                  🤖 AI-Read
-                </button>
-                <button
-                  onClick={() => setAiReadOnly(false)}
-                  className={`text-xs rounded-full px-2.5 py-1 font-semibold ${
-                    !aiReadOnly ? "bg-purple-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                  }`}
-                >
-                  All
-                </button>
-              </span>
-            </div>
-          )}
-          <div className="px-3 pt-2 pb-1 border-b border-zinc-100 bg-white">
-            <input
-              type="text"
-              value={queueSearch}
-              onChange={(e) => setQueueSearch(e.target.value)}
-              placeholder="Search this queue by name, brand, size, or qty…"
-              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
-          </div>
-          <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
-            {queueView === "dismissed" ? (
-              <>
-                {searchFilteredDismissed.length === 0 && (
-                  <div className="text-zinc-400 text-sm text-center mt-8">
-                    {dismissedSnaps.length === 0 ? "Nothing dismissed." : "No matches for your search."}
-                  </div>
-                )}
-                {searchFilteredDismissed.map((snap) => (
-                  <div key={snap._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 flex flex-col gap-2 opacity-80">
-                    <div className="flex gap-2 items-start">
-                      <ResilientThumb
-                        src={snap.frontImageUrl}
-                        alt="Front"
-                        className="w-20 h-20"
-                        size={96}
-                        onClick={() => setZoomImage(snap.frontImageUrl)}
-                      />
-                      <div className="flex flex-col gap-1 flex-1 min-w-0">
-                        <span className="text-xs bg-zinc-200 text-zinc-700 rounded-full px-2 py-0.5 font-medium w-fit">
-                          Qty: {snap.quantityInStock}
-                        </span>
-                        <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleRestore(snap)}
-                      className="w-full py-1.5 text-xs font-semibold rounded-lg bg-zinc-700 text-white hover:bg-zinc-800"
-                    >
-                      ↩ Restore to queue
-                    </button>
-                  </div>
-                ))}
-              </>
-            ) : queueView === "skipped" ? (
-              <>
-                {searchFilteredSkipped.length === 0 && (
-                  <div className="text-zinc-400 text-sm text-center mt-8">
-                    {visibleSkipped.length === 0 ? "Nothing skipped in this view." : "No matches for your search."}
-                  </div>
-                )}
-                {searchFilteredSkipped.map((snap) => (
-                  <div key={snap._id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 flex flex-col gap-2 opacity-80">
-                    <div className="flex gap-2 items-start">
-                      <ResilientThumb
-                        src={snap.frontImageUrl}
-                        alt="Front"
-                        className="w-20 h-20"
-                        size={96}
-                        onClick={() => setZoomImage(snap.frontImageUrl)}
-                      />
-                      <div className="flex flex-col gap-1 flex-1 min-w-0">
-                        <span className="text-xs bg-zinc-200 text-zinc-700 rounded-full px-2 py-0.5 font-medium w-fit">
-                          Qty: {snap.quantityInStock}
-                        </span>
-                        <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleRestore(snap)}
-                      className="w-full py-1.5 text-xs font-semibold rounded-lg bg-zinc-700 text-white hover:bg-zinc-800"
-                    >
-                      ↩ Restore to queue
-                    </button>
-                  </div>
-                ))}
-              </>
-            ) : (
-              <>
-                {searchFilteredSnaps.length === 0 && (
-                  <div className="text-zinc-400 text-sm text-center mt-8">
-                    {snaps.length === 0
-                      ? "No pending snaps. Waiting for new items…"
-                      : visibleSnaps.length === 0
-                      ? "Nothing in this view right now."
-                      : "No matches for your search."}
-                  </div>
-                )}
-                {renderedSnaps.map((snap, idx) => {
-                  const isSelected = selectedSnap?._id === snap._id;
-                  const isPriority = idx < 4;
-                  return (
-                    <div
-                      key={snap._id}
-                      className={`rounded-lg border p-3 flex flex-col gap-2 cursor-pointer transition-all ${
-                        isSelected
-                          ? "border-blue-500 bg-blue-50 shadow-md"
-                          : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
-                      }`}
-                    >
-                      <div className="flex gap-2 items-start">
-                        <ResilientThumb
-                          src={snap.frontImageUrl}
-                          alt="Front"
-                          className="w-20 h-20"
-                          size={96}
-                          priority={isPriority}
-                          onClick={() => setZoomImage(snap.frontImageUrl)}
-                        />
-                        <div className="flex flex-col gap-1 flex-1 min-w-0">
-                          {snap.backImageUrl && (
-                            <ResilientThumb
-                              src={snap.backImageUrl}
-                              alt="Back / Expiry"
-                              className="w-full h-12"
-                              size={128}
-                              priority={isPriority}
-                              onClick={() => setZoomImage(snap.backImageUrl)}
-                            />
-                          )}
-                          <div className="flex items-center justify-between mt-1">
-                            <span className="text-xs bg-zinc-100 text-zinc-700 rounded-full px-2 py-0.5 font-medium">
-                              Qty: {snap.quantityInStock}
-                            </span>
-                            <span className="text-xs text-zinc-400">{timeAgo(snap.createdAt)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => selectSnap(snap)}
-                          className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                        >
-                          Triage →
-                        </button>
-                        <button
-                          onClick={() => handleDismiss(snap)}
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-                {hasMoreSnaps && (
-                  <button
-                    onClick={() => setRenderLimit((n) => n + RENDER_BATCH)}
-                    className="py-2 text-xs font-semibold rounded-lg border border-zinc-300 text-zinc-600 hover:bg-zinc-50"
-                  >
-                    Load {Math.min(RENDER_BATCH, searchFilteredSnaps.length - renderLimit)} more ({searchFilteredSnaps.length - renderLimit} left)
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+      {layoutMode === "grid" ? (
+        <div className="grid grid-cols-3 gap-4 h-[calc(100vh-8rem)] p-4">
+          {panel1Node}
+          {panel2Node}
+          {panel3Node}
         </div>
-
-        {/* ============================================================ */}
-        {/* PANEL 2 — Match Name                                          */}
-        {/* ============================================================ */}
-        <div ref={panel2Ref} className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
-          <div className="bg-zinc-50 px-4 py-3 border-b border-zinc-200 font-semibold text-zinc-700">
-            📋 Match from Stock List
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-            {!selectedSnap && !editingProduct ? (
-              <div className="text-zinc-400 text-sm text-center mt-8">
-                Select a snap from the queue to begin triaging
-              </div>
-            ) : (
-              <>
-                {editingProduct && (
-                  <div className="flex items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
-                    <span className="text-xs font-semibold text-blue-800">
-                      ✏️ Editing catalog item: {editingProduct.itemName}
-                    </span>
-                    <button
-                      onClick={cancelEdit}
-                      className="text-xs font-semibold text-blue-700 hover:text-blue-900 shrink-0"
-                    >
-                      ✕ Cancel edit
-                    </button>
-                  </div>
-                )}
-
-                {/* Images preview — tap to zoom in on the original full-res photo. Editing an
-                    existing Product only ever has one image, so the Back slot is skipped. */}
-                <div className="flex gap-3">
-                  <ResilientThumb
-                    src={editingProduct ? editingProduct.imageUrl : selectedSnap?.frontImageUrl ?? null}
-                    alt="Front"
-                    label="Front"
-                    className="flex-1 h-36"
-                    size={256}
-                    priority
-                    onClick={() => {
-                      const url = editingProduct ? editingProduct.imageUrl : selectedSnap?.frontImageUrl;
-                      if (url) setZoomImage(url);
-                    }}
-                  />
-                  {!editingProduct && selectedSnap && (
-                    <ResilientThumb
-                      src={selectedSnap.backImageUrl}
-                      alt="Back / Expiry"
-                      label="Back"
-                      className="flex-1 h-36"
-                      size={256}
-                      priority
-                      onClick={() => selectedSnap.backImageUrl && setZoomImage(selectedSnap.backImageUrl)}
-                    />
-                  )}
-                </div>
-
-                {/* Search */}
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search stock list by name…"
-                    value={p2Search}
-                    onChange={(e) => {
-                      setP2Search(e.target.value);
-                      setP3Search(e.target.value);
-                    }}
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
-                  {p2Loading && (
-                    <span className="absolute right-3 top-2 text-xs text-zinc-400">searching…</span>
-                  )}
-                </div>
-
-                {/* Skip — always available, not gated behind "no results found". Fast, low-friction,
-                    and reversible via Restore, so no confirm dialog. Draft-specific, so hidden
-                    in edit mode where there's no queue snap to skip. */}
-                {selectedSnap && (
-                  <button
-                    onClick={handleSkip}
-                    className="w-full py-2 text-xs font-semibold rounded-lg border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
-                  >
-                    ⏭️ Skip for later
-                  </button>
-                )}
-
-                {/* Already in catalog — likely the same item re-photographed off another shelf */}
-                {catalogMatches.length > 0 && (
-                  <div className="shrink-0 rounded-lg border-2 border-amber-300 bg-amber-50">
-                    <div className="px-3 py-1.5 text-xs font-bold text-amber-800 bg-amber-100">
-                      ⚠️ Already in your catalog — same item?
-                    </div>
-                    {catalogMatches.map((m) => (
-                      <button
-                        key={m._id}
-                        onClick={() => openMergeConfirm(m)}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-amber-100 border-t border-amber-200 flex items-center gap-2"
-                      >
-                        <ResilientThumb src={m.imageUrl} alt={m.itemName} className="h-10 w-10 shrink-0" size={64} />
-                        <span className="flex-1 min-w-0">
-                          <span className="block font-medium text-zinc-800 leading-tight truncate">
-                            {m.itemName} · {m.size}
-                          </span>
-                          <span className="block text-xs text-zinc-500">{m.brand}</span>
-                        </span>
-                        <span className="text-xs font-semibold text-amber-700 shrink-0">
-                          {m.quantityInStock} in stock
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Still waiting elsewhere in the queue — OTHER un-processed drafts that look
-                    like the same item. Clicking this only OPENS the review/confirm modal —
-                    see the modal below for the actual (explicit, per-item) merge decision. */}
-                {siblingDrafts.length > 0 && (
-                  <button
-                    onClick={openSiblingMergeConfirm}
-                    className="shrink-0 rounded-lg border-2 border-sky-300 bg-sky-50 text-left hover:bg-sky-100"
-                  >
-                    <div className="px-3 py-2 text-xs font-bold text-sky-800">
-                      ⏳ {siblingDrafts.length} more of {siblingDrafts.length === 1 ? "this" : "these"} still waiting in
-                      the queue — review &amp; merge?
-                    </div>
-                  </button>
-                )}
-
-                {/* Results */}
-                {p2Results.length > 0 && (
-                  <div className="shrink-0 rounded-lg border border-zinc-200">
-                    {p2Results.map((r) => (
-                      <button
-                        key={r._id}
-                        onClick={() => applyExcel1(r)}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-zinc-100 last:border-b-0 flex justify-between items-start gap-2"
-                      >
-                        <span className="font-medium text-zinc-800 leading-tight">{r.itemName}</span>
-                        <span className="text-xs text-zinc-500 shrink-0 text-right">
-                          <span className="block">₦{r.retailPrice?.toLocaleString()}</span>
-                          {r.expiryDate && <span className="block text-zinc-400">{r.expiryDate}</span>}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* No match found — AI fallback, only shown once a search came up empty. Scans
-                    the draft's own photo, so it's not applicable in edit mode. */}
-                {!editingProduct && p2Search.trim() && !p2Loading && p2Results.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3 flex flex-col gap-2">
-                    <span className="text-xs text-zinc-500">No matches in the stock list for &quot;{p2Search}&quot;.</span>
-                    <button
-                      onClick={handleAiScan}
-                      disabled={aiScanning}
-                      className="py-2 text-xs font-semibold rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
-                    >
-                      {aiScanning ? "🤖 Reading image…" : "🤖 Can't find it — scan the image"}
-                    </button>
-                    {aiScanError && <span className="text-xs text-red-600">{aiScanError}</span>}
-                  </div>
-                )}
-
-                {/* Form fields - name side */}
-                <div className="flex flex-col gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Item Name</label>
-                    <input
-                      type="text"
-                      value={form.itemName}
-                      onChange={(e) => updateForm("itemName", e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      placeholder="e.g. Amoxicillin"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Size / Strength</label>
-                    <input
-                      type="text"
-                      value={form.size}
-                      onChange={(e) => updateForm("size", e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      placeholder="e.g. 500mg, 1L, Standard"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Brand</label>
-                    <input
-                      type="text"
-                      value={form.brand}
-                      onChange={(e) => updateForm("brand", e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      placeholder="e.g. Emzor, Beecham"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Category</label>
-                    <select
-                      value={form.category}
-                      onChange={(e) => updateForm("category", e.target.value as ProductForm["category"])}
-                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    >
-                      <option value="medicine">Medicine</option>
-                      <option value="non-medicine">Non-Medicine</option>
-                      <option value="supermarket">Supermarket</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Expiry Date</label>
-                    <input
-                      type="date"
-                      value={form.expiryDate}
-                      onChange={(e) => updateForm("expiryDate", e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => panel3Ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" })}
-                  className="w-full py-2.5 rounded-xl border border-blue-300 bg-blue-50 text-blue-700 font-semibold text-sm hover:bg-blue-100"
-                >
-                  Continue to Price Matching →
-                </button>
-              </>
-            )}
-          </div>
+      ) : (
+        <div className="h-[calc(100vh-8rem)] p-4 flex flex-col">
+          {focusStage === "queue" && panel1Node}
+          {focusStage === "duplicates" && (selectedSnap || editingProduct) && panel2Node}
+          {focusStage === "price" && (selectedSnap || editingProduct) && panel3Node}
+          {focusStage !== "queue" && !selectedSnap && !editingProduct && panel1Node}
         </div>
-
-        {/* ============================================================ */}
-        {/* PANEL 3 — Match Price                                         */}
-        {/* ============================================================ */}
-        <div ref={panel3Ref} className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow">
-          <div className="bg-zinc-50 px-4 py-3 border-b border-zinc-200 font-semibold text-zinc-700">
-            💰 Match Prices
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-            {!selectedSnap && !editingProduct ? (
-              <div className="text-zinc-400 text-sm text-center mt-8">
-                Select a snap to match prices
-              </div>
-            ) : (
-              <>
-                {/* Search */}
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search price list by name…"
-                    value={p3Search}
-                    onChange={(e) => setP3Search(e.target.value)}
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
-                  {p3Loading && (
-                    <span className="absolute right-3 top-2 text-xs text-zinc-400">searching…</span>
-                  )}
-                </div>
-
-                {/* Results */}
-                {p3Results.length > 0 && (
-                  <div className="shrink-0 rounded-lg border border-zinc-200">
-                    {p3Results.map((r) => (
-                      <button
-                        key={r._id}
-                        onClick={() => applyExcel2(r)}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-zinc-100 last:border-b-0 flex justify-between items-start gap-2"
-                      >
-                        <span className="font-medium text-zinc-800 leading-tight">{r.itemName}</span>
-                        <span className="text-xs text-zinc-500 shrink-0 text-right">
-                          <span className="block">Ret: ₦{r.retailPrice?.toLocaleString()}</span>
-                          <span className="block text-zinc-400">Dist: ₦{r.distributorPrice?.toLocaleString()}</span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Price fields */}
-                <div className="flex flex-col gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                      Retail Price (₦)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={form.retailPrice}
-                      onChange={(e) => updateForm("retailPrice", Number(e.target.value))}
-                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                      Wholesale Price (₦)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={form.wholesalePrice}
-                      onChange={(e) => updateForm("wholesalePrice", Number(e.target.value))}
-                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                      Distributor Price (₦)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={form.distributorPrice}
-                      onChange={(e) => updateForm("distributorPrice", Number(e.target.value))}
-                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Quantity</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={form.quantity}
-                      onChange={(e) => updateForm("quantity", Math.max(1, Number(e.target.value)))}
-                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    />
-                  </div>
-                </div>
-
-                {editSaveError && (
-                  <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
-                    ⚠️ {editSaveError}
-                  </div>
-                )}
-
-                {/* Confirm button — only item name is actually required now; anything else
-                    missing (brand/size/expiry/price) gets flagged on the saved product
-                    instead of blocking the save. In edit mode there's no draft-review step —
-                    Panel 2/3 already show the real fields being changed — so this PATCHes
-                    the existing Product directly instead of opening the confirm modal. */}
-                <button
-                  onClick={() => {
-                    if (editingProduct) {
-                      handleSaveEdit();
-                    } else {
-                      setSaveError("");
-                      setShowModal(true);
-                    }
-                  }}
-                  disabled={!form.itemName || editSaving}
-                  className="w-full py-3 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed mt-auto"
-                >
-                  {editingProduct ? (editSaving ? "Saving…" : "✅ Confirm & Save") : "✅ Confirm & Save"}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* ============================================================ */}
       {/* PANEL 4 — Processed Items (review log)                        */}
