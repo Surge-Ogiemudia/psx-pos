@@ -2169,10 +2169,19 @@ export default function PosClient({
             )}
           </div>
           )}
+          </div>
+          {/* Total/Payment/Complete Sale footer is deliberately OUTSIDE the scrollable
+              cart-items box above — it used to be nested inside it, which meant this
+              (fairly tall) footer's own height ate into the fixed-height box's flex-1
+              budget, squeezing the actual scrollable cart-item area (and its scrollbar)
+              down to almost nothing whenever the footer had a lot to show (split
+              payment, change due, EMR condition card, etc). Now the item list always
+              gets the box's full remaining height, and this footer just sits below it
+              at its own natural height, same as the header above. */}
 
           {cart.length > 0 && (
-            <div className="shrink-0">
-              <div className="mt-3 flex items-center justify-between border-t-2 border-stone-300 pt-3">
+            <div className="mt-3 shrink-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between">
                 <span className="text-base font-bold uppercase tracking-wide text-zinc-900">Total</span>
                 <span className="text-xl font-extrabold text-zinc-900">₦{total.toFixed(2)}</span>
               </div>
@@ -2338,7 +2347,6 @@ export default function PosClient({
               {message.text}
             </p>
           )}
-        </div>
       </div>
 
       {showConfirmModal && (
