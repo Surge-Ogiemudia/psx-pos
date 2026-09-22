@@ -1828,7 +1828,14 @@ export default function PosClient({
           ) : cart.length === 0 ? (
             <p className="flex-1 min-h-0 text-sm text-zinc-500">Cart is empty.</p>
           ) : (
-            <div className="relative flex-1 min-h-0">
+            // min-h guarantees the item list a usable amount of room even when the footer
+            // below (Total/Payment/Complete Sale) is tall (split payment, change due, EMR
+            // condition card all showing) and would otherwise leave flex-1 almost nothing to
+            // work with. Safe against squeezing the footer/Complete Sale button off-screen —
+            // this box is the only flexible (flex-1) element in the column, so any shortfall
+            // is absorbed here (this region simply shows less before needing to scroll),
+            // never by the shrink-0 footer after it.
+            <div className="relative flex-1 min-h-[280px]">
             <div
               ref={cartListRef}
               onScroll={syncCartScrollMetrics}
