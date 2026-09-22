@@ -199,36 +199,46 @@ export function useMonakTriageOfflineSync(branchId: string): OfflineSyncState {
     if (syncingActionsRef.current || !navigator.onLine) return;
     syncingActionsRef.current = true;
     try {
-      const pending = await triageDb.pendingActions.where("status").equals("pending").sortBy("createdAt");
-      if (pending.length === 0) return;
+      // Re-fetches "pending" after every pass instead of working off one snapshot — an
+      // operator speeding through cards can queue several more while this is mid-flight
+      // (each queue calls this function too, but the guard above makes those calls no-ops).
+      // Without re-checking, anything queued during that window would just sit until the
+      // 15s periodic retry below instead of going out with this same burst.
+      for (;;) {
+        const pending = await triageDb.pendingActions.where("status").equals("pending").sortBy("createdAt");
+        if (pending.length === 0) break;
 
-      for (const action of pending) {
-        await triageDb.pendingActions.update(action.id!, { status: "syncing" });
-        try {
-          const res = await replayPendingAction(action);
-          if (res.ok) {
-            await triageDb.pendingActions.update(action.id!, { status: "synced", errorMessage: undefined });
-          } else {
-            const err = await res.json().catch(() => ({ error: `${action.actionType} sync failed` }));
-            console.error("Triage action sync rejected by server:", action, err);
-            await triageDb.pendingActions.update(action.id!, {
-              status: "failed",
-              errorMessage: err.error ?? `Server rejected this ${action.actionType} (HTTP ${res.status}).`,
-            });
+        let networkFailure = false;
+        for (const action of pending) {
+          await triageDb.pendingActions.update(action.id!, { status: "syncing" });
+          try {
+            const res = await replayPendingAction(action);
+            if (res.ok) {
+              await triageDb.pendingActions.update(action.id!, { status: "synced", errorMessage: undefined });
+            } else {
+              const err = await res.json().catch(() => ({ error: `${action.actionType} sync failed` }));
+              console.error("Triage action sync rejected by server:", action, err);
+              await triageDb.pendingActions.update(action.id!, {
+                status: "failed",
+                errorMessage: err.error ?? `Server rejected this ${action.actionType} (HTTP ${res.status}).`,
+              });
+            }
+          } catch (err) {
+            console.error("Triage action sync network error:", err);
+            await triageDb.pendingActions.update(action.id!, { status: "pending" });
+            networkFailure = true;
+            break; // connection likely dropped mid-pass — stop, let the next retry pick up here
           }
-        } catch (err) {
-          console.error("Triage action sync network error:", err);
-          await triageDb.pendingActions.update(action.id!, { status: "pending" });
-          break; // connection likely dropped mid-pass — stop, let the next retry pick up here
         }
-      }
+        if (networkFailure) break; // stop the whole drain, not just this inner pass
 
-      // Cleanup fully synced ones — same as pendingSales, no reason to keep them around once
-      // they've landed.
-      const syncedIds = (await triageDb.pendingActions.where("status").equals("synced").toArray())
-        .map((a) => a.id!)
-        .filter(Boolean);
-      if (syncedIds.length > 0) await triageDb.pendingActions.bulkDelete(syncedIds);
+        // Cleanup fully synced ones from this pass — same as pendingSales, no reason to
+        // keep them around once they've landed.
+        const syncedIds = (await triageDb.pendingActions.where("status").equals("synced").toArray())
+          .map((a) => a.id!)
+          .filter(Boolean);
+        if (syncedIds.length > 0) await triageDb.pendingActions.bulkDelete(syncedIds);
+      }
     } finally {
       syncingActionsRef.current = false;
     }
