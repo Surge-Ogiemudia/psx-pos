@@ -500,51 +500,6 @@ export default function PosClient({
     window.addEventListener("pointerup", onUp);
   }
 
-  // Same custom-drawn-scrollbar treatment as the product list above, and for the same
-  // reason — the cart's item list has no height cap at all right now, so it just grows
-  // forever instead of scrolling within its own space.
-  const cartListRef = useRef<HTMLDivElement>(null);
-  const [cartScrollMetrics, setCartScrollMetrics] = useState({ top: 0, height: 0, clientHeight: 0 });
-  function syncCartScrollMetrics() {
-    const el = cartListRef.current;
-    if (!el) return;
-    setCartScrollMetrics({ top: el.scrollTop, height: el.scrollHeight, clientHeight: el.clientHeight });
-  }
-  // Same ResizeObserver reasoning as the product list — watches the actual rendered content
-  // instead of guessing from a state-change effect, so the scrollbar can never think there's
-  // more below than what's really there.
-  useEffect(() => {
-    const el = cartListRef.current;
-    if (!el) return;
-    syncCartScrollMetrics();
-    const observer = new ResizeObserver(() => syncCartScrollMetrics());
-    observer.observe(el);
-    for (const child of Array.from(el.children)) observer.observe(child);
-    return () => observer.disconnect();
-  }, [cart]);
-  const cartScrollThumbRef = useRef<HTMLDivElement>(null);
-  function handleCartScrollTrackPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    const track = e.currentTarget;
-    const el = cartListRef.current;
-    if (!el) return;
-    (e.target as Element).setPointerCapture(e.pointerId);
-
-    const scrollToPointer = (clientY: number) => {
-      const rect = track.getBoundingClientRect();
-      const ratio = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
-      el.scrollTop = ratio * (el.scrollHeight - el.clientHeight);
-    };
-    scrollToPointer(e.clientY);
-
-    const onMove = (moveEvent: PointerEvent) => scrollToPointer(moveEvent.clientY);
-    const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }
-
   // So staff get visual confirmation an item landed in the cart, instead of it silently
   // updating somewhere off-screen while the catalog list stays put.
   function scrollToCart() {
@@ -1728,7 +1683,7 @@ export default function PosClient({
 
       <div
         ref={cartSectionRef}
-        className="lg:col-span-2 scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:overflow-hidden flex flex-col"
+        className="lg:col-span-2 scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto flex flex-col"
       >
         {heldSales.length > 0 && (
           <div className="mb-3 shrink-0 rounded-lg border border-amber-200 bg-amber-50 p-3">
@@ -1804,7 +1759,7 @@ export default function PosClient({
             )}
           </div>
         </div>
-        <div className="flex flex-1 min-h-0 flex-col rounded-lg border border-zinc-200 bg-white p-4 shadow-sm overflow-hidden">
+        <div className="flex flex-col rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           <div className="mb-4 pb-4 shrink-0 border-b border-zinc-100">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-500">Customer (EMR Patient)</label>
             <div 
@@ -1821,26 +1776,23 @@ export default function PosClient({
           </div>
 
           {loadingPrescription ? (
-            <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-6 border border-zinc-100 rounded-lg bg-zinc-50/50">
+            <div className="flex flex-col items-center justify-center p-6 border border-zinc-100 rounded-lg bg-zinc-50/50">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-300 border-t-teal-600 mb-2"></div>
               <p className="text-xs text-zinc-500 font-medium">Loading EMR prescription...</p>
             </div>
           ) : cart.length === 0 ? (
-            <p className="flex-1 min-h-0 text-sm text-zinc-500">Cart is empty.</p>
+            <p className="text-sm text-zinc-500">Cart is empty.</p>
           ) : (
-            // min-h guarantees the item list a usable amount of room even when the footer
-            // below (Total/Payment/Complete Sale) is tall (split payment, change due, EMR
-            // condition card all showing) and would otherwise leave flex-1 almost nothing to
-            // work with. Safe against squeezing the footer/Complete Sale button off-screen —
-            // this box is the only flexible (flex-1) element in the column, so any shortfall
-            // is absorbed here (this region simply shows less before needing to scroll),
-            // never by the shrink-0 footer after it.
-            <div className="relative flex-1 min-h-[280px]">
-            <div
-              ref={cartListRef}
-              onScroll={syncCartScrollMetrics}
-              className="pos-results-scroll flex flex-col gap-3 h-full overflow-y-auto pr-6"
-            >
+            // No internal scroll region here — the item list renders at its natural
+            // height, and the whole Current Sale column (see its lg:overflow-y-auto
+            // above) scrolls as one unit when everything doesn't fit. An earlier version
+            // tried to keep the Total/Payment/Complete Sale footer always in view by
+            // giving just this list its own bounded, independently-scrolling area, but
+            // that meant this area and the footer were fighting over the same fixed
+            // height budget, which kept leaving this list too small to be usable. One
+            // native scroll on the whole panel is simpler and was verified to actually
+            // work, at the cost of the footer no longer always being pinned in view.
+            <div className="flex flex-col gap-3">
             {cart.map((line) => {
               if (line.kind === "custom") {
                 return (
@@ -2130,61 +2082,13 @@ export default function PosClient({
               );
             })}
             </div>
-            {cart.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  disabled={cartScrollMetrics.top <= 1}
-                  onClick={() => cartListRef.current?.scrollBy({ top: -160, behavior: "smooth" })}
-                  aria-label="Scroll cart up"
-                  className="absolute top-0 right-0 flex h-7 w-5 items-center justify-center rounded-t-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-emerald-600"
-                >
-                  ▲
-                </button>
-                <div
-                  onPointerDown={handleCartScrollTrackPointerDown}
-                  className="absolute top-8 bottom-8 right-0 w-5 cursor-pointer rounded-full bg-emerald-100 border border-emerald-200"
-                >
-                  <div
-                    ref={cartScrollThumbRef}
-                    className="absolute left-0 right-0 rounded-full bg-emerald-700 shadow-sm"
-                    style={{
-                      height: `${
-                        cartScrollMetrics.height > cartScrollMetrics.clientHeight
-                          ? Math.max(10, (cartScrollMetrics.clientHeight / cartScrollMetrics.height) * 100)
-                          : 100
-                      }%`,
-                      top: `${
-                        cartScrollMetrics.height > cartScrollMetrics.clientHeight
-                          ? (cartScrollMetrics.top / (cartScrollMetrics.height - cartScrollMetrics.clientHeight)) *
-                            (100 - Math.max(10, (cartScrollMetrics.clientHeight / cartScrollMetrics.height) * 100))
-                          : 0
-                      }%`,
-                    }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={cartScrollMetrics.height - cartScrollMetrics.clientHeight - cartScrollMetrics.top <= 1}
-                  onClick={() => cartListRef.current?.scrollBy({ top: 160, behavior: "smooth" })}
-                  aria-label="Scroll cart down"
-                  className="absolute bottom-0 right-0 flex h-7 w-5 items-center justify-center rounded-b-md border border-emerald-300 bg-emerald-600 text-xs font-bold leading-none text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-emerald-600"
-                >
-                  ▼
-                </button>
-              </>
-            )}
-          </div>
           )}
           </div>
-          {/* Total/Payment/Complete Sale footer is deliberately OUTSIDE the scrollable
-              cart-items box above — it used to be nested inside it, which meant this
-              (fairly tall) footer's own height ate into the fixed-height box's flex-1
-              budget, squeezing the actual scrollable cart-item area (and its scrollbar)
-              down to almost nothing whenever the footer had a lot to show (split
-              payment, change due, EMR condition card, etc). Now the item list always
-              gets the box's full remaining height, and this footer just sits below it
-              at its own natural height, same as the header above. */}
+          {/* Total/Payment/Complete Sale footer, at its own natural height below the
+              cart-items box — see the lg:overflow-y-auto on the outer column (above,
+              cartSectionRef) for how the whole panel scrolls as one unit when this plus
+              the item list don't all fit, instead of this footer competing with the item
+              list over a shared fixed-height budget. */}
 
           {cart.length > 0 && (
             <div className="mt-3 shrink-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
