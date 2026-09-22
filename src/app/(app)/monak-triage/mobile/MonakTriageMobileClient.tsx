@@ -150,11 +150,12 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
     pendingActions,
     syncPendingActions,
   } = useMonakTriageOfflineSync(branchId);
-  // Stage 2 of the offline plan: Confirm & Save / Skip queue locally instead of failing
-  // outright while offline — see handleSaveAndNext/handleSkip below and useMonakTriageOfflineSync
-  // for the drain. "Syncing" counts as still-pending from the operator's point of view (it just
-  // means a replay attempt happens to be in flight right now); "failed" is a genuine server
-  // rejection and needs their attention. Merge is unaffected — still direct-only.
+  // Confirm & Save / Skip always queue locally and advance immediately — never blocking on
+  // a network round-trip, online or offline — see handleSaveAndNext/handleSkip below and
+  // useMonakTriageOfflineSync for the background drain. "Syncing" counts as still-pending
+  // from the operator's point of view (it just means a replay attempt happens to be in
+  // flight right now); "failed" is a genuine server rejection and needs their attention.
+  // Merge is unaffected — still direct-only (see its own comment in monakTriageDb.ts).
   const [showSyncIssues, setShowSyncIssues] = useState(false);
   const pendingSyncCount = pendingActions.filter((a) => a.status === "pending" || a.status === "syncing").length;
   const failedActions = pendingActions.filter((a) => a.status === "failed");
@@ -425,43 +426,29 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
     setSkipError("");
     const payload = { status: "skipped" };
 
-    // Offline: queue it and move on immediately — no reason to make the operator wait for a
-    // round-trip that can't happen right now. useMonakTriageOfflineSync drains this on
-    // reconnect (see syncPendingActions there).
-    if (!isOnline) {
-      await triageDb.pendingActions.add({
-        actionType: "skip",
-        draftId: currentDraft._id,
-        payload,
-        status: "pending",
-        createdAt: Date.now(),
-      });
-      // Also drop it from the local drafts cache — goNext only removes it from this
-      // render's in-memory queue. Without this, an app reload while still offline (phone
-      // backgrounded and killed, tab refreshed) would re-read the untouched IndexedDB
-      // cache and show this draft again, risking a second queued action for it.
-      await triageDb.drafts.delete(currentDraft._id);
-      setSkipping(false);
-      goNext([currentDraft._id]);
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/products/ai-drafts/${currentDraft._id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Skip failed" }));
-        throw new Error(err.error ?? "Skip failed");
-      }
-      goNext([currentDraft._id]);
-    } catch (err) {
-      setSkipError(err instanceof Error ? err.message : "Skip failed");
-    } finally {
-      setSkipping(false);
-    }
+    // Always queue-first, online or offline — the operator should never wait on a network
+    // round-trip (which can stall for a long time on a bad connection even while nominally
+    // "online") before moving to the next card. The write to IndexedDB below is what
+    // actually can't be lost even if the app dies right after — it's local and effectively
+    // instant, unlike a network request. syncPendingActions (useMonakTriageOfflineSync)
+    // drains the queue in the background: on mount, on reconnect, every 15s while online,
+    // and immediately below right after this queues, so a queued item reaches the server
+    // within moments whenever a connection is actually available.
+    await triageDb.pendingActions.add({
+      actionType: "skip",
+      draftId: currentDraft._id,
+      payload,
+      status: "pending",
+      createdAt: Date.now(),
+    });
+    // Also drop it from the local drafts cache — goNext only removes it from this render's
+    // in-memory queue. Without this, an app reload before this syncs (phone backgrounded and
+    // killed, tab refreshed) would re-read the untouched IndexedDB cache and show this draft
+    // again, risking a second queued action for it.
+    await triageDb.drafts.delete(currentDraft._id);
+    setSkipping(false);
+    goNext([currentDraft._id]);
+    if (isOnline) syncPendingActions();
   }
 
   // ------------------------------------------------------- save & next
@@ -491,40 +478,24 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
       backImageUrl: currentDraft.backImageUrl,
     };
 
-    // Same offline branch as handleSkip above — queue and advance right away rather than
-    // blocking the operator on a network call that can't succeed right now.
-    if (!isOnline) {
-      await triageDb.pendingActions.add({
-        actionType: "confirm",
-        draftId: currentDraft._id,
-        payload,
-        status: "pending",
-        createdAt: Date.now(),
-      });
-      // See the matching comment in handleSkip above — keep the local cache in sync so a
-      // reload while still offline doesn't resurface an already-queued draft.
-      await triageDb.drafts.delete(currentDraft._id);
-      setSaving(false);
-      goNext([currentDraft._id]);
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/products/ai-drafts/${currentDraft._id}/confirm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Save failed" }));
-        throw new Error(err.error ?? "Save failed");
-      }
-      goNext([currentDraft._id]);
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSaving(false);
-    }
+    // Always queue-first, online or offline — same reasoning as handleSkip above. The
+    // operator taps Confirm, this write to IndexedDB lands (fast, local, can't be lost to a
+    // network stall), and they're on to the next card immediately. The actual server save
+    // happens in the background via syncPendingActions, kicked off right below and also
+    // retried on mount/reconnect/every 15s (useMonakTriageOfflineSync) until it lands.
+    await triageDb.pendingActions.add({
+      actionType: "confirm",
+      draftId: currentDraft._id,
+      payload,
+      status: "pending",
+      createdAt: Date.now(),
+    });
+    // See the matching comment in handleSkip above — keep the local cache in sync so a
+    // reload before this syncs doesn't resurface an already-queued draft.
+    await triageDb.drafts.delete(currentDraft._id);
+    setSaving(false);
+    goNext([currentDraft._id]);
+    if (isOnline) syncPendingActions();
   }
 
   // -------------------------------------------------------- price match
@@ -669,9 +640,12 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
           </span>
           <span className="text-zinc-600">{syncStatus}</span>
           {pendingSyncCount > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 text-amber-400 px-2 py-0.5 font-bold">
+            <button
+              onClick={() => setShowSyncIssues(true)}
+              className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 text-amber-400 px-2 py-0.5 font-bold"
+            >
               {pendingSyncCount} pending sync
-            </span>
+            </button>
           )}
           {failedActions.length > 0 && (
             <button
@@ -679,6 +653,14 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               className="inline-flex items-center gap-1 rounded-full bg-red-500/15 text-red-400 px-2 py-0.5 font-bold"
             >
               {failedActions.length} sync {failedActions.length === 1 ? "issue" : "issues"}
+            </button>
+          )}
+          {pendingSyncCount === 0 && failedActions.length === 0 && (
+            <button
+              onClick={() => setShowSyncIssues(true)}
+              className="inline-flex items-center gap-1 rounded-full bg-zinc-800 text-zinc-500 px-2 py-0.5 font-bold"
+            >
+              Queue
             </button>
           )}
         </div>
@@ -987,17 +969,14 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
 
         {/* Bottom action bar — hidden during the duplicates step, since the comparison
             card above has its own two explicit actions (merge / not the same). Skip and
-            Confirm & Save queue locally and sync later when offline (stage 2 of the offline
-            plan — see useMonakTriageOfflineSync.ts); Prev and Proceed are pure navigation and
-            stay available offline too. Merge still requires a live connection — see its own
-            "Reconnect to merge" button in the duplicates step above. */}
+            Confirm & Save always queue locally first and advance immediately — the operator
+            never waits on a network round-trip, online or offline (see handleSkip/
+            handleSaveAndNext above); the queue drains in the background via
+            syncPendingActions (useMonakTriageOfflineSync.ts). Prev and Proceed are pure
+            navigation and stay available offline too. Merge still requires a live
+            connection — see its own "Reconnect to merge" button in the duplicates step above. */}
         {stage !== "duplicates" && (
           <div className="flex flex-col gap-1.5 px-4 py-3 border-t border-zinc-800 bg-zinc-950/95 shrink-0">
-            {!isOnline && (
-              <div className="text-center text-[10px] font-bold text-amber-400">
-                Offline — Skip/Save will queue and sync automatically once reconnected
-              </div>
-            )}
             <div className="flex items-center gap-2">
               <button
                 onClick={goPrev}
@@ -1042,7 +1021,7 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
                   disabled={saving || !form.itemName.trim()}
                   className="flex-1 h-[50px] rounded-2xl bg-emerald-500 disabled:opacity-40 text-[13px] font-extrabold text-emerald-950 flex items-center justify-center gap-1.5"
                 >
-                  {saving ? "Saving…" : !isOnline ? "✓ Queue & Save" : "✓ Confirm & Save"}
+                  {saving ? "Saving…" : "✓ Confirm & Save"}
                 </button>
               )}
             </div>
@@ -1201,62 +1180,86 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
       )}
 
       {/* ---------------------------------------------------------------- */}
-      {/* Sync issues overlay — failed Confirm/Skip replays (a genuine server rejection,      */}
-      {/* not just "still offline"), reviewable one at a time rather than silently vanishing. */}
+      {/* Sync queue overlay — every Confirm/Skip queued locally, so an operator can see    */}
+      {/* what's still in flight, not just failures. Confirmed/Skipped items disappear the  */}
+      {/* instant they queue (see handleSkip/handleSaveAndNext) — this is what makes that    */}
+      {/* safe: it's the visual proof nothing was silently dropped, right up until it's      */}
+      {/* actually landed on the server (rows vanish on their own once synced).              */}
       {/* ---------------------------------------------------------------- */}
       {showSyncIssues && (
         <div className="fixed inset-0 z-50 bg-black/60 flex flex-col justify-end sm:items-center sm:justify-center">
           <div className="w-full sm:max-w-md bg-zinc-950 border border-zinc-800 rounded-t-3xl sm:rounded-3xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 shrink-0">
-              <span className="text-sm font-bold text-zinc-100">Sync issues ({failedActions.length})</span>
+              <span className="text-sm font-bold text-zinc-100">Sync queue ({pendingActions.length})</span>
               <button onClick={() => setShowSyncIssues(false)} className="text-zinc-400 text-xl leading-none px-1">
                 ✕
               </button>
             </div>
             <div className="overflow-y-auto p-3 flex flex-col gap-2">
-              {failedActions.length === 0 ? (
-                <p className="text-sm text-zinc-500 text-center py-8">No sync issues.</p>
+              {pendingActions.length === 0 ? (
+                <p className="text-sm text-zinc-500 text-center py-8">Nothing queued — everything&apos;s synced.</p>
               ) : (
-                failedActions.map((a) => (
-                  <div key={a.id} className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-zinc-100 truncate">
-                          {a.actionType === "confirm" ? "Confirm & Save" : "Skip"} —{" "}
-                          {typeof a.payload.itemName === "string" && a.payload.itemName ? a.payload.itemName : a.draftId}
-                        </p>
-                        <p className="text-[10px] text-zinc-500">{new Date(a.createdAt).toLocaleString()}</p>
+                pendingActions.map((a) => {
+                  const isFailed = a.status === "failed";
+                  const isSyncing = a.status === "syncing";
+                  return (
+                    <div
+                      key={a.id}
+                      className={`rounded-xl border p-3 ${
+                        isFailed ? "border-red-500/30 bg-red-500/10" : "border-zinc-800 bg-zinc-900"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-zinc-100 truncate">
+                            {a.actionType === "confirm" ? "Confirm & Save" : "Skip"} —{" "}
+                            {typeof a.payload.itemName === "string" && a.payload.itemName ? a.payload.itemName : a.draftId}
+                          </p>
+                          <p className="text-[10px] text-zinc-500">{new Date(a.createdAt).toLocaleString()}</p>
+                        </div>
+                        <span
+                          className={`shrink-0 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
+                            isFailed
+                              ? "bg-red-500/20 text-red-300"
+                              : isSyncing
+                              ? "bg-sky-500/20 text-sky-300"
+                              : "bg-amber-500/20 text-amber-300"
+                          }`}
+                        >
+                          {isFailed ? "Failed" : isSyncing ? "Syncing…" : "Pending"}
+                        </span>
                       </div>
-                      <span className="shrink-0 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-300">
-                        Failed
-                      </span>
+                      {isFailed && (
+                        <>
+                          <p className="mt-2 text-[11px] leading-tight text-red-300 font-medium">
+                            {a.errorMessage || "Sync failed."}
+                          </p>
+                          <div className="mt-3 pt-3 border-t border-red-500/20 flex gap-2">
+                            <button
+                              onClick={async () => {
+                                await triageDb.pendingActions.update(a.id!, { status: "pending", errorMessage: undefined });
+                                if (isOnline) syncPendingActions();
+                              }}
+                              className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-200 px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                            >
+                              Retry
+                            </button>
+                            <button
+                              onClick={async () => {
+                                if (confirm("Discard this queued action? This cannot be undone.")) {
+                                  await triageDb.pendingActions.delete(a.id!);
+                                }
+                              }}
+                              className="text-xs bg-transparent border border-red-500/30 hover:bg-red-500/10 text-red-300 px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                            >
+                              Discard
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <p className="mt-2 text-[11px] leading-tight text-red-300 font-medium">
-                      {a.errorMessage || "Sync failed."}
-                    </p>
-                    <div className="mt-3 pt-3 border-t border-red-500/20 flex gap-2">
-                      <button
-                        onClick={async () => {
-                          await triageDb.pendingActions.update(a.id!, { status: "pending", errorMessage: undefined });
-                          if (isOnline) syncPendingActions();
-                        }}
-                        className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-200 px-3 py-1.5 rounded-lg font-semibold transition-colors"
-                      >
-                        Retry
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (confirm("Discard this queued action? This cannot be undone.")) {
-                            await triageDb.pendingActions.delete(a.id!);
-                          }
-                        }}
-                        className="text-xs bg-transparent border border-red-500/30 hover:bg-red-500/10 text-red-300 px-3 py-1.5 rounded-lg font-semibold transition-colors"
-                      >
-                        Discard
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
