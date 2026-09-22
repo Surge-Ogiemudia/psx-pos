@@ -18,7 +18,30 @@ export async function GET(request: NextRequest) {
     const { pharmacyId } = session.user;
 
     if (!search) {
-      return NextResponse.json({ results: [] });
+      // Monak Triage Mobile's offline sync (useMonakTriageOfflineSync.ts) needs the whole
+      // price-reference list cached locally, not a search result — opt-in via ?sync=1 so
+      // every other existing caller (bare GET with no search) keeps returning `{ results: [] }`
+      // exactly as before.
+      if (request.nextUrl.searchParams.get("sync") !== "1") {
+        return NextResponse.json({ results: [] });
+      }
+
+      const limitParam = request.nextUrl.searchParams.get("limit");
+      const skipParam = request.nextUrl.searchParams.get("skip");
+      const limit = limitParam ? Math.min(1000, Math.max(1, parseInt(limitParam, 10) || 0)) : 500;
+      const skip = skipParam ? Math.max(0, parseInt(skipParam, 10) || 0) : 0;
+
+      const [items, total] = await Promise.all([
+        MonakExcel2.find({ pharmacyId })
+          .select("itemName retailPrice wholesalePrice distributorPrice")
+          .sort({ _id: 1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        MonakExcel2.countDocuments({ pharmacyId }),
+      ]);
+
+      return NextResponse.json({ items, total, timestamp: Date.now() });
     }
 
     // Broaden recall at the DB level: match ANY significant word from the
