@@ -299,7 +299,36 @@ export default function PosClient({
   const [enablePrintListener, setEnablePrintListener] = useState(false);
   const [lastSale, setLastSale] = useState<ReceiptSale | null>(null);
   const [enlargedImage, setEnlargedImage] = useState<{ url: string; name: string } | null>(null);
-  
+
+  // Quick edit — press-and-hold (touch) or right-click (mouse) a product tile to adjust
+  // stock/price/etc without leaving POS, admin-only, same fields and endpoint as the
+  // Catalog page's own "Edit" row (PATCH /api/products/[id], which itself requires an
+  // admin session server-side — this client-side isAdminSession check is just so
+  // non-admin staff never see the option, not the actual enforcement).
+  const [quickEditProduct, setQuickEditProduct] = useState<ProductJSON | null>(null);
+  const [quickEditForm, setQuickEditForm] = useState({
+    itemName: "",
+    brand: "",
+    size: "",
+    category: "medicine" as ProductCategory,
+    quantityInStock: "",
+    costPrice: "",
+    retailPrice: "",
+    wholesalePrice: "",
+    distributorPrice: "",
+    batchNumber: "",
+    expiryDate: "",
+  });
+  const [quickEditSaving, setQuickEditSaving] = useState(false);
+  const [quickEditError, setQuickEditError] = useState("");
+  // Long-press detection for touch devices — a single shared timer/flag is fine since only
+  // one tile can be actively pressed at a time. The flag suppresses the synthetic click that
+  // still fires on touchend after a long press, so long-pressing a tile never also adds it
+  // to the cart.
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const LONG_PRESS_MS = 550;
+
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // No native patient search state needed, EMR iframe handles it.
@@ -410,50 +439,6 @@ export default function PosClient({
 
   const cartSectionRef = useRef<HTMLDivElement>(null);
   const productListRef = useRef<HTMLDivElement>(null);
-
-  // A flat vh guess (e.g. max-h-[65vh]) doesn't account for how much space the sticky
-  // header/search box above actually take up, which varies by screen size — on a shorter
-  // screen the panel (and its bottom scroll arrow) can end up pushed below the fold,
-  // needing an outer page scroll to even see the down arrow, defeating the whole point of
-  // having one. Measuring each panel's own top position and sizing its max-height to
-  // whatever room is actually left to the bottom of the viewport fixes that regardless of
-  // header height or screen size.
-  const [catalogMaxHeight, setCatalogMaxHeight] = useState<number | null>(null);
-  const [cartMaxHeight, setCartMaxHeight] = useState<number | null>(null);
-  useEffect(() => {
-    function updateHeights() {
-      // Generous margin on purpose — the panel's own bottom padding/border (~14px) eats
-      // into whatever's left below the scrollable area, and a first attempt at 16px left
-      // almost no real slack, so the down arrow still poked out past the panel's edge on
-      // some screens. This leaves real room rather than a razor-thin margin that any minor
-      // measurement drift (scrollbar width, sub-pixel rounding, a late reflow) can eat into.
-      const bottomMargin = 48;
-      const catalogEl = productListRef.current;
-      if (catalogEl) {
-        const top = catalogEl.getBoundingClientRect().top;
-        setCatalogMaxHeight(Math.max(240, window.innerHeight - top - bottomMargin));
-      }
-      const cartEl = cartListRef.current;
-      if (cartEl) {
-        const top = cartEl.getBoundingClientRect().top;
-        setCartMaxHeight(Math.max(160, window.innerHeight - top - bottomMargin));
-      }
-    }
-    updateHeights();
-    window.addEventListener("resize", updateHeights);
-    // Sticky headers, async image loads, and the catalog's own fetch can all still be
-    // settling into their final layout right after mount — a few repeated passes catch
-    // whatever a single early measurement would miss instead of guessing one delay is enough.
-    const settleTimers = [100, 500, 1200, 2500].map((ms) => setTimeout(updateHeights, ms));
-    return () => {
-      window.removeEventListener("resize", updateHeights);
-      settleTimers.forEach(clearTimeout);
-    };
-    // Re-measure whenever the cart or catalog actually change, not just on mount/resize —
-    // adding items to the cart changes the page's real layout (the panel's own top position
-    // can shift), so a mount-only measurement goes stale the moment the cart grows, which is
-    // exactly the "works at first, breaks once you add items" bug this was causing.
-  }, [cart, products]);
 
   // Typing a new search shouldn't leave the results list scrolled to wherever it happened to be
   // from browsing before — jump back to the top so the best matches are actually visible.
@@ -876,6 +861,99 @@ export default function PosClient({
       return [...prev, { kind: "catalog", key: product._id, product, form: baseUnitName(product), quantity: 1 }];
     });
     flashCartLine(product._id);
+  }
+
+  // --------------- Quick edit (press-and-hold / right-click a tile) ---------------
+  function openQuickEdit(product: ProductJSON) {
+    setQuickEditProduct(product);
+    setQuickEditForm({
+      itemName: product.itemName,
+      brand: product.brand,
+      size: product.size,
+      category: product.category,
+      quantityInStock: String(product.quantityInStock),
+      costPrice: String(product.costPrice || 0),
+      retailPrice: String(product.retailPrice),
+      wholesalePrice: String(product.wholesalePrice),
+      distributorPrice: String(product.distributorPrice),
+      batchNumber: product.batchNumber || "",
+      expiryDate: product.expiryDate ? String(product.expiryDate).slice(0, 10) : "",
+    });
+    setQuickEditError("");
+  }
+
+  function closeQuickEdit() {
+    setQuickEditProduct(null);
+    setQuickEditError("");
+  }
+
+  async function saveQuickEdit() {
+    if (!quickEditProduct) return;
+    if (!quickEditForm.itemName.trim()) {
+      setQuickEditError("Item name is required.");
+      return;
+    }
+    if (!quickEditForm.brand.trim()) {
+      setQuickEditError("Brand is required.");
+      return;
+    }
+    if (!quickEditForm.size.trim()) {
+      setQuickEditError('Size is required — use "Standard" if the item has no size/strength variation.');
+      return;
+    }
+    setQuickEditSaving(true);
+    setQuickEditError("");
+    try {
+      const res = await fetch(`/api/products/${quickEditProduct._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branchId,
+          itemName: quickEditForm.itemName,
+          brand: quickEditForm.brand,
+          size: quickEditForm.size,
+          category: quickEditForm.category,
+          quantityInStock: quickEditForm.quantityInStock,
+          costPrice: quickEditForm.costPrice,
+          retailPrice: quickEditForm.retailPrice,
+          wholesalePrice: quickEditForm.wholesalePrice,
+          distributorPrice: quickEditForm.distributorPrice,
+          batchNumber: quickEditForm.batchNumber,
+          expiryDate: quickEditForm.expiryDate || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update product");
+      const updated = data.product as ProductJSON;
+      // Reflect immediately in the tile grid, and keep the offline IndexedDB cache
+      // (which is what products actually renders from — see the fetchProducts effect
+      // above) in sync so the new values survive a reload/offline session too.
+      setProducts((prev) => prev.map((p) => (p._id === updated._id ? updated : p)));
+      db.products.put(updated).catch(() => {});
+      setQuickEditProduct(null);
+    } catch (err) {
+      setQuickEditError(err instanceof Error ? err.message : "Failed to update product");
+    } finally {
+      setQuickEditSaving(false);
+    }
+  }
+
+  function handleTileTouchStart(product: ProductJSON) {
+    if (!isAdminSession) return;
+    longPressTriggeredRef.current = false;
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      if (navigator.vibrate) navigator.vibrate(30);
+      openQuickEdit(product);
+    }, LONG_PRESS_MS);
+  }
+
+  function cancelTileLongPress() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
   }
 
   // Called alongside addToCart (never instead of it, and never blocking it) when the
@@ -1352,8 +1430,8 @@ export default function PosClient({
           </div>
         </>
       )}
-      <div className="lg:col-span-3 flex flex-col">
-        <div className="sticky top-16 z-20 border-b border-zinc-100 bg-white pb-3 pt-1 md:top-[6.5rem]">
+      <div className="lg:col-span-3 flex flex-col lg:h-[calc(100vh-6.5rem)] lg:overflow-hidden">
+        <div className="sticky top-16 z-20 shrink-0 border-b border-zinc-100 bg-white pb-3 pt-1 md:top-[6.5rem]">
           <div className="mb-2 flex items-center justify-between">
             <h1 className="text-lg font-semibold text-zinc-900">Product catalog</h1>
             <div className="flex items-center space-x-3 text-xs">
@@ -1499,18 +1577,17 @@ export default function PosClient({
           </div>
         )}
 
-        <div className="flex flex-1 flex-col rounded-xl border-2 border-stone-300 bg-stone-100 p-3 shadow-sm">
+        <div className="flex flex-1 min-h-0 flex-col rounded-xl border-2 border-stone-300 bg-stone-100 p-3 shadow-sm">
           {products.length > 4 && (
             <div className="mb-2 flex items-center justify-end text-xs font-bold uppercase tracking-wide text-stone-500">
               <span className="font-bold text-emerald-700 normal-case tracking-normal">▼ Scroll for more — this list keeps going</span>
             </div>
           )}
-          <div className="relative flex-1">
+          <div className="relative flex-1 min-h-0">
             <div
               ref={productListRef}
               onScroll={syncScrollMetrics}
-              style={catalogMaxHeight ? { maxHeight: `${catalogMaxHeight}px` } : undefined}
-              className="pos-results-scroll grid max-h-[65vh] grid-cols-1 gap-2 overflow-y-auto pb-1 pr-6 sm:grid-cols-2"
+              className="pos-results-scroll grid h-full grid-cols-1 gap-2 overflow-y-auto pb-1 pr-6 sm:grid-cols-2"
             >
               {/* Hardcoded Treatment Item */}
               <button
@@ -1533,10 +1610,21 @@ export default function PosClient({
                   <button
                     key={product._id}
                     onClick={() => {
+                      if (longPressTriggeredRef.current) {
+                        longPressTriggeredRef.current = false;
+                        return;
+                      }
                       addToCart(product);
                       if (pendingScanBarcode) linkPendingScanBarcode(product);
                       scrollToCart();
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      if (isAdminSession) openQuickEdit(product);
+                    }}
+                    onTouchStart={() => handleTileTouchStart(product)}
+                    onTouchEnd={cancelTileLongPress}
+                    onTouchMove={cancelTileLongPress}
                     disabled={product.quantityInStock < 1}
                     className="flex flex-col rounded-lg border-2 border-stone-300 bg-white p-3 text-left shadow-sm hover:border-teal-600 hover:shadow-md transition-all disabled:cursor-not-allowed disabled:opacity-50"
                   >
@@ -1640,10 +1728,10 @@ export default function PosClient({
 
       <div
         ref={cartSectionRef}
-        className="lg:col-span-2 scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm lg:sticky lg:top-20 lg:self-start"
+        className="lg:col-span-2 scroll-mt-20 md:scroll-mt-32 rounded-xl border-2 border-stone-300 bg-stone-100 p-4 shadow-sm lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:overflow-hidden flex flex-col"
       >
         {heldSales.length > 0 && (
-          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <div className="mb-3 shrink-0 rounded-lg border border-amber-200 bg-amber-50 p-3">
             <button
               onClick={() => setShowHeld((v) => !v)}
               className="flex w-full items-center justify-between text-sm font-medium text-amber-800"
@@ -1690,7 +1778,7 @@ export default function PosClient({
           </div>
         )}
 
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-y-2">
+        <div className="mb-3 shrink-0 flex flex-wrap items-center justify-between gap-y-2">
           <h2 className="text-lg font-extrabold uppercase tracking-tight text-zinc-900 sm:text-xl">Current Sale</h2>
 
           <div className="flex items-center gap-4">
@@ -1716,8 +1804,8 @@ export default function PosClient({
             )}
           </div>
         </div>
-        <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-          <div className="mb-4 pb-4 border-b border-zinc-100">
+        <div className="flex flex-1 min-h-0 flex-col rounded-lg border border-zinc-200 bg-white p-4 shadow-sm overflow-hidden">
+          <div className="mb-4 pb-4 shrink-0 border-b border-zinc-100">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-500">Customer (EMR Patient)</label>
             <div 
               className="overflow-hidden transition-all duration-200" 
@@ -1733,19 +1821,18 @@ export default function PosClient({
           </div>
 
           {loadingPrescription ? (
-            <div className="flex flex-col items-center justify-center p-6 border border-zinc-100 rounded-lg bg-zinc-50/50">
+            <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-6 border border-zinc-100 rounded-lg bg-zinc-50/50">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-300 border-t-teal-600 mb-2"></div>
               <p className="text-xs text-zinc-500 font-medium">Loading EMR prescription...</p>
             </div>
           ) : cart.length === 0 ? (
-            <p className="text-sm text-zinc-500">Cart is empty.</p>
+            <p className="flex-1 min-h-0 text-sm text-zinc-500">Cart is empty.</p>
           ) : (
-            <div className="relative">
+            <div className="relative flex-1 min-h-0">
             <div
               ref={cartListRef}
               onScroll={syncCartScrollMetrics}
-              style={cartMaxHeight ? { maxHeight: `${cartMaxHeight}px` } : undefined}
-              className="pos-results-scroll flex flex-col gap-3 max-h-[45vh] overflow-y-auto pr-6"
+              className="pos-results-scroll flex flex-col gap-3 h-full overflow-y-auto pr-6"
             >
             {cart.map((line) => {
               if (line.kind === "custom") {
@@ -2084,7 +2171,7 @@ export default function PosClient({
           )}
 
           {cart.length > 0 && (
-            <>
+            <div className="shrink-0">
               <div className="mt-3 flex items-center justify-between border-t-2 border-stone-300 pt-3">
                 <span className="text-base font-bold uppercase tracking-wide text-zinc-900">Total</span>
                 <span className="text-xl font-extrabold text-zinc-900">₦{total.toFixed(2)}</span>
@@ -2241,12 +2328,12 @@ export default function PosClient({
                   ? "Processing..."
                   : `Complete Sale — ${cart.reduce((sum, l) => sum + l.quantity, 0)} item${cart.reduce((sum, l) => sum + l.quantity, 0) === 1 ? "" : "s"} · ₦${total.toFixed(2)}`}
               </button>
-            </>
+            </div>
           )}
 
           {message && (
             <p
-              className={`mt-3 text-sm ${message.type === "success" ? "text-teal-700" : "text-red-600"}`}
+              className={`mt-3 shrink-0 text-sm ${message.type === "success" ? "text-teal-700" : "text-red-600"}`}
             >
               {message.text}
             </p>
@@ -2505,6 +2592,158 @@ export default function PosClient({
             <span className="text-white font-medium text-lg bg-black/50 px-4 py-1.5 rounded-full backdrop-blur-md">
               {enlargedImage.name}
             </span>
+          </div>
+        </div>
+      )}
+
+      {quickEditProduct && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+          onClick={closeQuickEdit}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl bg-white shadow-2xl overflow-hidden border border-zinc-200 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-4 py-3">
+              <span className="text-sm font-bold text-zinc-800">✏️ Quick Edit</span>
+              <button onClick={closeQuickEdit} className="text-zinc-400 hover:text-zinc-600 text-xl leading-none px-1">
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto p-4 flex flex-col gap-3">
+              <p className="text-xs text-zinc-500 -mt-1">{formatProductLabel(quickEditProduct)}</p>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex flex-col gap-1 col-span-2">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Item Name</span>
+                  <input
+                    type="text"
+                    value={quickEditForm.itemName}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, itemName: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Brand</span>
+                  <input
+                    type="text"
+                    value={quickEditForm.brand}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, brand: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Size</span>
+                  <input
+                    type="text"
+                    value={quickEditForm.size}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, size: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 col-span-2">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Category</span>
+                  <select
+                    value={quickEditForm.category}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, category: e.target.value as ProductCategory }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  >
+                    <option value="medicine">Medicine</option>
+                    <option value="non-medicine">Non-medicine</option>
+                    <option value="supermarket">Supermarket</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Stock Qty</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={quickEditForm.quantityInStock}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, quantityInStock: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Cost Price</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={quickEditForm.costPrice}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, costPrice: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Retail Price</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={quickEditForm.retailPrice}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, retailPrice: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Wholesale Price</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={quickEditForm.wholesalePrice}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, wholesalePrice: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Distributor Price</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={quickEditForm.distributorPrice}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, distributorPrice: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Batch No.</span>
+                  <input
+                    type="text"
+                    value={quickEditForm.batchNumber}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, batchNumber: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 col-span-2">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Expiry Date</span>
+                  <input
+                    type="date"
+                    value={quickEditForm.expiryDate}
+                    onChange={(e) => setQuickEditForm((f) => ({ ...f, expiryDate: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                </label>
+              </div>
+
+              {quickEditError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2 text-sm">
+                  ⚠️ {quickEditError}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 border-t border-zinc-200 p-3 bg-zinc-50">
+              <button
+                onClick={closeQuickEdit}
+                className="flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-600 hover:bg-zinc-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveQuickEdit}
+                disabled={quickEditSaving}
+                className="flex-1 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
+              >
+                {quickEditSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         </div>
       )}
