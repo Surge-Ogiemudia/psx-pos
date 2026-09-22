@@ -54,11 +54,43 @@ export interface TriageSyncMetadata {
   lastSyncedAt: string; // epoch ms, as a string — same convention as db.ts's SyncMetadata
 }
 
+// Stage 2 of the offline plan: a write queue for Confirm & Save / Skip, taken while offline
+// and replayed against the real API once connectivity returns. Merge is deliberately NOT
+// covered — it mutates shared live inventory concurrently touched by real POS sales and other
+// operators, and needs its own conflict-detection pass (a later stage) before it's safe to
+// queue; it keeps requiring a live connection.
+//
+// "pending"  — queued, not yet attempted (or a network-level attempt failed and it's waiting
+//              to be retried; that's not a server rejection, just "haven't gotten through yet").
+// "syncing"  — a replay attempt is in flight right now.
+// "synced"   — the server accepted it; this is a transient state, the row is deleted right
+//              after (mirrors usePosOfflineSync's pendingSales synced=1 cleanup).
+// "failed"   — the server actually rejected the replayed request (e.g. the draft was already
+//              claimed/completed by someone else, or a validation error) — terminal, surfaced
+//              to the operator, never auto-retried (same as pendingSales' synced=2).
+export type PendingActionType = "confirm" | "skip";
+export type PendingActionStatus = "pending" | "syncing" | "synced" | "failed";
+
+// The exact body each action sends today — see handleSaveAndNext/handleSkip in
+// MonakTriageMobileClient.tsx. Typed loosely (rather than duplicating ProductForm's shape
+// here) since this table's only job is to replay what was already validated client-side at
+// the time the operator tapped Confirm/Skip, not to re-validate it.
+export interface PendingTriageAction {
+  id?: number; // auto-increment, same convention as db.ts's PendingSale
+  actionType: PendingActionType;
+  draftId: string;
+  payload: Record<string, unknown>;
+  status: PendingActionStatus;
+  createdAt: number; // epoch ms — orders replay as a FIFO queue
+  errorMessage?: string;
+}
+
 export class MonakTriageDatabase extends Dexie {
   drafts!: Table<LocalDraft, string>;
   catalog!: Table<LocalCatalogProduct, string>;
   priceList!: Table<LocalPriceListItem, string>;
   syncMetadata!: Table<TriageSyncMetadata, string>;
+  pendingActions!: Table<PendingTriageAction, number>;
 
   constructor() {
     super("psx-monak-triage-db");
@@ -68,6 +100,14 @@ export class MonakTriageDatabase extends Dexie {
       catalog: "_id, itemName",
       priceList: "_id, itemName",
       syncMetadata: "id",
+    });
+
+    this.version(2).stores({
+      drafts: "_id, status, createdAt",
+      catalog: "_id, itemName",
+      priceList: "_id, itemName",
+      syncMetadata: "id",
+      pendingActions: "++id, draftId, status, createdAt",
     });
   }
 }
