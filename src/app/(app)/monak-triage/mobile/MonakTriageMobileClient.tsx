@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } fro
 import { laneOf, VIEW_STORAGE_KEY } from "@/lib/triageLanes";
 import { useMonakTriageOfflineSync } from "./useMonakTriageOfflineSync";
 import { findLocalDuplicateCandidates, searchLocalPriceList } from "@/lib/triageOfflineMatch";
+import { triageDb } from "@/lib/monakTriageDb";
 
 // ---------------------------------------------------------------------------
 // Mobile "one card at a time" view of Monak Triage — built from the same live
@@ -146,7 +147,17 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
     saveDraftsSnapshot,
     loadCachedDrafts,
     resyncReferenceData,
+    pendingActions,
+    syncPendingActions,
   } = useMonakTriageOfflineSync(branchId);
+  // Stage 2 of the offline plan: Confirm & Save / Skip queue locally instead of failing
+  // outright while offline — see handleSaveAndNext/handleSkip below and useMonakTriageOfflineSync
+  // for the drain. "Syncing" counts as still-pending from the operator's point of view (it just
+  // means a replay attempt happens to be in flight right now); "failed" is a genuine server
+  // rejection and needs their attention. Merge is unaffected — still direct-only.
+  const [showSyncIssues, setShowSyncIssues] = useState(false);
+  const pendingSyncCount = pendingActions.filter((a) => a.status === "pending" || a.status === "syncing").length;
+  const failedActions = pendingActions.filter((a) => a.status === "failed");
   // The catalog sync is paginated (13+ requests for a few thousand products) and runs
   // independently of the queue fetch, which is usually a single fast request — so on a
   // fresh load, an operator can easily reach their first item before the catalog has
@@ -412,11 +423,34 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
     if (!currentDraft) return;
     setSkipping(true);
     setSkipError("");
+    const payload = { status: "skipped" };
+
+    // Offline: queue it and move on immediately — no reason to make the operator wait for a
+    // round-trip that can't happen right now. useMonakTriageOfflineSync drains this on
+    // reconnect (see syncPendingActions there).
+    if (!isOnline) {
+      await triageDb.pendingActions.add({
+        actionType: "skip",
+        draftId: currentDraft._id,
+        payload,
+        status: "pending",
+        createdAt: Date.now(),
+      });
+      // Also drop it from the local drafts cache — goNext only removes it from this
+      // render's in-memory queue. Without this, an app reload while still offline (phone
+      // backgrounded and killed, tab refreshed) would re-read the untouched IndexedDB
+      // cache and show this draft again, risking a second queued action for it.
+      await triageDb.drafts.delete(currentDraft._id);
+      setSkipping(false);
+      goNext([currentDraft._id]);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/products/ai-drafts/${currentDraft._id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "skipped" }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Skip failed" }));
@@ -443,20 +477,39 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
     }
     setSaving(true);
     setSaveError("");
+    const payload = {
+      itemName: form.itemName,
+      brand: form.brand,
+      size: form.size || "Standard",
+      category: form.category,
+      expiryDate: form.expiryDate || null,
+      quantity: form.quantity,
+      retailPrice: form.retailPrice,
+      wholesalePrice: form.wholesalePrice,
+      distributorPrice: form.distributorPrice,
+      frontImageUrl: currentDraft.frontImageUrl,
+      backImageUrl: currentDraft.backImageUrl,
+    };
+
+    // Same offline branch as handleSkip above — queue and advance right away rather than
+    // blocking the operator on a network call that can't succeed right now.
+    if (!isOnline) {
+      await triageDb.pendingActions.add({
+        actionType: "confirm",
+        draftId: currentDraft._id,
+        payload,
+        status: "pending",
+        createdAt: Date.now(),
+      });
+      // See the matching comment in handleSkip above — keep the local cache in sync so a
+      // reload while still offline doesn't resurface an already-queued draft.
+      await triageDb.drafts.delete(currentDraft._id);
+      setSaving(false);
+      goNext([currentDraft._id]);
+      return;
+    }
+
     try {
-      const payload = {
-        itemName: form.itemName,
-        brand: form.brand,
-        size: form.size || "Standard",
-        category: form.category,
-        expiryDate: form.expiryDate || null,
-        quantity: form.quantity,
-        retailPrice: form.retailPrice,
-        wholesalePrice: form.wholesalePrice,
-        distributorPrice: form.distributorPrice,
-        frontImageUrl: currentDraft.frontImageUrl,
-        backImageUrl: currentDraft.backImageUrl,
-      };
       const res = await fetch(`/api/products/ai-drafts/${currentDraft._id}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -615,6 +668,19 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
             <span>{isOnline ? "Online" : "Offline — showing cached data"}</span>
           </span>
           <span className="text-zinc-600">{syncStatus}</span>
+          {pendingSyncCount > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 text-amber-400 px-2 py-0.5 font-bold">
+              {pendingSyncCount} pending sync
+            </span>
+          )}
+          {failedActions.length > 0 && (
+            <button
+              onClick={() => setShowSyncIssues(true)}
+              className="inline-flex items-center gap-1 rounded-full bg-red-500/15 text-red-400 px-2 py-0.5 font-bold"
+            >
+              {failedActions.length} sync {failedActions.length === 1 ? "issue" : "issues"}
+            </button>
+          )}
         </div>
 
         {/* Scrollable content */}
@@ -921,14 +987,15 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
 
         {/* Bottom action bar — hidden during the duplicates step, since the comparison
             card above has its own two explicit actions (merge / not the same). Skip and
-            Confirm & Save are writes and require a live connection (stage 1 of the offline
-            plan is read/browse/edit only — see useMonakTriageOfflineSync.ts); Prev and
-            Proceed are pure navigation and stay available offline. */}
+            Confirm & Save queue locally and sync later when offline (stage 2 of the offline
+            plan — see useMonakTriageOfflineSync.ts); Prev and Proceed are pure navigation and
+            stay available offline too. Merge still requires a live connection — see its own
+            "Reconnect to merge" button in the duplicates step above. */}
         {stage !== "duplicates" && (
           <div className="flex flex-col gap-1.5 px-4 py-3 border-t border-zinc-800 bg-zinc-950/95 shrink-0">
             {!isOnline && (
               <div className="text-center text-[10px] font-bold text-amber-400">
-                Offline — reconnect to skip or save
+                Offline — Skip/Save will queue and sync automatically once reconnected
               </div>
             )}
             <div className="flex items-center gap-2">
@@ -941,8 +1008,7 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               </button>
               <button
                 onClick={handleSkip}
-                disabled={skipping || !isOnline}
-                title={!isOnline ? "Reconnect to save" : undefined}
+                disabled={skipping}
                 className="h-[50px] rounded-2xl bg-zinc-900 border border-zinc-800 px-3.5 text-[11px] font-bold text-zinc-400 disabled:opacity-40"
               >
                 {skipping ? "Skipping…" : "Skip →"}
@@ -973,11 +1039,10 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               ) : (
                 <button
                   onClick={handleSaveAndNext}
-                  disabled={saving || !form.itemName.trim() || !isOnline}
-                  title={!isOnline ? "Reconnect to save" : undefined}
+                  disabled={saving || !form.itemName.trim()}
                   className="flex-1 h-[50px] rounded-2xl bg-emerald-500 disabled:opacity-40 text-[13px] font-extrabold text-emerald-950 flex items-center justify-center gap-1.5"
                 >
-                  {saving ? "Saving…" : !isOnline ? "Reconnect to save" : "✓ Confirm & Save"}
+                  {saving ? "Saving…" : !isOnline ? "✓ Queue & Save" : "✓ Confirm & Save"}
                 </button>
               )}
             </div>
@@ -1130,6 +1195,69 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               >
                 Done
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------------- */}
+      {/* Sync issues overlay — failed Confirm/Skip replays (a genuine server rejection,      */}
+      {/* not just "still offline"), reviewable one at a time rather than silently vanishing. */}
+      {/* ---------------------------------------------------------------- */}
+      {showSyncIssues && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex flex-col justify-end sm:items-center sm:justify-center">
+          <div className="w-full sm:max-w-md bg-zinc-950 border border-zinc-800 rounded-t-3xl sm:rounded-3xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 shrink-0">
+              <span className="text-sm font-bold text-zinc-100">Sync issues ({failedActions.length})</span>
+              <button onClick={() => setShowSyncIssues(false)} className="text-zinc-400 text-xl leading-none px-1">
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto p-3 flex flex-col gap-2">
+              {failedActions.length === 0 ? (
+                <p className="text-sm text-zinc-500 text-center py-8">No sync issues.</p>
+              ) : (
+                failedActions.map((a) => (
+                  <div key={a.id} className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-zinc-100 truncate">
+                          {a.actionType === "confirm" ? "Confirm & Save" : "Skip"} —{" "}
+                          {typeof a.payload.itemName === "string" && a.payload.itemName ? a.payload.itemName : a.draftId}
+                        </p>
+                        <p className="text-[10px] text-zinc-500">{new Date(a.createdAt).toLocaleString()}</p>
+                      </div>
+                      <span className="shrink-0 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-300">
+                        Failed
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[11px] leading-tight text-red-300 font-medium">
+                      {a.errorMessage || "Sync failed."}
+                    </p>
+                    <div className="mt-3 pt-3 border-t border-red-500/20 flex gap-2">
+                      <button
+                        onClick={async () => {
+                          await triageDb.pendingActions.update(a.id!, { status: "pending", errorMessage: undefined });
+                          if (isOnline) syncPendingActions();
+                        }}
+                        className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-200 px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                      >
+                        Retry
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (confirm("Discard this queued action? This cannot be undone.")) {
+                            await triageDb.pendingActions.delete(a.id!);
+                          }
+                        }}
+                        className="text-xs bg-transparent border border-red-500/30 hover:bg-red-500/10 text-red-300 px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                      >
+                        Discard
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
