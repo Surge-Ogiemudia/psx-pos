@@ -15,6 +15,11 @@ interface MergePayload {
   productId: string;
   quantity: number;
   expiryDate?: string | null;
+  // Operator-confirmed from the merge screen — previously this route never touched price
+  // at all, silently keeping whatever the existing product already had (correct or stale)
+  // with no chance for the operator to even see, let alone correct, it.
+  retailPrice?: number;
+  wholesalePrice?: number;
 }
 
 // Merge a triaged snap into an EXISTING product instead of creating a duplicate — used
@@ -29,13 +34,19 @@ export async function POST(
     await dbConnect();
 
     const { id } = await params;
-    const { productId, quantity, expiryDate } = (await request.json()) as MergePayload;
+    const { productId, quantity, expiryDate, retailPrice, wholesalePrice } = (await request.json()) as MergePayload;
 
     if (!productId || !quantity || Number(quantity) < 1) {
       return NextResponse.json(
         { error: "productId and a positive quantity are required" },
         { status: 400 }
       );
+    }
+    if (retailPrice !== undefined && (!Number.isFinite(retailPrice) || retailPrice < 0)) {
+      return NextResponse.json({ error: "retailPrice must be a non-negative number" }, { status: 400 });
+    }
+    if (wholesalePrice !== undefined && (!Number.isFinite(wholesalePrice) || wholesalePrice < 0)) {
+      return NextResponse.json({ error: "wholesalePrice must be a non-negative number" }, { status: 400 });
     }
 
     const { pharmacyId } = session.user;
@@ -71,6 +82,11 @@ export async function POST(
     const branchId = existingProduct.branchId.toString();
     const parsedExpiry = parseExpiryDate(expiryDate);
     const parsedQty = Number(quantity);
+    // Only set fields the operator actually confirmed — omitted entirely (not just 0)
+    // leaves the existing product's price untouched, same as this route's prior behavior.
+    const priceSet: Record<string, number> = {};
+    if (retailPrice !== undefined) priceSet.retailPrice = retailPrice;
+    if (wholesalePrice !== undefined) priceSet.wholesalePrice = wholesalePrice;
 
     // This draft may already have its OWN live product (the pre-open bulk-publish flow
     // creates one immediately, then leaves the draft visible for an operator to finish
@@ -98,7 +114,7 @@ export async function POST(
 
           await Product.findByIdAndUpdate(
             existingProduct._id,
-            { $inc: { quantityInStock: alreadyPublishedProduct.quantityInStock } },
+            { $inc: { quantityInStock: alreadyPublishedProduct.quantityInStock }, $set: priceSet },
             { session: dbSession }
           );
 
@@ -156,7 +172,7 @@ export async function POST(
 
           await Product.findByIdAndUpdate(
             existingProduct._id,
-            { $inc: { quantityInStock: parsedQty } },
+            { $inc: { quantityInStock: parsedQty }, $set: priceSet },
             { session: dbSession }
           );
 
