@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
 import { laneOf, VIEW_STORAGE_KEY } from "@/lib/triageLanes";
+import { useMonakTriageOfflineSync } from "./useMonakTriageOfflineSync";
+import { findLocalDuplicateCandidates, searchLocalPriceList } from "@/lib/triageOfflineMatch";
 
 // ---------------------------------------------------------------------------
 // Mobile "one card at a time" view of Monak Triage — built from the same live
@@ -132,14 +134,38 @@ interface Props {
 }
 
 export default function MonakTriageMobileClient({ branchId }: Props) {
+  // ---------------------------------------------------------- offline sync
+  // Stage 1 of the offline plan: browsing/reviewing/editing the queue works with zero network
+  // calls once synced (catalog + price list cached here); Confirm/Skip/Merge still require a
+  // live connection, same as today — see useMonakTriageOfflineSync.ts for the caching shape.
+  const {
+    isOnline,
+    syncStatus,
+    catalog,
+    priceList,
+    saveDraftsSnapshot,
+    loadCachedDrafts,
+    resyncReferenceData,
+  } = useMonakTriageOfflineSync(branchId);
+  // The catalog sync is paginated (13+ requests for a few thousand products) and runs
+  // independently of the queue fetch, which is usually a single fast request — so on a
+  // fresh load, an operator can easily reach their first item before the catalog has
+  // finished its first pass. An empty catalog at that moment is "still syncing", not
+  // "broken" or "genuinely nothing there", and must not be shown as the same thing.
+  // hasCachedReferenceData isn't granular enough for this (it's true if EITHER catalog OR
+  // priceList has data), so this checks syncStatus directly for an in-progress sync instead.
+  const catalogStillSyncingFirstPass =
+    catalog.length === 0 && isOnline && (syncStatus === "Initializing…" || syncStatus.startsWith("Syncing"));
+
   // ------------------------------------------------------------------ queue
   const [rawQueue, setRawQueue] = useState<AiDraft[]>([]);
   const [queueLoaded, setQueueLoaded] = useState(false);
+  const [queueLoadError, setQueueLoadError] = useState(false);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // The true count across the whole branch, even though only a batch of it is actually
   // fetched below — so the UI can say "showing 150 of 2,765" instead of quietly implying
-  // the queue only has 150 items in it.
+  // the queue only has 150 items in it. Offline, this just falls back to the cached count.
   const [queueTotalOnServer, setQueueTotalOnServer] = useState(0);
 
   // Fetching the entire active queue (thousands of drafts, each carrying image URLs) on
@@ -150,10 +176,22 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
   // tried here, not an oversight.
   const QUEUE_BATCH_LIMIT = 150;
 
+  // Reads always resolve from IndexedDB (loadCachedDrafts), not straight off the network
+  // response — when online this fetch's job is to keep that cache fresh, mirroring how
+  // usePosOfflineSync treats the network as the thing that feeds IndexedDB, not the UI
+  // directly. Offline, this skips the network entirely and just re-reads the cache.
   const fetchQueue = useCallback(async () => {
+    if (!isOnline) {
+      const cached = await loadCachedDrafts();
+      setRawQueue(cached);
+      setQueueTotalOnServer(cached.length);
+      setQueueLoaded(true);
+      setQueueLoadError(false);
+      return;
+    }
     try {
       const res = await fetch(`/api/products/ai-drafts?branchId=${branchId}&limit=${QUEUE_BATCH_LIMIT}`);
-      if (!res.ok) return;
+      if (!res.ok) throw new Error("Fetch failed");
       const data = await res.json();
       const all: AiDraft[] = data.drafts ?? [];
       const active = all.filter(
@@ -162,18 +200,30 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
       setRawQueue(active);
       setQueueTotalOnServer(data.total ?? active.length);
       setQueueLoaded(true);
+      setQueueLoadError(false);
+      saveDraftsSnapshot(active).catch((err) => console.error("Failed to cache queue for offline use:", err));
     } catch {
-      // silent — keep whatever we already had
+      // Network attempt failed even though we appear online (e.g. a flaky connection) — fall
+      // back to whatever's cached rather than leaving the screen stuck on its previous state.
+      const cached = await loadCachedDrafts();
+      setRawQueue(cached);
+      setQueueTotalOnServer(cached.length);
+      setQueueLoaded(true);
+      setQueueLoadError(cached.length === 0);
     }
-  }, [branchId]);
+  }, [branchId, isOnline, loadCachedDrafts, saveDraftsSnapshot]);
 
   useEffect(() => {
     fetchQueue();
-    pollingRef.current = setInterval(fetchQueue, 5000);
+    // Only poll the network while online — offline there's nothing new to fetch, and polling
+    // would just repeatedly hit the browser's own offline fetch failure.
+    if (isOnline) {
+      pollingRef.current = setInterval(fetchQueue, 5000);
+    }
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [fetchQueue]);
+  }, [fetchQueue, isOnline]);
 
   // Which lane this operator/phone is working — "all" or 0/1/2. Same partitioning and
   // same localStorage key as the desktop tool (src/lib/triageLanes.ts), so "View 1" means
@@ -273,37 +323,33 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
   // let a real duplicate slip through unseen.
   const [dupeCheckStatus, setDupeCheckStatus] = useState<"loading" | "done" | "error">("loading");
 
+  // Runs entirely against the cached catalog (src/lib/triageOfflineMatch.ts, sharing the same
+  // isDuplicateText used by the live /api/products/[id]/possible-duplicates endpoint) instead
+  // of calling that endpoint — works offline, and online it's just as accurate since the
+  // catalog stays synced in the background. An empty cached catalog (never synced, or a wiped
+  // cache) is surfaced as an error state rather than a silent "no duplicates found", since
+  // those two cases must never look the same to the operator.
   const runDuplicateCheck = useCallback(() => {
     if (!currentDraft?.productId) {
       setDuplicateCandidates([]);
       setDupeCheckStatus("done");
-      return () => {};
+      return;
     }
-    let cancelled = false;
-    setDupeCheckStatus("loading");
-    fetch(`/api/products/${currentDraft.productId}/possible-duplicates`)
-      .then((r) => {
-        if (!r.ok) throw new Error("Duplicate check failed");
-        return r.json();
-      })
-      .then((d) => {
-        if (cancelled) return;
-        setDuplicateCandidates(d.candidates ?? []);
-        setDupeCheckStatus("done");
-      })
-      .catch(() => {
-        if (!cancelled) setDupeCheckStatus("error");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentDraft?.productId]);
+    if (catalog.length === 0) {
+      // Still syncing its first pass (common right after a fresh load, since the queue
+      // fetch is one request but the catalog sync is many) — keep showing "loading" rather
+      // than a premature "failed", since nothing has actually gone wrong yet.
+      setDupeCheckStatus(catalogStillSyncingFirstPass ? "loading" : "error");
+      return;
+    }
+    setDuplicateCandidates(findLocalDuplicateCandidates(currentDraft.productId, catalog));
+    setDupeCheckStatus("done");
+  }, [currentDraft?.productId, catalog, catalogStillSyncingFirstPass]);
 
   useEffect(() => {
     setDupeIndex(0);
-    return runDuplicateCheck();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDraft?._id, currentDraft?.productId]);
+    runDuplicateCheck();
+  }, [currentDraft?._id, currentDraft?.productId, runDuplicateCheck]);
 
   const currentDupe = duplicateCandidates[dupeIndex] ?? null;
   const [dupeFinalQty, setDupeFinalQty] = useState(0);
@@ -439,39 +485,21 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
   }, [stage]);
   const debouncedPriceSearch = useDebounce(priceSearch, 300);
 
+  // Runs entirely against the cached price list (src/lib/triageOfflineMatch.ts, sharing the
+  // same fuzzyRank used by the live /api/monak-excel2 endpoint) instead of calling that
+  // endpoint — synchronous and fast enough to run on every debounced keystroke even against
+  // the full multi-thousand-row list, so there's no loading state to show anymore. An empty
+  // cached price list (never synced yet) surfaces as its own message rather than silently
+  // returning zero matches.
   const [priceMatches, setPriceMatches] = useState<PriceMatch[]>([]);
-  const [priceSearchLoading, setPriceSearchLoading] = useState(false);
-  const [priceSearchError, setPriceSearchError] = useState(false);
+  const priceListUnavailable = priceList.length === 0;
   useEffect(() => {
-    if (stage !== "price" || !debouncedPriceSearch.trim()) {
+    if (stage !== "price" || !debouncedPriceSearch.trim() || priceListUnavailable) {
       setPriceMatches([]);
-      setPriceSearchLoading(false);
-      setPriceSearchError(false);
       return;
     }
-    let cancelled = false;
-    setPriceSearchLoading(true);
-    setPriceSearchError(false);
-    fetch(`/api/monak-excel2?search=${encodeURIComponent(debouncedPriceSearch)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error("Search failed");
-        return r.json();
-      })
-      .then((d) => {
-        if (cancelled) return;
-        setPriceMatches(d.results ?? []);
-        setPriceSearchLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPriceSearchLoading(false);
-          setPriceSearchError(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedPriceSearch, stage]);
+    setPriceMatches(searchLocalPriceList(debouncedPriceSearch, priceList));
+  }, [debouncedPriceSearch, stage, priceList, priceListUnavailable]);
 
   function applyPriceMatch(m: PriceMatch) {
     setForm((f) => ({
@@ -499,6 +527,19 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
     return (
       <div className="-mx-4 -my-6 sm:-mx-6 min-h-[70vh] flex items-center justify-center bg-zinc-950">
         <span className="text-zinc-400 text-sm">Loading queue…</span>
+      </div>
+    );
+  }
+
+  // Distinct from "queue is clear" below — this is offline with nothing ever cached (a brand
+  // new device/browser, or a cleared cache), not "everything's been processed". Those two must
+  // never look the same, or an operator could mistake "we have no data" for "you're done".
+  if (queueLoadError && rawQueue.length === 0) {
+    return (
+      <div className="-mx-4 -my-6 sm:-mx-6 min-h-[70vh] flex flex-col items-center justify-center gap-2 bg-zinc-950 text-center px-6">
+        <span className="text-4xl">📡</span>
+        <span className="text-zinc-100 font-semibold">No cached queue yet</span>
+        <span className="text-zinc-500 text-sm">Connect to the internet once to load the queue for offline use.</span>
       </div>
     );
   }
@@ -560,6 +601,20 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               </svg>
             </button>
           </div>
+        </div>
+
+        {/* Offline/sync status strip — same visual language as POS's "Online"/"Offline Mode"
+            indicator (PosClient.tsx), adapted to this screen's dark theme. */}
+        <div className="flex items-center gap-2 px-4 py-1.5 border-b border-zinc-800/60 bg-zinc-950/70 shrink-0 text-[10px]">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-bold ${
+              isOnline ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${isOnline ? "bg-emerald-500" : "bg-red-500"}`} />
+            <span>{isOnline ? "Online" : "Offline — showing cached data"}</span>
+          </span>
+          <span className="text-zinc-600">{syncStatus}</span>
         </div>
 
         {/* Scrollable content */}
@@ -750,10 +805,11 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
                   </button>
                   <button
                     onClick={handleDupeMerge}
-                    disabled={dupeMerging}
+                    disabled={dupeMerging || !isOnline}
+                    title={!isOnline ? "Reconnect to save" : undefined}
                     className="flex-1 py-3 rounded-xl bg-amber-500 disabled:opacity-40 text-amber-950 font-extrabold text-xs"
                   >
-                    {dupeMerging ? "Merging…" : "✓ Same item — merge"}
+                    {dupeMerging ? "Merging…" : !isOnline ? "Reconnect to merge" : "✓ Same item — merge"}
                   </button>
                 </div>
               </div>
@@ -773,9 +829,8 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
               placeholder="Search price list…"
               className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
             />
-            {priceSearchLoading && <span className="text-[11px] text-zinc-500">Searching…</span>}
-            {priceSearchError && (
-              <span className="text-[11px] text-red-400">⚠️ Price search failed — check connection and try again.</span>
+            {priceListUnavailable && (
+              <span className="text-[11px] text-red-400">⚠️ Price list not cached yet — connect once to load it.</span>
             )}
             {priceMatches.length > 0 && (
               <div className="flex flex-col gap-1.5 max-h-[220px] overflow-y-auto">
@@ -865,49 +920,67 @@ export default function MonakTriageMobileClient({ branchId }: Props) {
         </div>
 
         {/* Bottom action bar — hidden during the duplicates step, since the comparison
-            card above has its own two explicit actions (merge / not the same). */}
+            card above has its own two explicit actions (merge / not the same). Skip and
+            Confirm & Save are writes and require a live connection (stage 1 of the offline
+            plan is read/browse/edit only — see useMonakTriageOfflineSync.ts); Prev and
+            Proceed are pure navigation and stay available offline. */}
         {stage !== "duplicates" && (
-          <div className="flex items-center gap-2 px-4 py-3 border-t border-zinc-800 bg-zinc-950/95 shrink-0">
-            <button
-              onClick={goPrev}
-              disabled={currentIndex <= 0}
-              className="h-[50px] rounded-2xl bg-zinc-900 border border-zinc-800 px-3.5 text-[11px] font-bold text-zinc-300 disabled:opacity-30"
-            >
-              ← Prev
-            </button>
-            <button
-              onClick={handleSkip}
-              disabled={skipping}
-              className="h-[50px] rounded-2xl bg-zinc-900 border border-zinc-800 px-3.5 text-[11px] font-bold text-zinc-400 disabled:opacity-40"
-            >
-              {skipping ? "Skipping…" : "Skip →"}
-            </button>
-            {stage === "identity" ? (
-              dupeCheckStatus === "error" ? (
-                <button
-                  onClick={runDuplicateCheck}
-                  className="flex-1 h-[50px] rounded-2xl bg-red-500/15 border border-red-500/40 text-[12px] font-extrabold text-red-300 flex items-center justify-center gap-1.5"
-                >
-                  ⚠️ Duplicate check failed — tap to retry
-                </button>
+          <div className="flex flex-col gap-1.5 px-4 py-3 border-t border-zinc-800 bg-zinc-950/95 shrink-0">
+            {!isOnline && (
+              <div className="text-center text-[10px] font-bold text-amber-400">
+                Offline — reconnect to skip or save
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={goPrev}
+                disabled={currentIndex <= 0}
+                className="h-[50px] rounded-2xl bg-zinc-900 border border-zinc-800 px-3.5 text-[11px] font-bold text-zinc-300 disabled:opacity-30"
+              >
+                ← Prev
+              </button>
+              <button
+                onClick={handleSkip}
+                disabled={skipping || !isOnline}
+                title={!isOnline ? "Reconnect to save" : undefined}
+                className="h-[50px] rounded-2xl bg-zinc-900 border border-zinc-800 px-3.5 text-[11px] font-bold text-zinc-400 disabled:opacity-40"
+              >
+                {skipping ? "Skipping…" : "Skip →"}
+              </button>
+              {stage === "identity" ? (
+                dupeCheckStatus === "error" ? (
+                  <button
+                    onClick={() => {
+                      // The catalog cache is most likely just empty/stale (never synced, or
+                      // this is a fresh device) rather than a transient failure — kick a
+                      // resync as well as retrying the check itself.
+                      resyncReferenceData();
+                      runDuplicateCheck();
+                    }}
+                    className="flex-1 h-[50px] rounded-2xl bg-red-500/15 border border-red-500/40 text-[12px] font-extrabold text-red-300 flex items-center justify-center gap-1.5"
+                  >
+                    ⚠️ Duplicate check unavailable — tap to retry
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setStage(duplicateCandidates.length > 0 ? "duplicates" : "price")}
+                    disabled={!form.itemName.trim() || dupeCheckStatus === "loading"}
+                    className="flex-1 h-[50px] rounded-2xl bg-emerald-500 disabled:opacity-40 text-[13px] font-extrabold text-emerald-950 flex items-center justify-center gap-1.5"
+                  >
+                    {dupeCheckStatus === "loading" ? "Checking for duplicates…" : "Proceed →"}
+                  </button>
+                )
               ) : (
                 <button
-                  onClick={() => setStage(duplicateCandidates.length > 0 ? "duplicates" : "price")}
-                  disabled={!form.itemName.trim() || dupeCheckStatus === "loading"}
+                  onClick={handleSaveAndNext}
+                  disabled={saving || !form.itemName.trim() || !isOnline}
+                  title={!isOnline ? "Reconnect to save" : undefined}
                   className="flex-1 h-[50px] rounded-2xl bg-emerald-500 disabled:opacity-40 text-[13px] font-extrabold text-emerald-950 flex items-center justify-center gap-1.5"
                 >
-                  {dupeCheckStatus === "loading" ? "Checking for duplicates…" : "Proceed →"}
+                  {saving ? "Saving…" : !isOnline ? "Reconnect to save" : "✓ Confirm & Save"}
                 </button>
-              )
-            ) : (
-              <button
-                onClick={handleSaveAndNext}
-                disabled={saving || !form.itemName.trim()}
-                className="flex-1 h-[50px] rounded-2xl bg-emerald-500 disabled:opacity-40 text-[13px] font-extrabold text-emerald-950 flex items-center justify-center gap-1.5"
-              >
-                {saving ? "Saving…" : "✓ Confirm & Save"}
-              </button>
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>
