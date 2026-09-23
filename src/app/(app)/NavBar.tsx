@@ -153,7 +153,7 @@ export default function NavBar({
 
     return (
     <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white">
-      <div className="mx-auto w-full max-w-[1920px] px-4 sm:px-6">
+      <div className="mx-auto w-full max-w-[1920px] px-4 sm:px-6 relative">
         <div className="flex items-center gap-4 py-2">
           {/* Logo & Name */}
           <div className="flex shrink-0 items-center gap-2">
@@ -162,13 +162,13 @@ export default function NavBar({
               <img src={logoUrl} alt={pharmacyName} className="h-8 w-8 rounded object-contain" />
             ) : (
               <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-sm font-bold text-white"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-sm font-bold text-white shadow-sm"
                 style={{ backgroundColor: "var(--brand-color)" }}
               >
                 {pharmacyName.charAt(0).toUpperCase()}
               </div>
             )}
-            <span className="font-semibold text-zinc-900 hidden sm:inline-block">{pharmacyName}</span>
+            <span className="font-semibold text-zinc-900 line-clamp-1">{pharmacyName}</span>
           </div>
 
           {/* Desktop Nav Links */}
@@ -185,7 +185,7 @@ export default function NavBar({
                     key={link.href}
                     href={link.href}
                     className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                      active ? "text-white" : "text-zinc-600 hover:bg-zinc-100"
+                      active ? "text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100"
                     }`}
                     style={active ? { backgroundColor: "var(--brand-color)" } : undefined}
                   >
@@ -205,7 +205,7 @@ export default function NavBar({
               {scopeLabel && (
                 <>
                   {" "}
-                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600">
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 border border-zinc-200">
                     {scopeLabel}
                   </span>
                 </>
@@ -213,7 +213,7 @@ export default function NavBar({
             </span>
             <button
               onClick={handleSignOut}
-              className="whitespace-nowrap rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+              className="whitespace-nowrap rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors"
             >
               Sign out
             </button>
@@ -222,7 +222,7 @@ export default function NavBar({
           {/* Mobile Menu Toggle */}
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="ml-auto rounded-lg border border-zinc-300 p-2 text-zinc-600 md:hidden"
+            className="ml-auto rounded-lg border border-zinc-300 p-2 text-zinc-600 md:hidden hover:bg-zinc-50 transition-colors"
             aria-label="Toggle menu"
           >
             {menuOpen ? (
@@ -237,53 +237,55 @@ export default function NavBar({
           </button>
         </div>
 
-        {/* Mobile Nav Menu Dropdown */}
+        {/* Mobile Nav Menu Dropdown (Overlay) */}
         {menuOpen && (
-          <div className="flex w-full flex-col gap-1 border-t border-zinc-200 pt-3 pb-3 md:hidden">
+          <div className="absolute top-full left-0 w-full bg-white border-b border-zinc-200 shadow-xl flex flex-col gap-1 pt-2 pb-4 px-4 md:hidden z-50 animate-in slide-in-from-top-2">
             {!isOnline ? (
-              <div className="rounded-lg px-3 py-2 text-sm font-medium text-amber-600 bg-amber-50 text-center">
+              <div className="rounded-lg px-3 py-2 text-sm font-medium text-amber-600 bg-amber-50 text-center mb-2">
                 Navigation disabled in offline mode
               </div>
             ) : (
-              links.map((link) => {
-                const active = pathname === link.href || pathname.startsWith(link.href + "/");
-                return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    onClick={() => setMenuOpen(false)}
-                    className={`rounded-lg px-3 py-2 text-sm font-medium ${
-                      active ? "text-white" : "text-zinc-600 hover:bg-zinc-100"
-                    }`}
-                    style={active ? { backgroundColor: "var(--brand-color)" } : undefined}
-                  >
-                    {link.label}
-                  </Link>
-                );
-              })
+              <div className="flex flex-col gap-1 mb-2">
+                {links.map((link) => {
+                  const active = pathname === link.href || pathname.startsWith(link.href + "/");
+                  return (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      onClick={() => setMenuOpen(false)}
+                      className={`rounded-lg px-4 py-3 text-base font-medium transition-colors ${
+                        active ? "text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-50"
+                      }`}
+                      style={active ? { backgroundColor: "var(--brand-color)" } : undefined}
+                    >
+                      {link.label}
+                    </Link>
+                  );
+                })}
+              </div>
             )}
-            {branchSwitcher && <div className="px-1 pt-2">{branchSwitcher}</div>}
-            {storeSwitcher && <div className="px-1 pt-2">{storeSwitcher}</div>}
-            <div className="mt-2 flex flex-col gap-3 border-t border-zinc-200 px-1 pt-3 pb-2">
-              <span className="text-sm text-zinc-500">
-                {userName} <span className="text-zinc-400">({userRole})</span>
-              {scopeLabel && (
-                <>
-                  {" "}
-                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600">
+            
+            <div className="flex flex-col gap-3 border-t border-zinc-100 pt-4">
+              {branchSwitcher && <div>{branchSwitcher}</div>}
+              {storeSwitcher && <div>{storeSwitcher}</div>}
+            </div>
+            
+            <div className="mt-2 flex flex-col gap-4 border-t border-zinc-100 pt-4">
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-zinc-900">{userName}</span>
+                <span className="text-xs text-zinc-500 capitalize">{userRole.replace("_", " ")}</span>
+                {scopeLabel && (
+                  <span className="mt-1 inline-flex w-fit rounded bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600 border border-zinc-200">
                     {scopeLabel}
                   </span>
-                </>
-              )}
-              </span>
-              <div className="flex flex-col gap-2 w-full">
-                <button
-                  onClick={handleSignOut}
-                  className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 text-center w-full"
-                >
-                  Sign out
-                </button>
+                )}
               </div>
+              <button
+                onClick={handleSignOut}
+                className="w-full rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-100 transition-colors text-center"
+              >
+                Sign out
+              </button>
             </div>
           </div>
         )}
