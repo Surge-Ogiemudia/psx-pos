@@ -157,22 +157,15 @@ export default function NavBar({
         <div className="flex items-center gap-4 py-2">
           {/* Logo & Name */}
           <div className="flex shrink-0 items-center gap-2">
-            {logoUrl ? (
+            {logoUrl && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoUrl} alt={pharmacyName} className="h-8 w-8 rounded object-contain" />
-            ) : (
-              <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-sm font-bold text-white shadow-sm"
-                style={{ backgroundColor: "var(--brand-color)" }}
-              >
-                {pharmacyName.charAt(0).toUpperCase()}
-              </div>
             )}
             <span className="font-semibold text-zinc-900 line-clamp-1">{pharmacyName}</span>
           </div>
 
           {/* Desktop Nav Links */}
-          <nav className="hidden flex-1 items-center gap-1 md:flex px-4">
+          <nav className="hidden flex-1 items-center gap-2 md:flex px-6">
             {!isOnline ? (
               <div className="rounded-lg px-3 py-1.5 text-sm font-medium text-amber-600 bg-amber-50">
                 Navigation disabled in offline mode
@@ -184,10 +177,11 @@ export default function NavBar({
                   <Link
                     key={link.href}
                     href={link.href}
-                    className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                      active ? "text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-100"
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
+                      active 
+                        ? "bg-zinc-100 text-zinc-900 ring-1 ring-zinc-200 shadow-sm" 
+                        : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50"
                     }`}
-                    style={active ? { backgroundColor: "var(--brand-color)" } : undefined}
                   >
                     {link.label}
                   </Link>
@@ -245,24 +239,25 @@ export default function NavBar({
                 Navigation disabled in offline mode
               </div>
             ) : (
-              <div className="flex flex-col gap-1 mb-2">
-                {links.map((link) => {
-                  const active = pathname === link.href || pathname.startsWith(link.href + "/");
-                  return (
-                    <Link
-                      key={link.href}
-                      href={link.href}
-                      onClick={() => setMenuOpen(false)}
-                      className={`rounded-lg px-4 py-3 text-base font-medium transition-colors ${
-                        active ? "text-white shadow-sm" : "text-zinc-600 hover:bg-zinc-50"
-                      }`}
-                      style={active ? { backgroundColor: "var(--brand-color)" } : undefined}
-                    >
-                      {link.label}
-                    </Link>
-                  );
-                })}
-              </div>
+                              <div className="flex flex-col gap-1 mb-2">
+                  {links.map((link) => {
+                    const active = pathname === link.href || pathname.startsWith(link.href + "/");
+                    return (
+                      <Link
+                        key={link.href}
+                        href={link.href}
+                        onClick={() => setMenuOpen(false)}
+                        className={`rounded-md px-4 py-3 text-base font-medium transition-all ${
+                          active 
+                            ? "bg-zinc-100 text-zinc-900 ring-1 ring-zinc-200 shadow-sm" 
+                            : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50"
+                        }`}
+                      >
+                        {link.label}
+                      </Link>
+                    );
+                  })}
+                </div>
             )}
             
             <div className="flex flex-col gap-3 border-t border-zinc-100 pt-4">
