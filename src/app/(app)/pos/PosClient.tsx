@@ -1313,7 +1313,7 @@ export default function PosClient({
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-      {effectiveSaleMode === "wholesale" && (
+      {effectiveSaleMode === "wholesale" ? (
         <div className="lg:col-span-5 rounded-xl border-2 border-amber-400 bg-amber-100 px-4 py-2.5 flex items-center justify-between">
           <span className="text-sm font-bold text-amber-900">📦 WHOLESALE MODE — every sale on this screen charges wholesale price</span>
           <button
@@ -1322,12 +1322,29 @@ export default function PosClient({
               try {
                 sessionStorage.removeItem(POS_SALE_MODE_KEY);
               } catch {
-                // fine — the prompt just re-shows on next reload instead
+                // ignore
               }
             }}
-            className="text-xs font-semibold text-amber-900 underline hover:no-underline shrink-0 ml-3"
+            className="text-xs font-bold text-amber-700 underline hover:text-amber-900"
           >
             Not right? Switch
+          </button>
+        </div>
+      ) : (
+        <div className="lg:col-span-5 rounded-xl border border-zinc-200 bg-white px-4 py-2 flex items-center justify-between shadow-sm">
+          <span className="text-sm font-medium text-zinc-600">🛍️ Currently billing at <strong>Normal Retail Prices</strong></span>
+          <button
+            onClick={() => {
+              setSaleMode(null);
+              try {
+                sessionStorage.removeItem(POS_SALE_MODE_KEY);
+              } catch {
+                // ignore
+              }
+            }}
+            className="text-xs font-bold text-teal-600 underline hover:text-teal-800 transition-colors"
+          >
+            Switch to Wholesale
           </button>
         </div>
       )}
