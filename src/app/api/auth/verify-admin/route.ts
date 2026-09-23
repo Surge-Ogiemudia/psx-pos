@@ -3,6 +3,7 @@ import { requireApiSession } from "@/lib/session";
 import { dbConnect } from "@/lib/mongodb";
 import User from "@/models/User";
 import bcrypt from "bcryptjs";
+import { getMainPsxUrl } from "@/lib/mainPsx";
 
 export async function GET(req: Request) {
   try {
@@ -44,10 +45,27 @@ export async function POST(req: Request) {
       _id: userId,
       pharmacyId: session.user.pharmacyId, 
       role: "admin" 
-    }).select("passwordHash").lean();
+    }).select("passwordHash phoneNumber").lean();
 
     if (!admin || !admin.passwordHash) {
       return NextResponse.json({ error: "Invalid admin account" }, { status: 401 });
+    }
+
+    // Attempt to verify against Main PSX (source of truth for admin/pharmacy accounts)
+    try {
+      if (admin.phoneNumber) {
+        const mainPsxUrl = getMainPsxUrl();
+        const loginRes = await fetch(`${mainPsxUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phoneNumber: admin.phoneNumber, password })
+        });
+        if (loginRes.ok) {
+          return NextResponse.json({ success: true });
+        }
+      }
+    } catch (e) {
+      console.error("Main PSX verification fallback triggered:", e);
     }
 
     const isMatch = await bcrypt.compare(password, admin.passwordHash);
