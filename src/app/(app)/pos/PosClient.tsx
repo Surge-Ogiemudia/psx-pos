@@ -250,6 +250,20 @@ export default function PosClient({
   const [availableAdmins, setAvailableAdmins] = useState<{_id: string, name: string, email: string}[]>([]);
   const [selectedAdminId, setSelectedAdminId] = useState("");
   const [isAdminVerifying, setIsAdminVerifying] = useState(false);
+
+  useEffect(() => {
+    if (adminPasswordPromptProduct) {
+      fetch('/api/auth/verify-admin')
+        .then(r => r.json())
+        .then(d => {
+          if (d.admins && d.admins.length > 0) {
+            setAvailableAdmins(d.admins);
+            if (!selectedAdminId) setSelectedAdminId(d.admins[0]._id);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [adminPasswordPromptProduct]);
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(POS_SALE_MODE_KEY);
