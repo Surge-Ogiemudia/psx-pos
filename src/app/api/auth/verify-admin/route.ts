@@ -63,6 +63,12 @@ export async function POST(req: Request) {
         if (loginRes.ok) {
           return NextResponse.json({ success: true });
         }
+        
+        const errData = await loginRes.json().catch(() => ({}));
+        // We tried Main PSX and it explicitly rejected the credentials.
+        return NextResponse.json({ 
+          error: `Verification failed for ${admin.phoneNumber}. Server says: ${errData.error || 'Invalid credentials'}` 
+        }, { status: 401 });
       }
     } catch (e) {
       console.error("Main PSX verification fallback triggered:", e);

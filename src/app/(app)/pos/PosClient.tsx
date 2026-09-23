@@ -2722,7 +2722,8 @@ export default function PosClient({
                            setAdminPasswordPromptProduct(null);
                            openQuickEdit(p);
                         } else {
-                           alert("Incorrect admin password.");
+                           const err = await res.json().catch(() => ({}));
+                         alert(err.error || "Incorrect admin password.");
                         }
                       } finally {
                         setIsAdminVerifying(false);
@@ -2762,7 +2763,8 @@ export default function PosClient({
                        setAdminPasswordPromptProduct(null);
                        openQuickEdit(p);
                     } else {
-                       alert("Incorrect admin password.");
+                       const err = await res.json().catch(() => ({}));
+                         alert(err.error || "Incorrect admin password.");
                     }
                   } finally {
                     setIsAdminVerifying(false);
