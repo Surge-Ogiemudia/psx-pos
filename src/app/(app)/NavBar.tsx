@@ -151,11 +151,12 @@ export default function NavBar({
       </select>
     ) : null;
 
-  return (
+    return (
     <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white">
-      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-        <div className="flex items-center gap-4 py-3">
-          <div className="flex flex-1 items-center gap-2 md:flex-none">
+      <div className="mx-auto w-full max-w-[1920px] px-4 sm:px-6">
+        <div className="flex items-center gap-4 py-2">
+          {/* Logo & Name */}
+          <div className="flex shrink-0 items-center gap-2">
             {logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoUrl} alt={pharmacyName} className="h-8 w-8 rounded object-contain" />
@@ -167,26 +168,36 @@ export default function NavBar({
                 {pharmacyName.charAt(0).toUpperCase()}
               </div>
             )}
-            <span className="font-semibold text-zinc-900">{pharmacyName}</span>
+            <span className="font-semibold text-zinc-900 hidden sm:inline-block">{pharmacyName}</span>
           </div>
 
-          <button
-            onClick={() => setMenuOpen((v) => !v)}
-            className="rounded-lg border border-zinc-300 p-2 text-zinc-600 md:hidden"
-            aria-label="Toggle menu"
-          >
-            {menuOpen ? (
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
-              </svg>
+          {/* Desktop Nav Links */}
+          <nav className="hidden flex-1 items-center gap-1 md:flex px-4">
+            {!isOnline ? (
+              <div className="rounded-lg px-3 py-1.5 text-sm font-medium text-amber-600 bg-amber-50">
+                Navigation disabled in offline mode
+              </div>
             ) : (
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 5h14M3 10h14M3 15h14" strokeLinecap="round" />
-              </svg>
+              links.map((link) => {
+                const active = pathname === link.href || pathname.startsWith(link.href + "/");
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                      active ? "text-white" : "text-zinc-600 hover:bg-zinc-100"
+                    }`}
+                    style={active ? { backgroundColor: "var(--brand-color)" } : undefined}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })
             )}
-          </button>
+          </nav>
 
-          <div className="hidden items-center gap-3 md:ml-auto md:flex">
+          {/* Desktop Right Side: Switchers & User */}
+          <div className="hidden shrink-0 items-center gap-3 md:flex">
             {branchSwitcher}
             {storeSwitcher}
             <span className="whitespace-nowrap text-sm text-zinc-500">
@@ -207,36 +218,28 @@ export default function NavBar({
               Sign out
             </button>
           </div>
+
+          {/* Mobile Menu Toggle */}
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="ml-auto rounded-lg border border-zinc-300 p-2 text-zinc-600 md:hidden"
+            aria-label="Toggle menu"
+          >
+            {menuOpen ? (
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 5h14M3 10h14M3 15h14" strokeLinecap="round" />
+              </svg>
+            )}
+          </button>
         </div>
 
-        {!isOnline ? (
-          <nav className="hidden items-center gap-1 border-t border-zinc-100 py-2 md:flex">
-            <div className="rounded-lg px-3 py-1.5 text-sm font-medium text-amber-600 bg-amber-50">
-              Navigation disabled in offline mode
-            </div>
-          </nav>
-        ) : (
-          <nav className="hidden flex-wrap items-center gap-1 border-t border-zinc-100 py-2 md:flex">
-            {links.map((link) => {
-              const active = pathname === link.href || pathname.startsWith(link.href + "/");
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                    active ? "text-white" : "text-zinc-600 hover:bg-zinc-100"
-                  }`}
-                  style={active ? { backgroundColor: "var(--brand-color)" } : undefined}
-                >
-                  {link.label}
-                </Link>
-              );
-            })}
-          </nav>
-        )}
-
+        {/* Mobile Nav Menu Dropdown */}
         {menuOpen && (
-          <div className="order-last flex w-full flex-col gap-1 border-t border-zinc-200 pt-3 pb-3 md:hidden">
+          <div className="flex w-full flex-col gap-1 border-t border-zinc-200 pt-3 pb-3 md:hidden">
             {!isOnline ? (
               <div className="rounded-lg px-3 py-2 text-sm font-medium text-amber-600 bg-amber-50 text-center">
                 Navigation disabled in offline mode
