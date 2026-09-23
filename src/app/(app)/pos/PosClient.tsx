@@ -1843,21 +1843,23 @@ export default function PosClient({
             </div>
 
             <div className="flex items-center text-slate-600 font-medium text-[13px]">
-              ₦
-              <input
-                type="text"
-                inputMode="decimal"
-                value={line.unitPrice === 0 ? "" : line.unitPrice}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => {
-                  const raw = e.target.value.trim();
-                  if (raw === "") { updateLine(line.key, { unitPrice: 0 }); return; }
-                  const val = parseNumeric(raw);
-                  if (!Number.isNaN(val)) updateLine(line.key, { unitPrice: val });
-                }}
-                className="w-16 bg-transparent outline-none border-b border-transparent focus:border-teal-500 text-center mx-1 font-bold"
-              />
-              <span className="text-slate-400 mx-1">×</span> {line.quantity}
+              <div className="flex items-center border border-slate-300 rounded bg-white h-7 px-1.5 shadow-sm focus-within:border-teal-500 focus-within:ring-1 focus-within:ring-teal-500">
+                <span className="text-slate-400 text-xs mr-0.5">₦</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={line.unitPrice === 0 ? "" : line.unitPrice}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    if (raw === "") { updateLine(line.key, { unitPrice: 0 }); return; }
+                    const val = parseNumeric(raw);
+                    if (!Number.isNaN(val)) updateLine(line.key, { unitPrice: val });
+                  }}
+                  className="w-14 bg-transparent outline-none text-center font-bold text-[13px] text-slate-700"
+                />
+              </div>
+              <span className="text-slate-400 mx-1.5 font-normal">×</span> {line.quantity}
             </div>
             
             <div className="flex items-center ml-2 border-l border-slate-200 pl-2">
@@ -1983,24 +1985,26 @@ export default function PosClient({
           )}
 
           <div className="flex items-center text-slate-600 font-medium text-[13px]">
-            ₦
-            <input
-              type="text"
-              inputMode="decimal"
-              value={line.customPrice !== undefined ? line.customPrice : (unitPriceFor(line.product, effectiveSaleMode) * perForm)}
-              onFocus={(e) => e.target.select()}
-              onChange={(e) => {
-                const raw = e.target.value.trim();
-                if (raw === "") { updateLine(line.key, { customPrice: 0 }); return; }
-                const val = parseNumeric(raw);
-                if (!Number.isNaN(val)) updateLine(line.key, { customPrice: val });
-              }}
-              onBlur={(e) => {
-                if (!e.target.value.trim()) updateLine(line.key, { customPrice: undefined });
-              }}
-              className="w-16 bg-transparent outline-none border-b border-transparent focus:border-teal-500 text-center mx-1 font-bold"
-            />
-            <span className="text-slate-400 mx-1">×</span> {line.quantity}
+            <div className="flex items-center border border-slate-300 rounded bg-white h-7 px-1.5 shadow-sm focus-within:border-teal-500 focus-within:ring-1 focus-within:ring-teal-500">
+              <span className="text-slate-400 text-xs mr-0.5">₦</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={line.customPrice !== undefined ? line.customPrice : (unitPriceFor(line.product, effectiveSaleMode) * perForm)}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  if (raw === "") { updateLine(line.key, { customPrice: 0 }); return; }
+                  const val = parseNumeric(raw);
+                  if (!Number.isNaN(val)) updateLine(line.key, { customPrice: val });
+                }}
+                onBlur={(e) => {
+                  if (!e.target.value.trim()) updateLine(line.key, { customPrice: undefined });
+                }}
+                className="w-14 bg-transparent outline-none text-center font-bold text-[13px] text-slate-700"
+              />
+            </div>
+            <span className="text-slate-400 mx-1.5 font-normal">×</span> {line.quantity}
           </div>
           
           <div className="flex items-center ml-2 border-l border-slate-200 pl-2">
