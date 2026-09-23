@@ -16,7 +16,7 @@ export async function GET(req: Request) {
     const admins = await User.find({ 
       pharmacyId: session.user.pharmacyId, 
       role: "admin" 
-    }).select("name email").lean();
+    }).select("name phoneNumber").lean();
 
     return NextResponse.json({ admins });
   } catch (error) {
