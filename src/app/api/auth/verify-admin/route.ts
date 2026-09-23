@@ -4,6 +4,27 @@ import { dbConnect } from "@/lib/mongodb";
 import User from "@/models/User";
 import bcrypt from "bcryptjs";
 
+export async function GET(req: Request) {
+  try {
+    const session = await requireApiSession();
+    if (!session?.user?.pharmacyId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    await dbConnect();
+    // Fetch all admins for this pharmacy to populate the dropdown
+    const admins = await User.find({ 
+      pharmacyId: session.user.pharmacyId, 
+      role: "admin" 
+    }).select("name email").lean();
+
+    return NextResponse.json({ admins });
+  } catch (error) {
+    console.error("Admin list error:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const session = await requireApiSession();
@@ -11,29 +32,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { password } = await req.json();
-    if (!password) {
-      return NextResponse.json({ error: "Password required" }, { status: 400 });
+    const { password, userId } = await req.json();
+    if (!password || !userId) {
+      return NextResponse.json({ error: "Password and User ID required" }, { status: 400 });
     }
 
     await dbConnect();
-    // Get all admins for this pharmacy
-    const admins = await User.find({ 
+    
+    // Check the specific admin selected
+    const admin = await User.findOne({ 
+      _id: userId,
       pharmacyId: session.user.pharmacyId, 
       role: "admin" 
     }).select("passwordHash").lean();
 
-    // Check if the provided password matches ANY admin's password
-    for (const admin of admins) {
-      if (admin.passwordHash) {
-        const isMatch = await bcrypt.compare(password, admin.passwordHash);
-        if (isMatch) {
-          return NextResponse.json({ success: true });
-        }
-      }
+    if (!admin || !admin.passwordHash) {
+      return NextResponse.json({ error: "Invalid admin account" }, { status: 401 });
     }
 
-    return NextResponse.json({ error: "Invalid admin password" }, { status: 401 });
+    const isMatch = await bcrypt.compare(password, admin.passwordHash);
+    if (isMatch) {
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json({ error: "Incorrect admin password" }, { status: 401 });
   } catch (error) {
     console.error("Admin verify error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });

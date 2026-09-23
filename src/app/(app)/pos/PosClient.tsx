@@ -248,6 +248,8 @@ export default function PosClient({
   const [saleModeReady, setSaleModeReady] = useState(false);
   const [adminPasswordPromptProduct, setAdminPasswordPromptProduct] = useState<ProductJSON | null>(null);
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
+  const [availableAdmins, setAvailableAdmins] = useState<{_id: string, name: string, email: string}[]>([]);
+  const [selectedAdminId, setSelectedAdminId] = useState("");
   const [isAdminVerifying, setIsAdminVerifying] = useState(false);
   useEffect(() => {
     try {
@@ -2655,39 +2657,56 @@ export default function PosClient({
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200">
             <h3 className="mb-2 text-lg font-bold text-slate-800 tracking-tight">Admin Authorization Required</h3>
-            <p className="mb-5 text-sm text-slate-600">Please enter an admin password to edit this product.</p>
-            <input
-               type="password"
-               className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-               placeholder="Admin Password"
-               autoFocus
-               value={adminPasswordInput}
-               onChange={(e) => setAdminPasswordInput(e.target.value)}
-               disabled={isAdminVerifying}
-               onKeyDown={async (e) => {
-                 if (e.key === "Enter" && !isAdminVerifying && adminPasswordInput) {
-                    setIsAdminVerifying(true);
-                    try {
-                      const res = await fetch("/api/auth/verify-admin", {
-                         method: "POST",
-                         headers: { "Content-Type": "application/json" },
-                         body: JSON.stringify({ password: adminPasswordInput })
-                      });
-                      if (res.ok) {
-                         const p = adminPasswordPromptProduct;
-                         setAdminPasswordPromptProduct(null);
-                         openQuickEdit(p);
-                      } else {
-                         alert("Incorrect admin password.");
+            <p className="mb-4 text-sm text-slate-500">Please select an admin account and enter the password to edit this product.</p>
+            
+            {availableAdmins.length > 0 ? (
+              <div className="flex flex-col gap-3">
+                <select
+                  value={selectedAdminId}
+                  onChange={(e) => setSelectedAdminId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none"
+                >
+                  {availableAdmins.map(a => (
+                    <option key={a._id} value={a._id}>{a.name} ({a.email})</option>
+                  ))}
+                </select>
+                
+                <input 
+                  type="password" 
+                  autoFocus
+                  placeholder="Admin password"
+                  value={adminPasswordInput}
+                  onChange={(e) => setAdminPasswordInput(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === "Enter" && !isAdminVerifying && adminPasswordInput && selectedAdminId) {
+                      setIsAdminVerifying(true);
+                      try {
+                        const res = await fetch("/api/auth/verify-admin", {
+                           method: "POST",
+                           headers: { "Content-Type": "application/json" },
+                           body: JSON.stringify({ password: adminPasswordInput, userId: selectedAdminId })
+                        });
+                        if (res.ok) {
+                           const p = adminPasswordPromptProduct;
+                           setAdminPasswordPromptProduct(null);
+                           openQuickEdit(p);
+                        } else {
+                           alert("Incorrect admin password.");
+                        }
+                      } finally {
+                        setIsAdminVerifying(false);
                       }
-                    } catch (err) {
-                      alert("Error verifying password");
-                    } finally {
-                      setIsAdminVerifying(false);
                     }
-                 }
-               }}
-            />
+                  }}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none"
+                />
+              </div>
+            ) : (
+              <div className="text-sm text-amber-600 mb-4 bg-amber-50 p-2 rounded">
+                Loading admins or no admins found...
+              </div>
+            )}
+
             <div className="mt-6 flex justify-end gap-3">
               <button 
                 className="text-slate-500 hover:text-slate-700 font-medium px-4 py-2" 
@@ -2697,31 +2716,29 @@ export default function PosClient({
                 Cancel
               </button>
               <button 
-                className="rounded-lg bg-teal-600 px-5 py-2 text-white font-medium hover:bg-teal-700 disabled:opacity-70 shadow-sm"
-                disabled={isAdminVerifying || !adminPasswordInput}
+                className="bg-teal-600 hover:bg-teal-700 text-white font-medium px-4 py-2 rounded-lg disabled:opacity-50"
+                disabled={isAdminVerifying || !adminPasswordInput || !selectedAdminId}
                 onClick={async () => {
-                    setIsAdminVerifying(true);
-                    try {
-                      const res = await fetch("/api/auth/verify-admin", {
-                         method: "POST",
-                         headers: { "Content-Type": "application/json" },
-                         body: JSON.stringify({ password: adminPasswordInput })
-                      });
-                      if (res.ok) {
-                         const p = adminPasswordPromptProduct;
-                         setAdminPasswordPromptProduct(null);
-                         openQuickEdit(p);
-                      } else {
-                         alert("Incorrect admin password.");
-                      }
-                    } catch (err) {
-                      alert("Error verifying password");
-                    } finally {
-                      setIsAdminVerifying(false);
+                  setIsAdminVerifying(true);
+                  try {
+                    const res = await fetch("/api/auth/verify-admin", {
+                       method: "POST",
+                       headers: { "Content-Type": "application/json" },
+                       body: JSON.stringify({ password: adminPasswordInput, userId: selectedAdminId })
+                    });
+                    if (res.ok) {
+                       const p = adminPasswordPromptProduct;
+                       setAdminPasswordPromptProduct(null);
+                       openQuickEdit(p);
+                    } else {
+                       alert("Incorrect admin password.");
                     }
+                  } finally {
+                    setIsAdminVerifying(false);
+                  }
                 }}
               >
-                {isAdminVerifying ? "Verifying..." : "Verify"}
+                {isAdminVerifying ? "Verifying..." : "Verify & Edit"}
               </button>
             </div>
           </div>
