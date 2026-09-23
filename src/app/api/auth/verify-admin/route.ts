@@ -47,7 +47,7 @@ export async function POST(req: Request) {
       role: "admin" 
     }).select("passwordHash phoneNumber").lean();
 
-    if (!admin || !admin.passwordHash) {
+    if (!admin) {
       return NextResponse.json({ error: "Invalid admin account" }, { status: 401 });
     }
 
@@ -72,6 +72,10 @@ export async function POST(req: Request) {
       }
     } catch (e) {
       console.error("Main PSX verification fallback triggered:", e);
+    }
+
+    if (!admin.passwordHash) {
+      return NextResponse.json({ error: "Local admin account missing password hash, and Main PSX verification failed/unreachable." }, { status: 401 });
     }
 
     const isMatch = await bcrypt.compare(password, admin.passwordHash);
