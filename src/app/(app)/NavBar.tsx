@@ -154,7 +154,7 @@ export default function NavBar({
     return (
     <header className="sticky top-0 z-40 bg-zinc-950 border-b border-zinc-800">
       <div className="mx-auto w-full max-w-[1920px] px-4 sm:px-6 relative">
-        <div className="flex items-center gap-4 py-2">
+        <div className="flex items-center flex-wrap gap-y-2 gap-x-4 py-2">
           {/* Logo & Name */}
           <div className="flex shrink-0 items-center gap-2">
             {logoUrl && (
@@ -165,7 +165,7 @@ export default function NavBar({
           </div>
 
           {/* Desktop Nav Links */}
-          <nav className="hidden flex-1 items-center gap-2 md:flex px-6">
+          <nav className="hidden flex-1 items-center flex-wrap gap-2 md:flex px-4">
             {!isOnline ? (
               <div className="rounded-lg px-3 py-1.5 text-sm font-medium text-amber-500 bg-amber-950/50 border border-amber-900/50">
                 Navigation disabled in offline mode
@@ -191,7 +191,7 @@ export default function NavBar({
           </nav>
 
           {/* Desktop Right Side: Switchers & User */}
-          <div className="hidden shrink-0 items-center gap-3 md:flex">
+          <div className="hidden shrink-0 items-center flex-wrap gap-y-2 gap-x-3 md:flex">
             {branchSwitcher}
             {storeSwitcher}
             <span className="whitespace-nowrap text-sm text-zinc-400">
