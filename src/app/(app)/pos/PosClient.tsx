@@ -103,8 +103,6 @@ function heldSalesStorageKey(branchId: string | null): string {
 function unitPriceFor(product: ProductJSON, mode: PosSaleMode): number {
   return mode === "wholesale" ? product.wholesalePrice : product.retailPrice;
 }
-  return product.retailPrice || 0;
-}
 
 function lineAmount(line: CartLine, mode: PosSaleMode): number {
   const base =
