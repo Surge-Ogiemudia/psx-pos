@@ -101,9 +101,8 @@ function heldSalesStorageKey(branchId: string | null): string {
 // wholesale, chosen once at login (see PosSaleMode). A manually-typed customPrice
 // override always wins regardless of mode; this is only the default.
 function unitPriceFor(product: ProductJSON, mode: PosSaleMode): number {
-  if (mode === "wholesale") {
-    return product.wholesalePrice > 0 ? product.wholesalePrice : (product.retailPrice || 0);
-  }
+  return mode === "wholesale" ? product.wholesalePrice : product.retailPrice;
+}
   return product.retailPrice || 0;
 }
 
@@ -1935,7 +1934,9 @@ export default function PosClient({
   const hierarchy = line.product.unitHierarchy;
   const perForm = piecesPerForm(line.product, line.form);
   const maxQty = Math.max(1, Math.floor(line.product.quantityInStock / perForm));
-  const priceForForm = line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode) * perForm;
+  const originalPriceForForm = unitPriceFor(line.product, effectiveSaleMode) * perForm;
+  const isPriceLocked = originalPriceForForm > 0;
+  const priceForForm = isPriceLocked ? originalPriceForForm : (line.customPrice !== undefined ? line.customPrice : 0);
   
   return (
     <div
@@ -2019,13 +2020,13 @@ export default function PosClient({
           )}
 
           <div className="flex items-center text-slate-600 font-medium text-[13px]">
-            <div className={`flex items-center border border-slate-300 rounded bg-white h-7 px-1.5 shadow-sm ${unitPriceFor(line.product, effectiveSaleMode) === 0 ? "focus-within:border-teal-500 focus-within:ring-1 focus-within:ring-teal-500" : ""}`}>
+            <div className={`flex items-center border border-slate-300 rounded bg-white h-7 px-1.5 shadow-sm ${!isPriceLocked ? "focus-within:border-teal-500 focus-within:ring-1 focus-within:ring-teal-500" : ""}`}>
               <span className="text-slate-400 text-xs mr-0.5">₦</span>
               <input
                 type="text"
                 inputMode="decimal"
-                disabled={unitPriceFor(line.product, effectiveSaleMode) > 0}
-                value={line.customPrice !== undefined ? line.customPrice : (unitPriceFor(line.product, effectiveSaleMode) * perForm)}
+                disabled={isPriceLocked}
+                value={priceForForm}
                 onFocus={(e) => e.target.select()}
                 onChange={(e) => {
                   const raw = e.target.value.trim();
@@ -2036,7 +2037,7 @@ export default function PosClient({
                 onBlur={(e) => {
                   if (!e.target.value.trim()) updateLine(line.key, { customPrice: undefined });
                 }}
-                className={`w-14 bg-transparent outline-none text-center font-bold text-[13px] text-slate-700 ${unitPriceFor(line.product, effectiveSaleMode) > 0 ? "cursor-default opacity-80" : ""}`}
+                className={`w-14 bg-transparent outline-none text-center font-bold text-[13px] text-slate-700 ${isPriceLocked ? "cursor-default opacity-80" : ""}`}
               />
             </div>
             <span className="text-slate-400 mx-1.5 font-normal">×</span> {line.quantity}
@@ -2339,7 +2340,8 @@ export default function PosClient({
                     }
 
                     const perForm = piecesPerForm(line.product, line.form);
-                    const priceForForm = line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode) * perForm;
+                    const originalPriceForForm = unitPriceFor(line.product, effectiveSaleMode) * perForm;
+                    const priceForForm = originalPriceForForm > 0 ? originalPriceForForm : (line.customPrice !== undefined ? line.customPrice : 0);
                     const rawTotal = priceForForm * line.quantity;
                     const itemTotal = discountedUnitPrice(priceForForm, line.discountPercent) * line.quantity;
                     return (

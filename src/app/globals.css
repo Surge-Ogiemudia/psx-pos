@@ -47,7 +47,7 @@ body {
 @media print {
   @page {
     /* Set continuous roll dimensions. Height 'auto' cuts immediately after content ends. */
-    size: 80mm auto;
+    size: 58mm auto;
     margin: 0 !important;
   }
   html, body {
@@ -75,7 +75,7 @@ body {
     left: 0 !important;
     top: 0 !important;
     width: 100% !important;
-    max-width: 80mm !important;
+    max-width: 55mm !important;
     margin: 0 !important;
     padding: 0 !important;
     /* Prevent extra blank pages by removing any minimum heights */
