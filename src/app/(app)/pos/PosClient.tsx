@@ -245,7 +245,7 @@ export default function PosClient({
   const [saleModeReady, setSaleModeReady] = useState(false);
   const [adminPasswordPromptProduct, setAdminPasswordPromptProduct] = useState<ProductJSON | null>(null);
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
-  const [availableAdmins, setAvailableAdmins] = useState<{_id: string, name: string, email: string}[]>([]);
+  const [availableAdmins, setAvailableAdmins] = useState<{_id: string, name: string, phoneNumber: string}[]>([]);
   const [selectedAdminId, setSelectedAdminId] = useState("");
   const [isAdminVerifying, setIsAdminVerifying] = useState(false);
 
@@ -2698,7 +2698,7 @@ export default function PosClient({
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none"
                 >
                   {availableAdmins.map(a => (
-                    <option key={a._id} value={a._id}>{a.name} ({a.email})</option>
+                    <option key={a._id} value={a._id}>{a.name} ({a.phoneNumber})</option>
                   ))}
                 </select>
                 
