@@ -1794,293 +1794,287 @@ export default function PosClient({
             // work, at the cost of the footer no longer always being pinned in view.
             <div className="flex flex-col gap-3">
             {cart.map((line) => {
-              if (line.kind === "custom") {
-                return (
-                  <div
-                    key={line.key}
-                    className={`border-b-2 border-stone-200 pb-3 last:border-0 rounded-lg transition-colors duration-700 ${
-                      flashKey === line.key ? "bg-emerald-100" : "bg-transparent"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-extrabold uppercase tracking-tight text-zinc-900">
-                          {formatProductLabel(line)}{" "}
-                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-amber-800">
-                            Not in catalog
-                          </span>
-                        </span>
-                        {line.instruction && <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-max mt-0.5 normal-case">{line.instruction}</span>}
-                      </div>
-                      <button
-                        onClick={() => removeLine(line.key)}
-                        aria-label="Remove item"
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-red-500 text-base font-bold leading-none text-white shadow-sm hover:bg-red-600"
-                      >
-                        ×
-                      </button>
-                    </div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <CartFieldTile label="Qty">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={line.quantity === 0 ? "" : line.quantity}
-                          onFocus={(e) => e.target.select()}
-                          onChange={(e) => {
-                            const raw = e.target.value.trim();
-                            if (raw === "") {
-                              updateLine(line.key, { quantity: 0 });
-                              return;
-                            }
-                            const val = parseNumeric(raw);
-                            if (!Number.isNaN(val)) {
-                              updateLine(line.key, { quantity: Math.max(0, val) });
-                            }
-                          }}
-                          onBlur={() => {
-                            if (!line.quantity || line.quantity < 1) {
-                              updateLine(line.key, { quantity: 1 });
-                            }
-                          }}
-                          className="w-full min-w-0 rounded border border-zinc-300 px-2 py-1 text-center text-sm font-medium focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
-                        />
-                      </CartFieldTile>
-                      <CartFieldTile label="Price each">
-                        <div className="flex items-center gap-1">
-                          <span className="shrink-0 text-sm text-zinc-600">₦</span>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={line.unitPrice === 0 ? "" : line.unitPrice}
-                            onFocus={(e) => e.target.select()}
-                            onChange={(e) => {
-                              const raw = e.target.value.trim();
-                              if (raw === "") {
-                                updateLine(line.key, { unitPrice: 0 });
-                                return;
-                              }
-                              const val = parseNumeric(raw);
-                              if (!Number.isNaN(val)) {
-                                updateLine(line.key, { unitPrice: val });
-                              }
-                            }}
-                            className="w-full min-w-0 rounded border border-zinc-300 px-1 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
-                          />
-                        </div>
-                      </CartFieldTile>
-                      <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-300">
-                        <DiscountControl
-                          value={line.discountPercent}
-                          onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
-                          isAdminSession={isAdminSession}
-                        />
-                      </CartFieldTile>
-                    </div>
-                    {line.discountPercent ? (
-                      <div className="mt-1.5 text-right text-base">
-                        <span className="text-zinc-400 line-through mr-1">₦{(line.unitPrice * line.quantity).toFixed(2)}</span>
-                        <span className="font-extrabold text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
-                      </div>
-                    ) : (
-                      <div className="mt-1.5 text-right text-base font-extrabold text-zinc-900">
-                        ₦{(line.unitPrice * line.quantity).toFixed(2)}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
+  if (line.kind === "custom") {
+    return (
+      <div
+        key={line.key}
+        className={`border-b border-zinc-200 py-2.5 last:border-0 transition-colors duration-700 ${
+          flashKey === line.key ? "bg-emerald-50" : "bg-transparent"
+        }`}
+      >
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <button
+              onClick={() => removeLine(line.key)}
+              aria-label="Remove item"
+              className="text-zinc-400 hover:text-red-500 transition-colors shrink-0 p-1"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+            </button>
+            <div className="flex flex-col flex-1 min-w-0">
+              <span className="text-sm font-semibold text-zinc-900 truncate">
+                {formatProductLabel(line)} <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 font-medium ml-1">Custom</span>
+              </span>
+              {line.instruction && <span className="text-xs text-amber-700 mt-0.5">{line.instruction}</span>}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3 pl-8 sm:pl-0">
+            <div className="flex items-center border border-zinc-300 rounded-md bg-white overflow-hidden shrink-0">
+              <button 
+                className="px-2.5 py-1 text-zinc-500 hover:bg-zinc-100 active:bg-zinc-200 transition-colors font-medium select-none"
+                onClick={() => updateLine(line.key, { quantity: Math.max(0, (line.quantity || 0) - 1) })}
+              >
+                -
+              </button>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={line.quantity === 0 ? "" : line.quantity}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  if (raw === "") { updateLine(line.key, { quantity: 0 }); return; }
+                  const val = parseNumeric(raw);
+                  if (!Number.isNaN(val)) updateLine(line.key, { quantity: Math.max(0, val) });
+                }}
+                onBlur={() => {
+                  if (!line.quantity || line.quantity < 1) updateLine(line.key, { quantity: 1 });
+                }}
+                className="w-10 text-center text-sm font-semibold focus:outline-none focus:bg-teal-50"
+              />
+              <button 
+                className="px-2.5 py-1 text-zinc-500 hover:bg-zinc-100 active:bg-zinc-200 transition-colors font-medium select-none"
+                onClick={() => updateLine(line.key, { quantity: (line.quantity || 0) + 1 })}
+              >
+                +
+              </button>
+            </div>
 
-              const hierarchy = line.product.unitHierarchy;
-              const perForm = piecesPerForm(line.product, line.form);
-              const maxQty = Math.max(1, Math.floor(line.product.quantityInStock / perForm));
-              const priceForForm = line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode) * perForm;
-              return (
-                <div
-                  key={line.key}
-                  className={`border-b-2 border-stone-200 pb-3 last:border-0 rounded-lg transition-colors duration-700 ${
-                    flashKey === line.key ? "bg-emerald-100" : "bg-transparent"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-col">
-                      <div className="flex items-center gap-2">
-                        {line.product.imageUrl ? (
-                          <img
-                            src={`/_next/image?url=${encodeURIComponent(line.product.imageUrl)}&w=64&q=50`}
-                            alt={line.product.itemName}
-                            className="h-6 w-6 shrink-0 rounded object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEnlargedImage({ url: line.product.imageUrl!, name: line.product.itemName });
-                            }}
-                          />
-                        ) : (
-                          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-zinc-100 text-zinc-400">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                              <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                            </svg>
-                          </div>
-                        )}
-                        <span className="text-sm font-extrabold uppercase tracking-tight text-zinc-900">{formatProductLabel(line.product)}</span>
-                      </div>
-                      {line.instruction && <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-max mt-0.5 normal-case">{line.instruction}</span>}
-                    </div>
-                    <button
-                      onClick={() => removeLine(line.key)}
-                      aria-label="Remove item"
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-red-500 text-base font-bold leading-none text-white shadow-sm hover:bg-red-600"
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <div className={`mt-2 grid grid-cols-1 gap-2 ${hierarchy && hierarchy.length > 0 ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
-                    <CartFieldTile label="Qty">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={line.quantity === 0 ? "" : line.quantity}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => {
-                          const raw = e.target.value.trim();
-                          if (raw === "") {
-                            updateLine(line.key, { quantity: 0 });
-                            return;
-                          }
-                          const val = parseNumeric(raw);
-                          if (!Number.isNaN(val)) {
-                            updateLine(line.key, {
-                              quantity: Math.max(0, Math.min(val, maxQty)),
-                            });
-                          }
-                        }}
-                        onBlur={() => {
-                          if (!line.quantity || line.quantity < 1) {
-                            updateLine(line.key, { quantity: 1 });
-                          }
-                        }}
-                        className="w-full min-w-0 rounded border border-zinc-300 px-2 py-1 text-center text-sm font-medium focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
-                      />
-                    </CartFieldTile>
-                    {hierarchy && hierarchy.length > 0 ? (
-                      <CartFieldTile label="Unit">
-                        <select
-                          value={line.form}
-                          onChange={(e) => {
-                            const newForm = e.target.value;
-                            const newMax = Math.floor(line.product.quantityInStock / piecesPerForm(line.product, newForm));
-                            updateLine(line.key, { form: newForm, quantity: Math.min(1, newMax) || 1 });
-                          }}
-                          className="w-full min-w-0 rounded border border-zinc-300 px-1 py-1 text-sm"
-                        >
-                          {hierarchy.map((level) => (
-                            <option key={level.unitName} value={level.unitName}>
-                              {pluralize(level.unitName, 2)}
-                            </option>
-                          ))}
-                        </select>
-                      </CartFieldTile>
-                    ) : (
-                      <>
-                        <CartFieldTile label="Price each">
-                          <div className="flex items-center gap-1">
-                            <span className="shrink-0 text-sm text-zinc-600">₦</span>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode)}
-                              onFocus={(e) => e.target.select()}
-                              onChange={(e) => {
-                                const raw = e.target.value.trim();
-                                if (raw === "") {
-                                  updateLine(line.key, { customPrice: 0 });
-                                  return;
-                                }
-                                const val = parseNumeric(raw);
-                                if (!Number.isNaN(val)) {
-                                  updateLine(line.key, { customPrice: val });
-                                }
-                              }}
-                              onBlur={(e) => {
-                                if (!e.target.value.trim()) {
-                                  updateLine(line.key, { customPrice: undefined });
-                                }
-                              }}
-                              className="w-full min-w-0 rounded border border-zinc-300 px-1 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
-                            />
-                          </div>
-                        </CartFieldTile>
-                        <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-300">
-                          <DiscountControl
-                            value={line.discountPercent}
-                            onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
-                            isAdminSession={isAdminSession}
-                          />
-                        </CartFieldTile>
-                      </>
-                    )}
-                  </div>
-                  {hierarchy && hierarchy.length > 0 && (
-                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <CartFieldTile label={`Price per ${line.form}`}>
-                      <div className="flex items-center gap-1">
-                      <span className="shrink-0 text-sm text-zinc-600">₦</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={line.customPrice !== undefined ? line.customPrice : (unitPriceFor(line.product, effectiveSaleMode) * piecesPerForm(line.product, line.form))}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => {
-                          const raw = e.target.value.trim();
-                          if (raw === "") {
-                            updateLine(line.key, { customPrice: 0 });
-                            return;
-                          }
-                          const val = parseNumeric(raw);
-                          if (!Number.isNaN(val)) {
-                            updateLine(line.key, { customPrice: val });
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (!e.target.value.trim()) {
-                            updateLine(line.key, { customPrice: undefined });
-                          }
-                        }}
-                        className="w-full min-w-0 rounded border border-zinc-300 px-1 py-1 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
-                      />
-                      </div>
-                    </CartFieldTile>
-                    <CartFieldTile label="Discount" labelColor="text-red-500" borderColor="border-red-300">
-                      <DiscountControl
-                        value={line.discountPercent}
-                        onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
-                        isAdminSession={isAdminSession}
-                      />
-                    </CartFieldTile>
-                    </div>
-                  )}
-                  <div className="mt-2 text-right text-base font-extrabold text-zinc-900">
-                    {line.discountPercent ? (
-                      <>
-                        <span className="text-sm font-normal text-zinc-400 line-through mr-1">₦{(priceForForm * line.quantity).toFixed(2)}</span>
-                        <span className="text-red-600">
-                          ₦{(discountedUnitPrice(priceForForm, line.discountPercent) * line.quantity).toFixed(2)}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        ₦{(priceForForm * line.quantity).toFixed(2)}
-                        {effectiveSaleMode === "wholesale" && line.customPrice === undefined && (
-                          <span className="ml-1 text-xs font-normal text-amber-700">(wholesale)</span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            <div className="flex items-center gap-1 border border-zinc-300 rounded-md bg-white px-2 py-1 shrink-0 w-24 focus-within:border-teal-500 focus-within:ring-1 focus-within:ring-teal-500">
+              <span className="text-zinc-500 text-xs">₦</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={line.unitPrice === 0 ? "" : line.unitPrice}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  if (raw === "") { updateLine(line.key, { unitPrice: 0 }); return; }
+                  const val = parseNumeric(raw);
+                  if (!Number.isNaN(val)) updateLine(line.key, { unitPrice: val });
+                }}
+                className="w-full text-right text-sm font-medium focus:outline-none bg-transparent"
+              />
+            </div>
+            
+            <div className="w-20 text-right shrink-0 flex flex-col">
+              {line.discountPercent ? (
+                <>
+                  <span className="text-[10px] text-zinc-400 line-through">₦{(line.unitPrice * line.quantity).toFixed(2)}</span>
+                  <span className="text-sm font-bold text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
+                </>
+              ) : (
+                <span className="text-sm font-bold text-zinc-900">₦{(line.unitPrice * line.quantity).toFixed(2)}</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end mt-1.5 pl-8">
+           <div className="flex items-center gap-2">
+             <span className="text-xs text-zinc-500 font-medium">Disc:</span>
+             <div className="w-28">
+               <DiscountControl
+                  value={line.discountPercent}
+                  onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
+                  isAdminSession={isAdminSession}
+                />
+             </div>
+           </div>
+        </div>
+      </div>
+    );
+  }
+
+  const hierarchy = line.product.unitHierarchy;
+  const perForm = piecesPerForm(line.product, line.form);
+  const maxQty = Math.max(1, Math.floor(line.product.quantityInStock / perForm));
+  const priceForForm = line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode) * perForm;
+  
+  return (
+    <div
+      key={line.key}
+      className={`border-b border-zinc-200 py-2.5 last:border-0 transition-colors duration-700 ${
+        flashKey === line.key ? "bg-emerald-50" : "bg-transparent"
+      }`}
+    >
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <button
+            onClick={() => removeLine(line.key)}
+            aria-label="Remove item"
+            className="text-zinc-400 hover:text-red-500 transition-colors shrink-0 p-1"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+          </button>
+          
+          {line.product.imageUrl ? (
+            <img
+              src={`/_next/image?url=${encodeURIComponent(line.product.imageUrl || "")}&w=64&q=50`}
+              alt={line.product.itemName}
+              className="h-8 w-8 shrink-0 rounded-md object-cover border border-zinc-200 cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (line.product.imageUrl) setEnlargedImage({ url: line.product.imageUrl, name: line.product.itemName });
+              }}
+            />
+          ) : (
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-zinc-400 border border-zinc-200">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+              </svg>
+            </div>
+          )}
+
+          <div className="flex flex-col flex-1 min-w-0">
+            <span className="text-sm font-semibold text-zinc-900 truncate" title={formatProductLabel(line.product)}>
+              {formatProductLabel(line.product)}
+            </span>
+            {line.instruction && <span className="text-xs text-amber-700 mt-0.5 truncate">{line.instruction}</span>}
+          </div>
+        </div>
+        
+        <div className="flex flex-wrap items-center gap-3 pl-[3.25rem] sm:pl-0 mt-1 sm:mt-0">
+          <div className="flex items-center border border-zinc-300 rounded-md bg-white overflow-hidden shrink-0">
+            <button 
+              className="px-2 py-1 text-zinc-500 hover:bg-zinc-100 active:bg-zinc-200 transition-colors font-medium select-none"
+              onClick={() => updateLine(line.key, { quantity: Math.max(0, (line.quantity || 0) - 1) })}
+            >
+              -
+            </button>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={line.quantity === 0 ? "" : line.quantity}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => {
+                const raw = e.target.value.trim();
+                if (raw === "") { updateLine(line.key, { quantity: 0 }); return; }
+                const val = parseNumeric(raw);
+                if (!Number.isNaN(val)) {
+                  updateLine(line.key, { quantity: Math.max(0, Math.min(val, maxQty)) });
+                }
+              }}
+              onBlur={() => {
+                if (!line.quantity || line.quantity < 1) updateLine(line.key, { quantity: 1 });
+              }}
+              className="w-8 text-center text-sm font-semibold focus:outline-none focus:bg-teal-50"
+            />
+            <button 
+              className="px-2 py-1 text-zinc-500 hover:bg-zinc-100 active:bg-zinc-200 transition-colors font-medium select-none"
+              onClick={() => {
+                const newVal = (line.quantity || 0) + 1;
+                updateLine(line.key, { quantity: Math.min(newVal, maxQty) });
+              }}
+            >
+              +
+            </button>
+          </div>
+
+          {hierarchy && hierarchy.length > 0 ? (
+            <select
+              value={line.form}
+              onChange={(e) => {
+                const newForm = e.target.value;
+                const newMax = Math.floor(line.product.quantityInStock / piecesPerForm(line.product, newForm));
+                updateLine(line.key, { form: newForm, quantity: Math.min(1, newMax) || 1 });
+              }}
+              className="h-[26px] rounded border border-zinc-300 px-1 py-0 text-xs font-medium focus:border-teal-500 focus:ring-1 focus:ring-teal-500 bg-white cursor-pointer"
+            >
+              {hierarchy.map((level) => (
+                <option key={level.unitName} value={level.unitName}>
+                  {pluralize(level.unitName, 2)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="flex items-center gap-1 border border-zinc-300 rounded-md bg-white px-2 py-0.5 shrink-0 w-[72px] h-[26px] focus-within:border-teal-500 focus-within:ring-1 focus-within:ring-teal-500">
+              <span className="text-zinc-400 text-xs">₦</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode)}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  if (raw === "") { updateLine(line.key, { customPrice: 0 }); return; }
+                  const val = parseNumeric(raw);
+                  if (!Number.isNaN(val)) updateLine(line.key, { customPrice: val });
+                }}
+                onBlur={(e) => {
+                  if (!e.target.value.trim()) updateLine(line.key, { customPrice: undefined });
+                }}
+                className="w-full text-right text-xs font-semibold focus:outline-none bg-transparent"
+              />
+            </div>
+          )}
+
+          <div className="w-16 text-right shrink-0 flex flex-col">
+            {line.discountPercent ? (
+              <>
+                <span className="text-[10px] text-zinc-400 line-through">₦{(priceForForm * line.quantity).toFixed(2)}</span>
+                <span className="text-[13px] font-bold text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
+              </>
+            ) : (
+              <span className="text-[13px] font-bold text-zinc-900">₦{(priceForForm * line.quantity).toFixed(2)}</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-end gap-3 mt-1.5 pl-[3.25rem]">
+         {hierarchy && hierarchy.length > 0 && (
+           <div className="flex items-center gap-1.5">
+             <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Price/{line.form}:</span>
+             <div className="flex items-center gap-1 border border-zinc-300 rounded bg-white px-1.5 py-0.5 w-[72px] h-6 focus-within:border-teal-500 focus-within:ring-1 focus-within:ring-teal-500">
+                <span className="text-zinc-400 text-[10px]">₦</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={line.customPrice !== undefined ? line.customPrice : (unitPriceFor(line.product, effectiveSaleMode) * piecesPerForm(line.product, line.form))}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    if (raw === "") { updateLine(line.key, { customPrice: 0 }); return; }
+                    const val = parseNumeric(raw);
+                    if (!Number.isNaN(val)) updateLine(line.key, { customPrice: val });
+                  }}
+                  onBlur={(e) => {
+                    if (!e.target.value.trim()) updateLine(line.key, { customPrice: undefined });
+                  }}
+                  className="w-full text-right text-[11px] font-semibold focus:outline-none bg-transparent"
+                />
+             </div>
+           </div>
+         )}
+         
+         <div className="flex items-center gap-1.5">
+           <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Disc:</span>
+           <div className="w-24">
+             <DiscountControl
+                value={line.discountPercent}
+                onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
+                isAdminSession={isAdminSession}
+              />
+           </div>
+         </div>
+      </div>
+    </div>
+  );
+})}
             </div>
           )}
           </div>
