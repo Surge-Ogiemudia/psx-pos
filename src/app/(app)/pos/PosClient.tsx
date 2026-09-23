@@ -101,7 +101,10 @@ function heldSalesStorageKey(branchId: string | null): string {
 // wholesale, chosen once at login (see PosSaleMode). A manually-typed customPrice
 // override always wins regardless of mode; this is only the default.
 function unitPriceFor(product: ProductJSON, mode: PosSaleMode): number {
-  return mode === "wholesale" ? product.wholesalePrice : product.retailPrice;
+  if (mode === "wholesale") {
+    return product.wholesalePrice > 0 ? product.wholesalePrice : (product.retailPrice || 0);
+  }
+  return product.retailPrice || 0;
 }
 
 function lineAmount(line: CartLine, mode: PosSaleMode): number {
