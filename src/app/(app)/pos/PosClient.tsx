@@ -243,6 +243,9 @@ export default function PosClient({
   // answered this session, so the full-screen prompt below blocks the rest of the UI.
   const [saleMode, setSaleMode] = useState<PosSaleMode | null>(null);
   const [saleModeReady, setSaleModeReady] = useState(false);
+  const [adminPasswordPromptProduct, setAdminPasswordPromptProduct] = useState<ProductJSON | null>(null);
+  const [adminPasswordInput, setAdminPasswordInput] = useState("");
+  const [isAdminVerifying, setIsAdminVerifying] = useState(false);
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(POS_SALE_MODE_KEY);
@@ -894,13 +897,17 @@ export default function PosClient({
   }
 
   function handleTileTouchStart(product: ProductJSON) {
-    if (!isAdminSession) return;
     longPressTriggeredRef.current = false;
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     longPressTimerRef.current = setTimeout(() => {
       longPressTriggeredRef.current = true;
       if (navigator.vibrate) navigator.vibrate(30);
-      openQuickEdit(product);
+      if (isAdminSession) {
+        openQuickEdit(product);
+      } else {
+        setAdminPasswordPromptProduct(product);
+        setAdminPasswordInput("");
+      }
     }, LONG_PRESS_MS);
   }
 
@@ -1575,7 +1582,12 @@ export default function PosClient({
                     }}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      if (isAdminSession) openQuickEdit(product);
+                      if (isAdminSession) {
+                        openQuickEdit(product);
+                      } else {
+                        setAdminPasswordPromptProduct(product);
+                        setAdminPasswordInput("");
+                      }
                     }}
                     onTouchStart={() => handleTileTouchStart(product)}
                     onTouchEnd={cancelTileLongPress}
@@ -2633,6 +2645,83 @@ export default function PosClient({
         <div className="fixed top-6 right-6 z-[80] flex items-center gap-2 rounded-xl bg-teal-700 px-5 py-3 font-semibold text-white shadow-xl animate-in slide-in-from-top-2">
           <span>✅</span>
           <span>{barcodeLinkToast}</span>
+        </div>
+      )}
+
+      {adminPasswordPromptProduct && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="mb-2 text-lg font-bold text-slate-800 tracking-tight">Admin Authorization Required</h3>
+            <p className="mb-5 text-sm text-slate-600">Please enter an admin password to edit this product.</p>
+            <input
+               type="password"
+               className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+               placeholder="Admin Password"
+               autoFocus
+               value={adminPasswordInput}
+               onChange={(e) => setAdminPasswordInput(e.target.value)}
+               disabled={isAdminVerifying}
+               onKeyDown={async (e) => {
+                 if (e.key === "Enter" && !isAdminVerifying && adminPasswordInput) {
+                    setIsAdminVerifying(true);
+                    try {
+                      const res = await fetch("/api/auth/verify-admin", {
+                         method: "POST",
+                         headers: { "Content-Type": "application/json" },
+                         body: JSON.stringify({ password: adminPasswordInput })
+                      });
+                      if (res.ok) {
+                         const p = adminPasswordPromptProduct;
+                         setAdminPasswordPromptProduct(null);
+                         openQuickEdit(p);
+                      } else {
+                         alert("Incorrect admin password.");
+                      }
+                    } catch (err) {
+                      alert("Error verifying password");
+                    } finally {
+                      setIsAdminVerifying(false);
+                    }
+                 }
+               }}
+            />
+            <div className="mt-6 flex justify-end gap-3">
+              <button 
+                className="text-slate-500 hover:text-slate-700 font-medium px-4 py-2" 
+                onClick={() => setAdminPasswordPromptProduct(null)}
+                disabled={isAdminVerifying}
+              >
+                Cancel
+              </button>
+              <button 
+                className="rounded-lg bg-teal-600 px-5 py-2 text-white font-medium hover:bg-teal-700 disabled:opacity-70 shadow-sm"
+                disabled={isAdminVerifying || !adminPasswordInput}
+                onClick={async () => {
+                    setIsAdminVerifying(true);
+                    try {
+                      const res = await fetch("/api/auth/verify-admin", {
+                         method: "POST",
+                         headers: { "Content-Type": "application/json" },
+                         body: JSON.stringify({ password: adminPasswordInput })
+                      });
+                      if (res.ok) {
+                         const p = adminPasswordPromptProduct;
+                         setAdminPasswordPromptProduct(null);
+                         openQuickEdit(p);
+                      } else {
+                         alert("Incorrect admin password.");
+                      }
+                    } catch (err) {
+                      alert("Error verifying password");
+                    } finally {
+                      setIsAdminVerifying(false);
+                    }
+                }}
+              >
+                {isAdminVerifying ? "Verifying..." : "Verify"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
