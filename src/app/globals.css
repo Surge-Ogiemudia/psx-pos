@@ -46,11 +46,15 @@ body {
 
 @media print {
   @page {
-    margin: 0; /* Removes browser headers and footers */
+    /* Set continuous roll dimensions. Height 'auto' cuts immediately after content ends. */
+    size: 80mm auto;
+    margin: 0 !important;
   }
   html, body {
-    margin: 0;
-    padding: 0;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    background: transparent !important;
   }
   body * {
     visibility: hidden;
@@ -63,14 +67,18 @@ body {
     color: #000000 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    text-shadow: 0 0 0.4px #000 !important;
+    text-shadow: none !important;
+    page-break-inside: avoid !important;
   }
   .print-receipt {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
     width: 100% !important;
+    max-width: 80mm !important;
     margin: 0 !important;
     padding: 0 !important;
+    /* Prevent extra blank pages by removing any minimum heights */
+    min-height: 0 !important;
   }
 }
