@@ -121,7 +121,7 @@ export default function NavBar({
           const branch = branches.find((b) => b._id === e.target.value);
           if (branch) requestSwitch("branch", branch._id, branch.branchName, activeBranchName);
         }}
-        className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm md:w-auto"
+        className="w-full rounded border border-zinc-700 bg-zinc-900 text-zinc-200 px-2 py-1.5 text-sm md:w-auto focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-colors"
         title="Branch you're currently managing"
       >
         {branches.map((branch) => (
@@ -140,7 +140,7 @@ export default function NavBar({
           const store = stores.find((s) => s._id === e.target.value);
           if (store) requestSwitch("store", store._id, store.storeName, activeStoreName);
         }}
-        className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm md:w-auto"
+        className="w-full rounded border border-zinc-700 bg-zinc-900 text-zinc-200 px-2 py-1.5 text-sm md:w-auto focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-colors"
         title="Store you're currently managing"
       >
         {stores.map((store) => (
@@ -152,7 +152,7 @@ export default function NavBar({
     ) : null;
 
     return (
-    <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white">
+    <header className="sticky top-0 z-40 bg-zinc-950 border-b border-zinc-800">
       <div className="mx-auto w-full max-w-[1920px] px-4 sm:px-6 relative">
         <div className="flex items-center gap-4 py-2">
           {/* Logo & Name */}
@@ -161,13 +161,13 @@ export default function NavBar({
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoUrl} alt={pharmacyName} className="h-8 w-8 rounded object-contain" />
             )}
-            <span className="font-semibold text-zinc-900 line-clamp-1">{pharmacyName}</span>
+            <span className="font-semibold text-white tracking-tight line-clamp-1">{pharmacyName}</span>
           </div>
 
           {/* Desktop Nav Links */}
           <nav className="hidden flex-1 items-center gap-2 md:flex px-6">
             {!isOnline ? (
-              <div className="rounded-lg px-3 py-1.5 text-sm font-medium text-amber-600 bg-amber-50">
+              <div className="rounded-lg px-3 py-1.5 text-sm font-medium text-amber-500 bg-amber-950/50 border border-amber-900/50">
                 Navigation disabled in offline mode
               </div>
             ) : (
@@ -179,8 +179,8 @@ export default function NavBar({
                     href={link.href}
                     className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
                       active 
-                        ? "bg-zinc-100 text-zinc-900 ring-1 ring-zinc-200 shadow-sm" 
-                        : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50"
+                        ? "bg-zinc-800 text-white shadow-sm ring-1 ring-zinc-700" 
+                        : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
                     }`}
                   >
                     {link.label}
@@ -194,12 +194,12 @@ export default function NavBar({
           <div className="hidden shrink-0 items-center gap-3 md:flex">
             {branchSwitcher}
             {storeSwitcher}
-            <span className="whitespace-nowrap text-sm text-zinc-500">
-              {userName} <span className="text-zinc-400">({userRole})</span>
+            <span className="whitespace-nowrap text-sm text-zinc-400">
+              {userName} <span className="text-zinc-500">({userRole})</span>
               {scopeLabel && (
                 <>
                   {" "}
-                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 border border-zinc-200">
+                  <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs font-medium text-zinc-300 border border-zinc-700 shadow-sm">
                     {scopeLabel}
                   </span>
                 </>
@@ -207,7 +207,7 @@ export default function NavBar({
             </span>
             <button
               onClick={handleSignOut}
-              className="whitespace-nowrap rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-colors"
+              className="whitespace-nowrap rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-all shadow-sm"
             >
               Sign out
             </button>
@@ -216,7 +216,7 @@ export default function NavBar({
           {/* Mobile Menu Toggle */}
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="ml-auto rounded-lg border border-zinc-300 p-2 text-zinc-600 md:hidden hover:bg-zinc-50 transition-colors"
+            className="ml-auto rounded-lg border border-zinc-800 p-2 text-zinc-400 md:hidden hover:bg-zinc-900 hover:text-white transition-colors"
             aria-label="Toggle menu"
           >
             {menuOpen ? (
@@ -233,51 +233,51 @@ export default function NavBar({
 
         {/* Mobile Nav Menu Dropdown (Overlay) */}
         {menuOpen && (
-          <div className="absolute top-full left-0 w-full bg-white border-b border-zinc-200 shadow-xl flex flex-col gap-1 pt-2 pb-4 px-4 md:hidden z-50 animate-in slide-in-from-top-2">
+          <div className="absolute top-full left-0 w-full bg-zinc-950 border-b border-zinc-800 shadow-2xl flex flex-col gap-1 pt-2 pb-4 px-4 md:hidden z-50 animate-in slide-in-from-top-2">
             {!isOnline ? (
-              <div className="rounded-lg px-3 py-2 text-sm font-medium text-amber-600 bg-amber-50 text-center mb-2">
+              <div className="rounded-lg px-3 py-2 text-sm font-medium text-amber-500 bg-amber-950/50 border border-amber-900/50 text-center mb-2">
                 Navigation disabled in offline mode
               </div>
             ) : (
-                              <div className="flex flex-col gap-1 mb-2">
-                  {links.map((link) => {
-                    const active = pathname === link.href || pathname.startsWith(link.href + "/");
-                    return (
-                      <Link
-                        key={link.href}
-                        href={link.href}
-                        onClick={() => setMenuOpen(false)}
-                        className={`rounded-md px-4 py-3 text-base font-medium transition-all ${
-                          active 
-                            ? "bg-zinc-100 text-zinc-900 ring-1 ring-zinc-200 shadow-sm" 
-                            : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50"
-                        }`}
-                      >
-                        {link.label}
-                      </Link>
-                    );
-                  })}
-                </div>
+              <div className="flex flex-col gap-1 mb-2">
+                {links.map((link) => {
+                  const active = pathname === link.href || pathname.startsWith(link.href + "/");
+                  return (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      onClick={() => setMenuOpen(false)}
+                      className={`rounded-md px-4 py-3 text-base font-medium transition-all ${
+                        active 
+                          ? "bg-zinc-800 text-white shadow-sm ring-1 ring-zinc-700" 
+                          : "text-zinc-400 hover:text-white hover:bg-zinc-900"
+                      }`}
+                    >
+                      {link.label}
+                    </Link>
+                  );
+                })}
+              </div>
             )}
             
-            <div className="flex flex-col gap-3 border-t border-zinc-100 pt-4">
+            <div className="flex flex-col gap-3 border-t border-zinc-800 pt-4">
               {branchSwitcher && <div>{branchSwitcher}</div>}
               {storeSwitcher && <div>{storeSwitcher}</div>}
             </div>
             
-            <div className="mt-2 flex flex-col gap-4 border-t border-zinc-100 pt-4">
+            <div className="mt-2 flex flex-col gap-4 border-t border-zinc-800 pt-4">
               <div className="flex flex-col">
-                <span className="text-sm font-medium text-zinc-900">{userName}</span>
+                <span className="text-sm font-medium text-white">{userName}</span>
                 <span className="text-xs text-zinc-500 capitalize">{userRole.replace("_", " ")}</span>
                 {scopeLabel && (
-                  <span className="mt-1 inline-flex w-fit rounded bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600 border border-zinc-200">
+                  <span className="mt-1 inline-flex w-fit rounded bg-zinc-800 px-2 py-1 text-xs font-medium text-zinc-300 border border-zinc-700 shadow-sm">
                     {scopeLabel}
                   </span>
                 )}
               </div>
               <button
                 onClick={handleSignOut}
-                className="w-full rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-100 transition-colors text-center"
+                className="w-full rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-900/50 transition-colors text-center"
               >
                 Sign out
               </button>
