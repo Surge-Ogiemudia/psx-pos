@@ -1798,31 +1798,22 @@ export default function PosClient({
     return (
       <div
         key={line.key}
-        className={`border-b border-zinc-200 py-2.5 last:border-0 transition-colors duration-700 ${
+        className={`relative flex justify-between items-start py-2.5 border-b border-zinc-200 transition-colors duration-700 ${
           flashKey === line.key ? "bg-emerald-50" : "bg-transparent"
         }`}
       >
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <button
-              onClick={() => removeLine(line.key)}
-              aria-label="Remove item"
-              className="text-zinc-400 hover:text-red-500 transition-colors shrink-0 p-1"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-            </button>
-            <div className="flex flex-col flex-1 min-w-0">
-              <span className="text-sm font-semibold text-zinc-900 truncate">
-                {formatProductLabel(line)} <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 font-medium ml-1">Custom</span>
-              </span>
-              {line.instruction && <span className="text-xs text-amber-700 mt-0.5">{line.instruction}</span>}
-            </div>
+        <div className="flex flex-col gap-1.5 flex-1 min-w-0 pr-4">
+          <div className="flex flex-col">
+            <span className="text-[13px] font-bold text-slate-700 uppercase tracking-tight leading-tight truncate" title={formatProductLabel(line)}>
+              {formatProductLabel(line)} <span className="rounded bg-amber-100 px-1 py-0.5 text-[9px] text-amber-800 ml-1">CUSTOM</span>
+            </span>
+            {line.instruction && <span className="text-[11px] text-amber-600 mt-0.5 truncate">{line.instruction}</span>}
           </div>
-          
-          <div className="flex items-center gap-3 pl-8 sm:pl-0">
-            <div className="flex items-center border border-zinc-300 rounded-md bg-white overflow-hidden shrink-0">
+
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <div className="flex items-center rounded border border-slate-300 bg-white h-7 overflow-hidden shrink-0 shadow-sm">
               <button 
-                className="px-2.5 py-1 text-zinc-500 hover:bg-zinc-100 active:bg-zinc-200 transition-colors font-medium select-none"
+                className="px-2 text-slate-500 font-bold hover:bg-slate-100 active:bg-slate-200"
                 onClick={() => updateLine(line.key, { quantity: Math.max(0, (line.quantity || 0) - 1) })}
               >
                 -
@@ -1841,18 +1832,18 @@ export default function PosClient({
                 onBlur={() => {
                   if (!line.quantity || line.quantity < 1) updateLine(line.key, { quantity: 1 });
                 }}
-                className="w-10 text-center text-sm font-semibold focus:outline-none focus:bg-teal-50"
+                className="w-8 text-center text-[13px] font-bold focus:outline-none focus:bg-teal-50"
               />
               <button 
-                className="px-2.5 py-1 text-zinc-500 hover:bg-zinc-100 active:bg-zinc-200 transition-colors font-medium select-none"
+                className="px-2 text-slate-500 font-bold hover:bg-slate-100 active:bg-slate-200"
                 onClick={() => updateLine(line.key, { quantity: (line.quantity || 0) + 1 })}
               >
                 +
               </button>
             </div>
 
-            <div className="flex items-center gap-1 border border-zinc-300 rounded-md bg-white px-2 py-1 shrink-0 w-24 focus-within:border-teal-500 focus-within:ring-1 focus-within:ring-teal-500">
-              <span className="text-zinc-500 text-xs">₦</span>
+            <div className="flex items-center text-slate-600 font-medium text-[13px]">
+              ₦
               <input
                 type="text"
                 inputMode="decimal"
@@ -1864,34 +1855,42 @@ export default function PosClient({
                   const val = parseNumeric(raw);
                   if (!Number.isNaN(val)) updateLine(line.key, { unitPrice: val });
                 }}
-                className="w-full text-right text-sm font-medium focus:outline-none bg-transparent"
+                className="w-16 bg-transparent outline-none border-b border-transparent focus:border-teal-500 text-center mx-1 font-bold"
               />
+              <span className="text-slate-400 mx-1">×</span> {line.quantity}
             </div>
             
-            <div className="w-20 text-right shrink-0 flex flex-col">
-              {line.discountPercent ? (
-                <>
-                  <span className="text-[10px] text-zinc-400 line-through">₦{(line.unitPrice * line.quantity).toFixed(2)}</span>
-                  <span className="text-sm font-bold text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
-                </>
-              ) : (
-                <span className="text-sm font-bold text-zinc-900">₦{(line.unitPrice * line.quantity).toFixed(2)}</span>
-              )}
+            <div className="flex items-center ml-2 border-l border-slate-200 pl-2">
+               <span className="text-[10px] text-slate-400 mr-1">DISC</span>
+               <div className="w-16">
+                 <DiscountControl
+                    value={line.discountPercent}
+                    onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
+                    isAdminSession={isAdminSession}
+                  />
+               </div>
             </div>
           </div>
         </div>
+        
+        <div className="flex flex-col justify-between items-end shrink-0 w-24 min-h-[50px] relative">
+          <button
+            onClick={() => removeLine(line.key)}
+            className="h-5 w-5 rounded bg-red-400/80 hover:bg-red-500 text-white flex items-center justify-center shadow-sm absolute top-0 right-0 transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
 
-        <div className="flex justify-end mt-1.5 pl-8">
-           <div className="flex items-center gap-2">
-             <span className="text-xs text-zinc-500 font-medium">Disc:</span>
-             <div className="w-28">
-               <DiscountControl
-                  value={line.discountPercent}
-                  onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
-                  isAdminSession={isAdminSession}
-                />
-             </div>
-           </div>
+          <div className="mt-8 text-right flex flex-col justify-end w-full">
+            {line.discountPercent ? (
+              <>
+                <span className="text-[10px] text-slate-400 line-through">₦{(line.unitPrice * line.quantity).toFixed(2)}</span>
+                <span className="text-[15px] font-black text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
+              </>
+            ) : (
+              <span className="text-[15px] font-black text-slate-800 tracking-tight">₦{(line.unitPrice * line.quantity).toFixed(2)}</span>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -1905,52 +1904,33 @@ export default function PosClient({
   return (
     <div
       key={line.key}
-      className={`border-b border-zinc-200 py-2.5 last:border-0 transition-colors duration-700 ${
+      className={`relative flex justify-between items-start py-2.5 border-b border-zinc-200 transition-colors duration-700 ${
         flashKey === line.key ? "bg-emerald-50" : "bg-transparent"
       }`}
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <button
-            onClick={() => removeLine(line.key)}
-            aria-label="Remove item"
-            className="text-zinc-400 hover:text-red-500 transition-colors shrink-0 p-1"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-          </button>
-          
-          {line.product.imageUrl ? (
+      <div className="flex flex-col gap-1 flex-1 min-w-0 pr-4">
+        <div className="flex items-center gap-2">
+          {line.product.imageUrl && (
             <img
-              src={`/_next/image?url=${encodeURIComponent(line.product.imageUrl || "")}&w=64&q=50`}
+              src={`/_next/image?url=${encodeURIComponent(line.product.imageUrl)}&w=64&q=50`}
               alt={line.product.itemName}
-              className="h-8 w-8 shrink-0 rounded-md object-cover border border-zinc-200 cursor-pointer hover:opacity-80 transition-opacity"
+              className="h-6 w-6 shrink-0 rounded object-cover border border-slate-200 cursor-pointer hover:opacity-80"
               onClick={(e) => {
                 e.stopPropagation();
                 if (line.product.imageUrl) setEnlargedImage({ url: line.product.imageUrl, name: line.product.itemName });
               }}
             />
-          ) : (
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-zinc-400 border border-zinc-200">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                <line x1="12" y1="22.08" x2="12" y2="12"></line>
-              </svg>
-            </div>
           )}
-
-          <div className="flex flex-col flex-1 min-w-0">
-            <span className="text-sm font-semibold text-zinc-900 truncate" title={formatProductLabel(line.product)}>
-              {formatProductLabel(line.product)}
-            </span>
-            {line.instruction && <span className="text-xs text-amber-700 mt-0.5 truncate">{line.instruction}</span>}
-          </div>
+          <span className="text-[13px] font-bold text-slate-700 uppercase tracking-tight leading-tight truncate" title={formatProductLabel(line.product)}>
+            {formatProductLabel(line.product)}
+          </span>
         </div>
-        
-        <div className="flex flex-wrap items-center gap-3 pl-[3.25rem] sm:pl-0 mt-1 sm:mt-0">
-          <div className="flex items-center border border-zinc-300 rounded-md bg-white overflow-hidden shrink-0">
+        {line.instruction && <span className="text-[11px] text-amber-600 truncate">{line.instruction}</span>}
+
+        <div className="flex flex-wrap items-center gap-2 mt-1">
+          <div className="flex items-center rounded border border-slate-300 bg-white h-7 overflow-hidden shrink-0 shadow-sm">
             <button 
-              className="px-2 py-1 text-zinc-500 hover:bg-zinc-100 active:bg-zinc-200 transition-colors font-medium select-none"
+              className="px-2 text-slate-500 font-bold hover:bg-slate-100 active:bg-slate-200"
               onClick={() => updateLine(line.key, { quantity: Math.max(0, (line.quantity || 0) - 1) })}
             >
               -
@@ -1971,10 +1951,10 @@ export default function PosClient({
               onBlur={() => {
                 if (!line.quantity || line.quantity < 1) updateLine(line.key, { quantity: 1 });
               }}
-              className="w-8 text-center text-sm font-semibold focus:outline-none focus:bg-teal-50"
+              className="w-8 text-center text-[13px] font-bold focus:outline-none focus:bg-teal-50"
             />
             <button 
-              className="px-2 py-1 text-zinc-500 hover:bg-zinc-100 active:bg-zinc-200 transition-colors font-medium select-none"
+              className="px-2 text-slate-500 font-bold hover:bg-slate-100 active:bg-slate-200"
               onClick={() => {
                 const newVal = (line.quantity || 0) + 1;
                 updateLine(line.key, { quantity: Math.min(newVal, maxQty) });
@@ -1984,7 +1964,7 @@ export default function PosClient({
             </button>
           </div>
 
-          {hierarchy && hierarchy.length > 0 ? (
+          {hierarchy && hierarchy.length > 0 && (
             <select
               value={line.form}
               onChange={(e) => {
@@ -1992,7 +1972,7 @@ export default function PosClient({
                 const newMax = Math.floor(line.product.quantityInStock / piecesPerForm(line.product, newForm));
                 updateLine(line.key, { form: newForm, quantity: Math.min(1, newMax) || 1 });
               }}
-              className="h-[26px] rounded border border-zinc-300 px-1 py-0 text-xs font-medium focus:border-teal-500 focus:ring-1 focus:ring-teal-500 bg-white cursor-pointer"
+              className="h-7 rounded border border-slate-300 px-1 py-0 text-[11px] font-bold focus:border-teal-500 focus:ring-1 focus:ring-teal-500 bg-white cursor-pointer uppercase text-slate-600"
             >
               {hierarchy.map((level) => (
                 <option key={level.unitName} value={level.unitName}>
@@ -2000,77 +1980,60 @@ export default function PosClient({
                 </option>
               ))}
             </select>
-          ) : (
-            <div className="flex items-center gap-1 border border-zinc-300 rounded-md bg-white px-2 py-0.5 shrink-0 w-[72px] h-[26px] focus-within:border-teal-500 focus-within:ring-1 focus-within:ring-teal-500">
-              <span className="text-zinc-400 text-xs">₦</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode)}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => {
-                  const raw = e.target.value.trim();
-                  if (raw === "") { updateLine(line.key, { customPrice: 0 }); return; }
-                  const val = parseNumeric(raw);
-                  if (!Number.isNaN(val)) updateLine(line.key, { customPrice: val });
-                }}
-                onBlur={(e) => {
-                  if (!e.target.value.trim()) updateLine(line.key, { customPrice: undefined });
-                }}
-                className="w-full text-right text-xs font-semibold focus:outline-none bg-transparent"
-              />
-            </div>
           )}
 
-          <div className="w-16 text-right shrink-0 flex flex-col">
-            {line.discountPercent ? (
-              <>
-                <span className="text-[10px] text-zinc-400 line-through">₦{(priceForForm * line.quantity).toFixed(2)}</span>
-                <span className="text-[13px] font-bold text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
-              </>
-            ) : (
-              <span className="text-[13px] font-bold text-zinc-900">₦{(priceForForm * line.quantity).toFixed(2)}</span>
-            )}
+          <div className="flex items-center text-slate-600 font-medium text-[13px]">
+            ₦
+            <input
+              type="text"
+              inputMode="decimal"
+              value={line.customPrice !== undefined ? line.customPrice : (unitPriceFor(line.product, effectiveSaleMode) * perForm)}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => {
+                const raw = e.target.value.trim();
+                if (raw === "") { updateLine(line.key, { customPrice: 0 }); return; }
+                const val = parseNumeric(raw);
+                if (!Number.isNaN(val)) updateLine(line.key, { customPrice: val });
+              }}
+              onBlur={(e) => {
+                if (!e.target.value.trim()) updateLine(line.key, { customPrice: undefined });
+              }}
+              className="w-16 bg-transparent outline-none border-b border-transparent focus:border-teal-500 text-center mx-1 font-bold"
+            />
+            <span className="text-slate-400 mx-1">×</span> {line.quantity}
+          </div>
+          
+          <div className="flex items-center ml-2 border-l border-slate-200 pl-2">
+             <span className="text-[10px] text-slate-400 mr-1">DISC</span>
+             <div className="w-16">
+               <DiscountControl
+                  value={line.discountPercent}
+                  onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
+                  isAdminSession={isAdminSession}
+                />
+             </div>
           </div>
         </div>
       </div>
+      
+      <div className="flex flex-col justify-between items-end shrink-0 w-24 min-h-[50px] relative">
+        <button
+          onClick={() => removeLine(line.key)}
+          className="h-5 w-5 rounded bg-red-400/80 hover:bg-red-500 text-white flex items-center justify-center shadow-sm absolute top-0 right-0 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
 
-      <div className="flex flex-wrap items-center justify-end gap-3 mt-1.5 pl-[3.25rem]">
-         {hierarchy && hierarchy.length > 0 && (
-           <div className="flex items-center gap-1.5">
-             <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Price/{line.form}:</span>
-             <div className="flex items-center gap-1 border border-zinc-300 rounded bg-white px-1.5 py-0.5 w-[72px] h-6 focus-within:border-teal-500 focus-within:ring-1 focus-within:ring-teal-500">
-                <span className="text-zinc-400 text-[10px]">₦</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={line.customPrice !== undefined ? line.customPrice : (unitPriceFor(line.product, effectiveSaleMode) * piecesPerForm(line.product, line.form))}
-                  onFocus={(e) => e.target.select()}
-                  onChange={(e) => {
-                    const raw = e.target.value.trim();
-                    if (raw === "") { updateLine(line.key, { customPrice: 0 }); return; }
-                    const val = parseNumeric(raw);
-                    if (!Number.isNaN(val)) updateLine(line.key, { customPrice: val });
-                  }}
-                  onBlur={(e) => {
-                    if (!e.target.value.trim()) updateLine(line.key, { customPrice: undefined });
-                  }}
-                  className="w-full text-right text-[11px] font-semibold focus:outline-none bg-transparent"
-                />
-             </div>
-           </div>
-         )}
-         
-         <div className="flex items-center gap-1.5">
-           <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Disc:</span>
-           <div className="w-24">
-             <DiscountControl
-                value={line.discountPercent}
-                onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
-                isAdminSession={isAdminSession}
-              />
-           </div>
-         </div>
+        <div className="mt-8 text-right flex flex-col justify-end w-full">
+          {line.discountPercent ? (
+            <>
+              <span className="text-[10px] text-slate-400 line-through">₦{(priceForForm * line.quantity).toFixed(2)}</span>
+              <span className="text-[15px] font-black text-red-600">₦{lineAmount(line, effectiveSaleMode).toFixed(2)}</span>
+            </>
+          ) : (
+            <span className="text-[15px] font-black text-slate-800 tracking-tight">₦{(priceForForm * line.quantity).toFixed(2)}</span>
+          )}
+        </div>
       </div>
     </div>
   );
