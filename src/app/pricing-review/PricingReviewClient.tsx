@@ -807,7 +807,7 @@ export default function PricingReviewClient({ initialKey }: PricingReviewClientP
                       }`}
                     >
                       <img
-                        src={`/_next/image?url=${encodeURIComponent(draft.frontImageUrl)}&w=96&q=70`}
+                        src={`/_next/image?url=${encodeURIComponent(draft.frontImageUrl)}&w=96&q=75`}
                         alt=""
                         className="h-10 w-10 shrink-0 rounded-lg object-contain bg-zinc-950 p-0.5"
                         onError={(e) => {
