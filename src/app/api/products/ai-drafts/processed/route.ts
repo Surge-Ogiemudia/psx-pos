@@ -4,6 +4,7 @@ import { AiDraftProduct } from "@/models/AiDraftProduct";
 import Product from "@/models/Product";
 import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 // Feeds Panel 4 ("Processed Items") of Monak Triage: a pharmacy/branch-wide audit log of
 // drafts that were already confirmed into the catalog, merged with the resulting Product
@@ -11,6 +12,7 @@ import { handleApiError } from "@/lib/apiError";
 export async function GET(request: NextRequest) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     if (!session?.user?.pharmacyId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     await dbConnect();
 

@@ -10,6 +10,7 @@ import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
 import { formatProductLabel } from "@/lib/types";
 import { parseExpiryDate } from "@/lib/parseExpiryDate";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 interface MergePayload {
   productId: string;
@@ -31,6 +32,7 @@ export async function POST(
 ) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const { id } = await params;

@@ -4,6 +4,7 @@ import { AiDraftProduct } from "@/models/AiDraftProduct";
 import Product from "@/models/Product";
 import { requireApiSession } from "@/lib/session";
 import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 const apiKey = process.env.GEMINI_API_KEY;
 const ai = new GoogleGenAI({ apiKey: apiKey || "dummy-key" });
@@ -33,6 +34,7 @@ async function fetchImageAsBase64(url: string) {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     if (!session?.user?.pharmacyId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 

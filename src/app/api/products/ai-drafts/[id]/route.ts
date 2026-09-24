@@ -3,6 +3,7 @@ import { dbConnect } from "@/lib/mongodb";
 import { AiDraftProduct } from "@/models/AiDraftProduct";
 import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 // Soft dismiss/restore/skip — never hard-deletes a captured snap. "dismissed" hides it from
 // the active triage queue while keeping the photos and count on record; "skipped" tags it as
@@ -13,6 +14,7 @@ export async function PATCH(
 ) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const { id } = await params;

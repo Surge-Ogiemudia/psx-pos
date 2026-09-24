@@ -10,6 +10,7 @@ import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
 import { formatProductLabel } from "@/lib/types";
 import { parseExpiryDate } from "@/lib/parseExpiryDate";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 interface MergeDuplicatesPayload {
   // Operator-confirmed subset of the candidates the siblings/ GET returned — the operator
@@ -55,6 +56,7 @@ async function releaseClaim(draftId: string, pharmacyId: string) {
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const { id } = await params;

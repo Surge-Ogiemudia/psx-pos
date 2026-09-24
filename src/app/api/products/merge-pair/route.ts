@@ -8,6 +8,7 @@ import { AiDraftProduct } from "@/models/AiDraftProduct";
 import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { formatProductLabel } from "@/lib/types";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 interface MergePairPayload {
   keptProductId: string;
@@ -25,6 +26,7 @@ interface MergePairPayload {
 export async function POST(request: NextRequest) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const { pharmacyId } = session.user;
