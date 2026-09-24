@@ -8,7 +8,7 @@ import { triageDb } from "@/lib/monakTriageDb";
 
 // ---------------------------------------------------------------------------
 // Mobile "one card at a time" view of Monak Triage — built from the same live
-// data/endpoints as the desktop 4-panel tool (MonakTriageClient.tsx). See that
+// data/endpoints as the desktop 4-panel tool (old desktop tool, now replaced by MonakTriageV2Client.tsx). See that
 // file for the canonical shapes; interfaces below are trimmed to what this
 // screen actually renders.
 // ---------------------------------------------------------------------------
