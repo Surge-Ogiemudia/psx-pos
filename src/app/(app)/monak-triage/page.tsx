@@ -1,13 +1,21 @@
 import { requirePageSession } from "@/lib/session";
 import { resolveActiveBranch } from "@/lib/branchScope";
-import { isMonakTriageLocked } from "@/lib/monakTriageLock";
-import MonakTriageLocked from "./MonakTriageLocked";
-import MonakTriageClient from "./MonakTriageClient";
+import MonakTriageV2Client from "./MonakTriageV2Client";
+
+const MONAK_PHARMACY_ID = "6a5f61da9e1719c3b02842ae";
 
 export default async function MonakTriagePage() {
   const session = await requirePageSession();
-  if (isMonakTriageLocked(session.user.pharmacyId)) return <MonakTriageLocked />;
+  if (session.user.pharmacyId !== MONAK_PHARMACY_ID || session.user.role !== "admin") {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center p-6">
+        <p className="rounded-xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-600">
+          Triage is not available for your account.
+        </p>
+      </div>
+    );
+  }
   const { activeBranchId } = await resolveActiveBranch(session);
 
-  return <MonakTriageClient branchId={activeBranchId ?? ""} />;
+  return <MonakTriageV2Client branchId={activeBranchId ?? ""} />;
 }
