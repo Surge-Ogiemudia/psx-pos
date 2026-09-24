@@ -199,7 +199,7 @@ export default function ReportsClient({
     const res = await fetch(`/api/sales/${editingPaymentSale._id}/payment-method`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ payments: parsedPayments }),
+      body: JSON.stringify({ payments: parsedPayments, branchId }),
     });
 
     const data = await res.json();

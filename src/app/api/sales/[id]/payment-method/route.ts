@@ -22,10 +22,11 @@ export async function PATCH(
 ) {
   try {
     const session = await requireApiSession();
-    const scope = await getBranchScope(session);
     const { id } = await params;
 
     const body = await req.json();
+    // Admin has no fixed branch, so the branch being acted on comes from the request.
+    const scope = getBranchScope(session, body.branchId ?? req.nextUrl.searchParams.get("branchId"));
     const rawPayments = body.payments;
 
     if (!Array.isArray(rawPayments) || rawPayments.length === 0) {
