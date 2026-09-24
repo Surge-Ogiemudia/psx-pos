@@ -164,6 +164,7 @@ export default function ProductsClient({
   const [adjustReason, setAdjustReason] = useState("");
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const [adjustSubmitting, setAdjustSubmitting] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [adjustingAlertProduct, setAdjustingAlertProduct] = useState<ProductJSON | null>(null);
   const [adjustAlertQuantity, setAdjustAlertQuantity] = useState("");
   const [adjustAlertError, setAdjustAlertError] = useState<string | null>(null);
@@ -495,6 +496,7 @@ export default function ProductsClient({
   }
 
   async function createProduct() {
+    if (creating) return;
     setError(null);
     if (!form.itemName.trim()) {
       setError("Item name is required.");
@@ -524,19 +526,26 @@ export default function ProductsClient({
       if (payload.costPrice) payload.costPrice = parseNumeric(payload.costPrice) / divisor;
     }
 
-    // Central catalog: check for an exact or near-name match before creating a second row.
-    const params = new URLSearchParams({ itemName: form.itemName, brand: form.brand, size: form.size });
-    if (branchId) params.set("branchId", branchId);
-    const simRes = await fetch(`/api/products/similar?${params}`);
-    if (simRes.ok) {
-      const simData = await simRes.json();
-      if (simData.matches && simData.matches.length > 0) {
-        setSimilarMatches(simData.matches);
-        setPendingPayload(payload);
-        return;
+    setCreating(true);
+    try {
+      // Central catalog: check for an exact or near-name match before creating a second row.
+      const params = new URLSearchParams({ itemName: form.itemName, brand: form.brand, size: form.size });
+      if (branchId) params.set("branchId", branchId);
+      const simRes = await fetch(`/api/products/similar?${params}`);
+      if (simRes.ok) {
+        const simData = await simRes.json();
+        if (simData.matches && simData.matches.length > 0) {
+          setSimilarMatches(simData.matches);
+          setPendingPayload(payload);
+          return;
+        }
       }
+      await submitCreate(payload);
+    } catch {
+      setError("Could not save — check your connection and try again.");
+    } finally {
+      setCreating(false);
     }
-    await submitCreate(payload);
   }
 
   async function submitCreate(payload: Record<string, unknown>) {
@@ -1665,9 +1674,10 @@ export default function ProductsClient({
 
           <button
             onClick={createProduct}
-            className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 sm:col-span-2 lg:col-span-4"
+            disabled={creating}
+            className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-2 lg:col-span-4"
           >
-            Save product
+            {creating ? "Saving…" : "Save product"}
           </button>
         </div>
       )}
