@@ -342,7 +342,11 @@ export default function PosClient({
     distributorPrice: "",
     batchNumber: "",
     expiryDate: "",
+    barcode: "",
   });
+  // Quick add: same modal as quick edit, but creates a new product (POST /api/products).
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddMatches, setQuickAddMatches] = useState<{ product: ProductJSON }[] | null>(null);
   const [quickEditSaving, setQuickEditSaving] = useState(false);
   const [quickEditError, setQuickEditError] = useState("");
   // Long-press detection for touch devices — a single shared timer/flag is fine since only
@@ -857,13 +861,92 @@ export default function PosClient({
       distributorPrice: String(product.distributorPrice),
       batchNumber: product.batchNumber || "",
       expiryDate: product.expiryDate ? String(product.expiryDate).slice(0, 10) : "",
+      barcode: "",
+    });
+    setQuickEditError("");
+  }
+
+  function openQuickAdd() {
+    setQuickEditProduct(null);
+    setQuickAddOpen(true);
+    setQuickAddMatches(null);
+    setQuickEditForm({
+      itemName: "",
+      brand: "",
+      size: "",
+      category: "supermarket",
+      quantityInStock: "",
+      costPrice: "",
+      retailPrice: "",
+      wholesalePrice: "",
+      distributorPrice: "",
+      batchNumber: "",
+      expiryDate: "",
+      barcode: "",
     });
     setQuickEditError("");
   }
 
   function closeQuickEdit() {
     setQuickEditProduct(null);
+    setQuickAddOpen(false);
+    setQuickAddMatches(null);
     setQuickEditError("");
+  }
+
+  async function saveQuickAdd(skipSimilarCheck = false) {
+    if (quickEditSaving) return;
+    const f = quickEditForm;
+    if (!f.itemName.trim()) return setQuickEditError("Item name is required.");
+    if (!f.brand.trim()) return setQuickEditError("Brand is required.");
+    if (!f.size.trim()) return setQuickEditError('Size is required — use "Standard" if the item has no size/strength variation.');
+    if (!f.retailPrice.trim()) return setQuickEditError("Retail price is required.");
+    if (!isOnline) return setQuickEditError("You are offline — adding a new item needs a connection.");
+    setQuickEditSaving(true);
+    setQuickEditError("");
+    try {
+      if (!skipSimilarCheck) {
+        const params = new URLSearchParams({ itemName: f.itemName, brand: f.brand, size: f.size });
+        if (branchId) params.set("branchId", branchId);
+        const simRes = await fetch(`/api/products/similar?${params}`);
+        if (simRes.ok) {
+          const simData = await simRes.json();
+          if (simData.matches && simData.matches.length > 0) {
+            setQuickAddMatches(simData.matches);
+            return;
+          }
+        }
+      }
+      const res = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branchId,
+          itemName: f.itemName,
+          brand: f.brand,
+          size: f.size,
+          category: f.category,
+          quantityInStock: f.quantityInStock,
+          costPrice: f.costPrice,
+          retailPrice: f.retailPrice,
+          wholesalePrice: f.wholesalePrice,
+          distributorPrice: f.distributorPrice,
+          batchNumber: f.batchNumber,
+          expiryDate: f.expiryDate || null,
+          barcode: f.barcode.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add product");
+      const created = data.product as ProductJSON;
+      setProducts((prev) => [created, ...prev]);
+      db.products.put(created).catch(() => {});
+      closeQuickEdit();
+    } catch (err) {
+      setQuickEditError(err instanceof Error ? err.message : "Failed to add product");
+    } finally {
+      setQuickEditSaving(false);
+    }
   }
 
   async function saveQuickEdit() {
@@ -1440,6 +1523,14 @@ export default function PosClient({
                 <span>{isOnline ? "Online" : "Offline Mode"}</span>
               </span>
               <span className="text-zinc-500">{syncStatus}</span>
+              {isAdminSession && (
+                <button
+                  onClick={openQuickAdd}
+                  className="rounded-full bg-teal-700 px-3 py-0.5 font-semibold text-white hover:bg-teal-800 shadow-sm"
+                >
+                  + Add item
+                </button>
+              )}
               {pendingSales.length > 0 && (
                 <button
                   onClick={() => setShowOfflineTray(true)}
@@ -2548,7 +2639,7 @@ export default function PosClient({
         </div>
       )}
 
-      {quickEditProduct && (
+      {(quickEditProduct || quickAddOpen) && (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
           onClick={closeQuickEdit}
@@ -2558,13 +2649,13 @@ export default function PosClient({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-4 py-3">
-              <span className="text-sm font-bold text-zinc-800">✏️ Quick Edit</span>
+              <span className="text-sm font-bold text-zinc-800">{quickAddOpen ? "➕ Add item" : "✏️ Quick Edit"}</span>
               <button onClick={closeQuickEdit} className="text-zinc-400 hover:text-zinc-600 text-xl leading-none px-1">
                 ✕
               </button>
             </div>
             <div className="overflow-y-auto p-4 flex flex-col gap-3">
-              <p className="text-xs text-zinc-500 -mt-1">{formatProductLabel(quickEditProduct)}</p>
+              {quickEditProduct && <p className="text-xs text-zinc-500 -mt-1">{formatProductLabel(quickEditProduct)}</p>}
               <div className="grid grid-cols-2 gap-2">
                 <label className="flex flex-col gap-1 col-span-2">
                   <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Item Name</span>
@@ -2673,7 +2764,32 @@ export default function PosClient({
                     className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
                   />
                 </label>
+                {quickAddOpen && (
+                  <label className="flex flex-col gap-1 col-span-2">
+                    <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Barcode (optional)</span>
+                    <input
+                      type="text"
+                      value={quickEditForm.barcode}
+                      onChange={(e) => setQuickEditForm((f) => ({ ...f, barcode: e.target.value }))}
+                      className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    />
+                  </label>
+                )}
               </div>
+
+              {quickAddMatches && quickAddMatches.length > 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <p className="mb-1 font-semibold">Something like this is already in the catalog:</p>
+                  <ul className="mb-2 list-disc pl-4">
+                    {quickAddMatches.slice(0, 3).map((m) => (
+                      <li key={m.product._id}>
+                        {formatProductLabel(m.product)} — {m.product.quantityInStock} in stock, ₦{m.product.retailPrice}
+                      </li>
+                    ))}
+                  </ul>
+                  <p>If it is the same item, cancel and edit that one instead (press and hold it). Otherwise tap Add anyway.</p>
+                </div>
+              )}
 
               {quickEditError && (
                 <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2 text-sm">
@@ -2689,11 +2805,11 @@ export default function PosClient({
                 Cancel
               </button>
               <button
-                onClick={saveQuickEdit}
+                onClick={quickAddOpen ? () => saveQuickAdd(!!quickAddMatches) : saveQuickEdit}
                 disabled={quickEditSaving}
                 className="flex-1 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
               >
-                {quickEditSaving ? "Saving…" : "Save"}
+                {quickEditSaving ? (quickAddOpen ? "Adding…" : "Saving…") : quickAddOpen ? (quickAddMatches ? "Add anyway" : "Add item") : "Save"}
               </button>
             </div>
           </div>
