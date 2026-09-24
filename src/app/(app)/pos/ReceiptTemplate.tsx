@@ -54,7 +54,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
     return createPortal(
       <div className="print-receipt-root">
       {paper === "80" && (
-        <style>{`@media print { @page { size: 80mm auto; margin: 0 !important; } .print-receipt { max-width: 72mm !important; } }`}</style>
+        <style>{`@media print { @page { size: 80mm auto; margin: 0 !important; } .print-receipt-root, .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; } .print-receipt-root .print-receipt { padding: 0 2mm !important; } }`}</style>
       )}
       <div
         ref={ref}
