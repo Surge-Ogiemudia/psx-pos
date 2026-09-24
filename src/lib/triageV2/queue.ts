@@ -83,12 +83,26 @@ export async function getQueue(opts: {
   tab: QueueTab;
   limit?: number;
   cursor?: string | null;
+  q?: string | null;
 }) {
   const { pharmacyId, branchId, tab } = opts;
   const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
   const scope = { pharmacyId, branchId };
   const scopeQ = { pharmacyId: oid(pharmacyId), branchId: oid(branchId) };
   const cursorOid = opts.cursor && mongoose.isValidObjectId(opts.cursor) ? oid(opts.cursor) : null;
+
+  // Search: every word must appear in name, brand or size (case-insensitive, escaped).
+  const words = String(opts.q ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 6);
+  let searchIds: Set<string> | null = null;
+  if (words.length) {
+    const and = words.map((w) => {
+      const re = new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      return { $or: [{ itemName: re }, { brand: re }, { size: re }] };
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hit = await Product.find({ ...scopeQ, $and: and } as never).select("_id").lean<any[]>();
+    searchIds = new Set(hit.map((h) => String(h._id)));
+  }
 
   // Open groups: light read (ids only) — used for the price tab exclusion and dup counts.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -128,7 +142,7 @@ export async function getQueue(opts: {
   const tabCounts = { dup_priced: dupPriced, dup_unpriced: dupUnpriced, price: priceList.length };
 
   if (tab === "price") {
-    let rows = priceList;
+    let rows = searchIds ? priceList.filter((p) => searchIds!.has(String(p._id))) : priceList;
     if (cursorOid) rows = rows.filter((p) => String(p._id) > String(cursorOid));
     const page = rows.slice(0, limit);
     const nextCursor = rows.length > limit ? String(page[page.length - 1]._id) : null;
@@ -142,6 +156,7 @@ export async function getQueue(opts: {
     ...scopeQ,
     status: "open",
     hasPrice: tab === "dup_priced",
+    ...(searchIds ? { productIds: { $in: Array.from(searchIds).map(oid) } } : {}),
     ...(cursorOid ? { _id: { $gt: cursorOid } } : {}),
   })
     .sort({ _id: 1 })

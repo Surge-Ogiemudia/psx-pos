@@ -912,6 +912,9 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
   const [zoom, setZoom] = useState<string | null>(null);
   const closeZoom = useCallback(() => setZoom(null), []);
   const inflight = useRef<Record<string, boolean>>({});
+  const [search, setSearch] = useState("");
+  const qRef = useRef("");
+  const firstQ = useRef(true);
 
   const patchTab = useCallback((key: TabKey, patch: Partial<TabState>) => {
     setTabs((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
@@ -921,13 +924,13 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
     (key: TabKey, limit: number, cursor?: string | null) =>
       `/api/triage-v2/queue?tab=${key}&branchId=${encodeURIComponent(branchId)}&limit=${limit}${
         cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
-      }`,
+      }${qRef.current ? `&q=${encodeURIComponent(qRef.current)}` : ""}`,
     [branchId]
   );
 
   const loadTab = useCallback(
     async (key: TabKey, cursor?: string | null) => {
-      const guard = `${key}:${cursor ?? ""}`;
+      const guard = `${key}:${cursor ?? ""}:${qRef.current}`;
       if (inflight.current[guard]) return;
       inflight.current[guard] = true;
       try {
@@ -974,6 +977,22 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
     setTab(initial);
     void loadTab(initial);
   }, [loadTab]);
+
+  // Search: debounce typing, then reload every tab with the new filter.
+  useEffect(() => {
+    if (firstQ.current) {
+      firstQ.current = false;
+      return;
+    }
+    const t = setTimeout(() => {
+      qRef.current = search.trim();
+      inflight.current = {};
+      setTabs({ dup_priced: EMPTY_TAB, dup_unpriced: EMPTY_TAB, price: EMPTY_TAB });
+      void loadTab(tab);
+    }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   function selectTab(key: TabKey) {
     setTab(key);
@@ -1046,6 +1065,18 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4 p-4 sm:p-6">
       <h1 className="text-2xl font-bold text-zinc-900">Monak Triage</h1>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search name, brand or size…"
+          className="w-full max-w-md rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+        />
+        {search.trim() && (
+          <span className="text-xs text-zinc-500">Filtering all tabs — tab numbers still show the full totals</span>
+        )}
+      </div>
       <TabBar tab={tab} counts={counts} onSelect={selectTab} />
 
       {!cur.loaded && <div className="py-16 text-center text-sm text-zinc-500">Loading…</div>}
