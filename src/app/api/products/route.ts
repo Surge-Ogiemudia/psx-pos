@@ -5,7 +5,7 @@ import Product from "@/models/Product";
 import ImportBatch from "@/models/ImportBatch";
 import DeletionLog from "@/models/DeletionLog";
 import ProductBatch from "@/models/ProductBatch";
-import { requireAdminApiSession, requireApiSession, getBranchScope } from "@/lib/session";
+import { requireAdminApiSession, requireApiSession, requireItemManagerApiSession, getBranchScope } from "@/lib/session";
 import { normalizeText } from "@/lib/productSimilarity";
 import { parseNumeric } from "@/lib/numberInput";
 import { productsToCsv } from "@/lib/csv";
@@ -17,6 +17,11 @@ import { fuzzyRank } from "@/lib/fuzzyMatch";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Store keepers may add/edit items but never see cost prices — strip them server-side.
+function hideCostFromKeeper<T extends { costPrice?: number }>(role: string, list: T[]): T[] {
+  return role === "store_keeper" ? list.map((p) => ({ ...p, costPrice: 0 })) : list;
 }
 
 export async function GET(request: NextRequest) {
@@ -87,7 +92,7 @@ export async function GET(request: NextRequest) {
       const seenIds = new Set(barcodeMatches.map((p) => String(p._id)));
       const products = [...barcodeMatches, ...ranked.filter((p) => !seenIds.has(String(p._id)))].slice(0, 50);
 
-      return NextResponse.json({ products });
+      return NextResponse.json({ products: hideCostFromKeeper(session.user.role, products) });
     }
 
     // skip is opt-in and only used by the POS offline sync's chunked fetch (see
@@ -104,7 +109,7 @@ export async function GET(request: NextRequest) {
     }
     const products = await productsQuery.lean();
 
-    return NextResponse.json({ products, fullSyncRequired, timestamp: serverTime });
+    return NextResponse.json({ products: hideCostFromKeeper(session.user.role, products), fullSyncRequired, timestamp: serverTime });
   } catch (error) {
     return handleApiError(error);
   }
@@ -112,10 +117,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireAdminApiSession();
+    const session = await requireItemManagerApiSession();
     await dbConnect();
 
     const body = await request.json();
+    if (session.user.role === "store_keeper") delete body.costPrice;
     const {
       branchId,
       itemName,

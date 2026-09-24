@@ -42,7 +42,8 @@ export async function PATCH(
     const session = await requireApiSession();
     const { id } = await ctx.params;
     let approvedBy: { adminId: string; adminName: string } | null = null;
-    if (session.user.role !== "admin") {
+    const isKeeper = session.user.role === "store_keeper" && !!session.user.branchId;
+    if (session.user.role !== "admin" && !isKeeper) {
       const claims = verifyEditApproval(request.headers.get("x-admin-approval"), {
         pharmacyId: String(session.user.pharmacyId),
         productId: String(id),
@@ -88,6 +89,9 @@ export async function PATCH(
         update[field] = body[field];
       }
     }
+
+    // Store keepers can edit items but never change (or see) cost prices.
+    if (isKeeper) delete update.costPrice;
 
     const scope = getBranchScope(session, body.branchId);
 

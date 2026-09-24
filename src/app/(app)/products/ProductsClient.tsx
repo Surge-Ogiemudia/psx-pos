@@ -130,10 +130,13 @@ const BULK_TEMPLATE =
 
 export default function ProductsClient({
   isAdmin,
+  canManageItems = false,
   canEditStock = false,
   branchId,
 }: {
   isAdmin: boolean;
+  // Store keepers: may add and edit items (not delete, bulk import, or see cost prices).
+  canManageItems?: boolean;
   canEditStock?: boolean;
   branchId: string | null;
 }) {
@@ -1037,7 +1040,7 @@ export default function ProductsClient({
         <h1 className="text-lg font-semibold text-zinc-900">Product catalog</h1>
         <div className="flex items-center gap-0">
           <IncomingBanner scope="branch" scopeId={branchId} />
-          {isAdmin && (
+          {(isAdmin || canManageItems) && (
             <div className="relative">
               {showForm || bulkMode ? (
                 <button
@@ -1083,6 +1086,8 @@ export default function ProductsClient({
                   >
                     Single item
                   </button>
+                  {isAdmin && (
+                  <>
                   <button
                     onClick={() => {
                       setBulkMode(true);
@@ -1120,6 +1125,8 @@ export default function ProductsClient({
                   >
                     ✨ Resolve & Audit Studio
                   </button>
+                  </>
+                  )}
                 </div>
               )}
             </div>
@@ -1488,7 +1495,7 @@ export default function ProductsClient({
         </div>
       )}
 
-      {isAdmin && showForm && (
+      {(isAdmin || canManageItems) && showForm && (
         <div className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
           <input
             placeholder="Item name (e.g. Amlodipine)"
@@ -1533,6 +1540,7 @@ export default function ProductsClient({
             onChange={(e) => setForm({ ...form, alertQuantity: e.target.value })}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
           />
+          {isAdmin && (
           <div className="flex flex-col">
             <input
               type="text"
@@ -1543,6 +1551,7 @@ export default function ProductsClient({
               className="rounded border border-zinc-300 bg-orange-50/50 px-2 py-1.5 text-sm"
             />
           </div>
+          )}
           <input
             type="text"
             inputMode="decimal"
@@ -1992,8 +2001,8 @@ export default function ProductsClient({
               <th className="px-3 py-2">Form</th>
               <th className="px-3 py-2">Stock</th>
               {isAdmin && <th className="px-3 py-2">CostPrice</th>}
-              <th className="px-3 py-2">{isAdmin ? "Retail" : "Selling price"}</th>
-              {isAdmin && (
+              <th className="px-3 py-2">{isAdmin || canManageItems ? "Retail" : "Selling price"}</th>
+              {(isAdmin || canManageItems) && (
                 <>
                   <th className="px-3 py-2">Wholesale</th>
                   <th className="px-3 py-2">Distributor</th>
@@ -2001,7 +2010,7 @@ export default function ProductsClient({
               )}
               <th className="px-3 py-2">Batch</th>
               <th className="px-3 py-2">Expiry</th>
-              {(isAdmin || canEditStock) && <th className="px-3 py-2">Actions</th>}
+              {(isAdmin || canManageItems || canEditStock) && <th className="px-3 py-2">Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -2114,6 +2123,7 @@ export default function ProductsClient({
                           className="w-16 rounded border border-zinc-300 px-1.5 py-1"
                         />
                       </td>
+                      {isAdmin && (
                       <td className="px-1 py-1">
                         <input
                           type="text"
@@ -2123,6 +2133,7 @@ export default function ProductsClient({
                           className="w-20 rounded border border-zinc-300 bg-orange-50/50 px-1 py-1 text-sm"
                         />
                       </td>
+                      )}
                       <td className="px-3 py-2">
                         <input
                           type="text"
@@ -2221,7 +2232,7 @@ export default function ProductsClient({
                         <td className="px-3 py-2 font-medium text-orange-600">₦{(product.costPrice || 0).toFixed(2)}</td>
                       )}
                       <td className="px-3 py-2 text-zinc-600">₦{product.retailPrice.toFixed(2)}</td>
-                      {isAdmin && (
+                      {(isAdmin || canManageItems) && (
                         <>
                           <td className="px-3 py-2 text-zinc-600">₦{product.wholesalePrice.toFixed(2)}</td>
                           <td className="px-3 py-2 text-zinc-600">₦{product.distributorPrice.toFixed(2)}</td>
@@ -2252,7 +2263,7 @@ export default function ProductsClient({
                               >
                                 Batches
                               </Link>
-                              {isAdmin && (
+                              {(isAdmin || canManageItems) && (
                                 <button
                                   onClick={() => {
                                     startEdit(product);

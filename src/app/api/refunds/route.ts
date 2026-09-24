@@ -57,6 +57,9 @@ function endOfDay(date: Date): Date {
 export async function GET(request: NextRequest) {
   try {
     const session = await requireApiSession();
+    if (session.user.role === "store_keeper") {
+      return NextResponse.json({ error: "Not available" }, { status: 403 });
+    }
     await dbConnect();
 
     const saleId = request.nextUrl.searchParams.get("saleId");

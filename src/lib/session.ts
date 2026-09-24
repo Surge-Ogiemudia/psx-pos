@@ -88,6 +88,14 @@ export async function requireAdminApiSession(): Promise<Session> {
   return session;
 }
 
+/** Add/edit items: admin, or a store_keeper attached to a branch. (Delete etc. stay admin-only.) */
+export async function requireItemManagerApiSession(): Promise<Session> {
+  const session = await requireApiSession();
+  const role = session.user.role;
+  if (role === "admin" || (role === "store_keeper" && session.user.branchId)) return session;
+  throw new ApiAuthError(403, "Admin access required");
+}
+
 export async function requireStoreApiSession(): Promise<Session> {
   const session = await requireApiSession();
   if (!["admin", "store_manager", "store_keeper"].includes(session.user.role)) {
@@ -102,6 +110,19 @@ export async function requireStoreApiSession(): Promise<Session> {
  * regardless of what's requested, so a staff session can never be tricked into
  * reading/writing another branch's data.
  */
+/**
+ * Catalog: admin/staff as usual, plus a store_keeper who has been attached to a branch.
+ * A keeper with no branch has nothing to show here and goes back to the bulk store.
+ * (store_manager stays bulk-store only.)
+ */
+export async function requireCatalogPageSession(): Promise<Session> {
+  const session = await requirePageSession();
+  const role = session.user.role;
+  if (role === "store_manager") redirect("/store");
+  if (role === "store_keeper" && !session.user.branchId) redirect("/store");
+  return session;
+}
+
 export function getBranchScope(
   session: Session,
   requestedBranchId?: string | null
