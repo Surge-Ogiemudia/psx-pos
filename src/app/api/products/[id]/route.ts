@@ -135,7 +135,7 @@ export async function PATCH(
         actorUserId: session.user.id,
         actorName: session.user.name ?? "Staff",
         action: "stock_adjustment",
-        summary: `${session.user.name ?? "Staff"} edited ${product.itemName}, approved by admin ${approvedBy.adminName}`,
+        summary: `${session.user.name ?? "Staff"} edited ${product.itemName}, approved by ${approvedBy.adminName}`,
         metadata: { approvedByAdminId: approvedBy.adminId, approvedByAdminName: approvedBy.adminName, fields: Object.keys(update) },
         refCollection: "products",
         refId: product._id,

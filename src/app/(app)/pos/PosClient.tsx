@@ -250,7 +250,7 @@ export default function PosClient({
   const [saleModeReady, setSaleModeReady] = useState(false);
   const [adminPasswordPromptProduct, setAdminPasswordPromptProduct] = useState<ProductJSON | null>(null);
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
-  const [availableAdmins, setAvailableAdmins] = useState<{_id: string, name: string, phoneNumber: string}[]>([]);
+  const [availableAdmins, setAvailableAdmins] = useState<{_id: string, name: string, phoneNumber: string, role?: string}[]>([]);
   const [selectedAdminId, setSelectedAdminId] = useState("");
   const [isAdminVerifying, setIsAdminVerifying] = useState(false);
 
@@ -2839,7 +2839,7 @@ export default function PosClient({
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200">
             <h3 className="mb-2 text-lg font-bold text-slate-800 tracking-tight">Admin Authorization Required</h3>
-            <p className="mb-4 text-sm text-slate-500">Please select an admin account and enter the password to edit this product.</p>
+            <p className="mb-4 text-sm text-slate-500">Please select an admin or store keeper and enter their password to edit this product.</p>
             
             {availableAdmins.length > 0 ? (
               <div className="flex flex-col gap-3">
@@ -2849,7 +2849,7 @@ export default function PosClient({
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none"
                 >
                   {availableAdmins.map(a => (
-                    <option key={a._id} value={a._id}>{a.name} ({a.phoneNumber})</option>
+                    <option key={a._id} value={a._id}>{a.name}{a.role === "store_keeper" ? " · Store Keeper" : ""} ({a.phoneNumber})</option>
                   ))}
                 </select>
                 
