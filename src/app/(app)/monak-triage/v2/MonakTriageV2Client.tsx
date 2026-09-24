@@ -282,7 +282,11 @@ function GroupCard({
   onZoom,
   onMerged,
   onRemoved,
+  compact = false,
+  onSkip,
 }: {
+  compact?: boolean;
+  onSkip?: () => void;
   group: GroupItem;
   branchId: string;
   onZoom: (src: string) => void;
@@ -482,7 +486,7 @@ function GroupCard({
       </div>
 
       {/* merge form */}
-      <div className="mt-4 grid gap-4 rounded-xl bg-zinc-50 p-3 lg:grid-cols-2">
+      <div className={`mt-4 grid gap-4 rounded-xl bg-zinc-50 p-3 ${compact ? "" : "lg:grid-cols-2"}`}>
         <div className="space-y-3">
           <fieldset>
             <legend className="mb-1 text-xs font-semibold text-zinc-600">Keep this copy (record that survives)</legend>
@@ -501,6 +505,11 @@ function GroupCard({
             </div>
           </fieldset>
 
+          <details open={!compact} className="rounded-lg border border-zinc-200 bg-white p-2">
+            <summary className="cursor-pointer text-xs font-semibold text-zinc-600">
+              Edit details: {itemName} · {brand} · {size} · {category} · {barcode || "no barcode"}
+            </summary>
+            <div className="mt-3 space-y-3">
           <TextWithChoices label="Item name" value={itemName} options={names} onChange={(v) => set("itemName", v)} />
           <div className="grid grid-cols-2 gap-3">
             <TextWithChoices label="Brand" value={brand} options={brands} onChange={(v) => set("brand", v)} />
@@ -530,6 +539,8 @@ function GroupCard({
               </label>
             </div>
           </fieldset>
+            </div>
+          </details>
         </div>
 
         <div className="space-y-3">
@@ -649,6 +660,15 @@ function GroupCard({
       )}
 
       <div className="mt-3 flex items-center justify-end gap-2">
+        {onSkip && (
+          <button
+            onClick={onSkip}
+            disabled={!!busy}
+            className="mr-auto rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Skip for now →
+          </button>
+        )}
         <button
           onClick={doNotSame}
           disabled={!!busy}
@@ -913,6 +933,8 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
   const closeZoom = useCallback(() => setZoom(null), []);
   const inflight = useRef<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
+  const [focus, setFocus] = useState(true);
+  const [idx, setIdx] = useState(0);
   const qRef = useRef("");
   const firstQ = useRef(true);
 
@@ -988,6 +1010,7 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
       qRef.current = search.trim();
       inflight.current = {};
       setTabs({ dup_priced: EMPTY_TAB, dup_unpriced: EMPTY_TAB, price: EMPTY_TAB });
+      setIdx(0);
       void loadTab(tab);
     }, 350);
     return () => clearTimeout(t);
@@ -996,6 +1019,7 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
 
   function selectTab(key: TabKey) {
     setTab(key);
+    setIdx(0);
     try {
       localStorage.setItem(STORAGE_KEY, key);
     } catch {
@@ -1061,6 +1085,12 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
   }
 
   const cur = tabs[tab];
+  const safeIdx = Math.min(idx, Math.max(0, cur.items.length - 1));
+  // Keep the next page coming while the operator works through the queue.
+  useEffect(() => {
+    if (focus && cur.nextCursor && !cur.loadingMore && cur.items.length - safeIdx <= 5) loadMore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, safeIdx, cur.items.length, cur.nextCursor]);
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4 p-4 sm:p-6">
@@ -1077,7 +1107,15 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
           <span className="text-xs text-zinc-500">Filtering all tabs — tab numbers still show the full totals</span>
         )}
       </div>
-      <TabBar tab={tab} counts={counts} onSelect={selectTab} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <TabBar tab={tab} counts={counts} onSelect={selectTab} />
+        <button
+          onClick={() => setFocus((f) => !f)}
+          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+        >
+          {focus ? "Show full list" : "One at a time"}
+        </button>
+      </div>
 
       {!cur.loaded && <div className="py-16 text-center text-sm text-zinc-500">Loading…</div>}
 
@@ -1102,7 +1140,52 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
         </div>
       )}
 
-      {cur.loaded && cur.items.length > 0 && (
+      {focus && cur.loaded && cur.items.length > 0 && (
+        <div className="mx-auto max-w-3xl space-y-3">
+          <div className="flex items-center justify-between text-sm text-zinc-600">
+            <button
+              onClick={() => setIdx(Math.max(0, safeIdx - 1))}
+              disabled={safeIdx === 0}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 font-semibold disabled:opacity-40"
+            >
+              ← Back
+            </button>
+            <span className="font-semibold">
+              {safeIdx + 1} of {cur.items.length}
+              {cur.nextCursor ? "+" : ""} loaded
+            </span>
+            <button
+              onClick={() => setIdx(Math.min(cur.items.length - 1, safeIdx + 1))}
+              disabled={safeIdx >= cur.items.length - 1}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 font-semibold disabled:opacity-40"
+            >
+              Next →
+            </button>
+          </div>
+          {tab === "price" ? (
+            <PriceRow
+              key={(cur.items[safeIdx] as PriceItem)._id}
+              item={cur.items[safeIdx] as PriceItem}
+              branchId={branchId}
+              onZoom={setZoom}
+              onSaved={(saved) => removeItem("price", (i) => (i as PriceItem)._id === saved._id)}
+            />
+          ) : (
+            <GroupCard
+              key={`${(cur.items[safeIdx] as GroupItem).groupId}:${(cur.items[safeIdx] as GroupItem).members.map((m) => m._id).join("-")}`}
+              group={cur.items[safeIdx] as GroupItem}
+              branchId={branchId}
+              onZoom={setZoom}
+              onMerged={handleMerged}
+              onRemoved={handleGroupRemoved}
+              compact
+              onSkip={() => setIdx(Math.min(cur.items.length - 1, safeIdx + 1))}
+            />
+          )}
+        </div>
+      )}
+
+      {!focus && cur.loaded && cur.items.length > 0 && (
         <div className="space-y-4">
           {tab === "price"
             ? (cur.items as PriceItem[]).map((it) => (
