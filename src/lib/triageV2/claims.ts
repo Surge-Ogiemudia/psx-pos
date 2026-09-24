@@ -5,11 +5,11 @@ const oid = (s: string) => new mongoose.Types.ObjectId(s);
 export const CLAIM_TTL_MS = 10 * 60 * 1000;
 
 /** Keys currently claimed by someone other than `userId`. */
-export async function keysClaimedByOthers(scope: { pharmacyId: string; branchId: string }, userId: string) {
+export async function keysClaimedByOthers(scope: { pharmacyId: string; branchId: string }, owner: string) {
   const rows = await TriageClaim.find({
     pharmacyId: oid(scope.pharmacyId),
     branchId: oid(scope.branchId),
-    userId: { $ne: oid(userId) },
+    owner: { $ne: owner },
     expiresAt: { $gt: new Date() },
   })
     .select("key")
@@ -21,6 +21,7 @@ export async function keysClaimedByOthers(scope: { pharmacyId: string; branchId:
 export async function claimKeys(
   scope: { pharmacyId: string; branchId: string },
   user: { id: string; name: string },
+  owner: string,
   keys: string[]
 ) {
   const now = new Date();
@@ -31,16 +32,16 @@ export async function claimKeys(
     const base = { pharmacyId: oid(scope.pharmacyId), branchId: oid(scope.branchId), key };
     try {
       await TriageClaim.findOneAndUpdate(
-        { ...base, $or: [{ userId: oid(user.id) }, { expiresAt: { $lte: now } }] },
-        { $set: { userId: oid(user.id), userName: user.name, expiresAt } },
+        { ...base, $or: [{ owner }, { expiresAt: { $lte: now } }] },
+        { $set: { userId: oid(user.id), userName: owner, owner, expiresAt } },
         { upsert: true }
       );
       mine.push(key);
     } catch (e) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if ((e as any)?.code !== 11000) throw e;
-      const c = await TriageClaim.findOne(base).select("userName").lean<{ userName?: string }>();
-      taken.push({ key, by: c?.userName || "another operator" });
+      const c = await TriageClaim.findOne(base).select("owner").lean<{ owner?: string }>();
+      taken.push({ key, by: c?.owner || "another operator" });
     }
   }
   return { mine, taken };

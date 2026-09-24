@@ -9,6 +9,8 @@ const TriageClaimSchema = new Schema(
     key: { type: String, required: true },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     userName: { type: String, default: "" },
+    // Everyone shares one admin login, so ownership is the operator name picked on screen.
+    owner: { type: String, required: true },
     expiresAt: { type: Date, required: true },
   },
   { timestamps: false }

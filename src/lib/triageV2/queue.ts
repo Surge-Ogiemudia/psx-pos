@@ -106,8 +106,8 @@ export async function getQueue(opts: {
     searchIds = new Set(hit.map((h) => String(h._id)));
   }
 
-  // Items another operator is working on right now are hidden from this operator.
-  const claimed = opts.userId ? await keysClaimedByOthers(scope, opts.userId) : new Set<string>();
+  // Price tab only: items another operator is working on right now are hidden from this operator.
+  const claimed = tab === "price" && opts.userId ? await keysClaimedByOthers(scope, opts.userId) : new Set<string>();
 
   // Open groups: light read (ids only) — used for the price tab exclusion and dup counts.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -164,14 +164,7 @@ export async function getQueue(opts: {
     status: "open",
     hasPrice: tab === "dup_priced",
     ...(searchIds ? { productIds: { $in: Array.from(searchIds).map(oid) } } : {}),
-    ...(cursorOid || claimed.size
-      ? {
-          _id: {
-            ...(cursorOid ? { $gt: cursorOid } : {}),
-            ...(claimed.size ? { $nin: Array.from(claimed).filter((k) => mongoose.isValidObjectId(k)).map(oid) } : {}),
-          },
-        }
-      : {}),
+    ...(cursorOid ? { _id: { $gt: cursorOid } } : {}),
   })
     .sort({ _id: 1 })
     .limit(limit + 1)
