@@ -15,10 +15,20 @@ export async function GET(req: Request) {
 
     await dbConnect();
     // Fetch all admins for this pharmacy to populate the dropdown
-    const admins = await User.find({ 
-      pharmacyId: session.user.pharmacyId, 
-      role: "admin" 
-    }).select("name phoneNumber").lean();
+    // Approvers: admins, plus store keepers attached to a branch (they may edit items too).
+    // A staff member's approver keeper must be on the same branch.
+    const keeperQuery: Record<string, unknown> = {
+      pharmacyId: session.user.pharmacyId,
+      role: "store_keeper",
+      branchId: session.user.branchId ? session.user.branchId : { $ne: null },
+    };
+    const admins = await User.find({
+      pharmacyId: session.user.pharmacyId,
+      $or: [{ role: "admin" }, keeperQuery],
+    })
+      .select("name phoneNumber role")
+      .sort({ role: 1, name: 1 })
+      .lean();
 
     return NextResponse.json({ admins });
   } catch (error) {
@@ -40,12 +50,18 @@ export async function POST(req: Request) {
     }
 
     await dbConnect();
-    
+
     // Check the specific admin selected
-    const admin = await User.findOne({ 
+    const admin = await User.findOne({
       _id: userId,
-      pharmacyId: session.user.pharmacyId, 
-      role: "admin" 
+      pharmacyId: session.user.pharmacyId,
+      $or: [
+        { role: "admin" },
+        {
+          role: "store_keeper",
+          branchId: session.user.branchId ? session.user.branchId : { $ne: null },
+        },
+      ],
     }).select("passwordHash phoneNumber name").lean();
 
 
@@ -82,11 +98,11 @@ export async function POST(req: Request) {
         if (loginRes.ok) {
           return ok();
         }
-        
+
         const errData = await loginRes.json().catch(() => ({}));
         // We tried Main PSX and it explicitly rejected the credentials.
-        return NextResponse.json({ 
-          error: `Verification failed for ${admin.phoneNumber}. Server says: ${errData.error || 'Invalid credentials'}` 
+        return NextResponse.json({
+          error: `Verification failed for ${admin.phoneNumber}. Server says: ${errData.error || 'Invalid credentials'}`
         }, { status: 401 });
       }
     } catch (e) {
