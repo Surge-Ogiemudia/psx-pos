@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
       tab,
       limit: Number(sp.get("limit")) || 50,
       cursor: sp.get("cursor"),
+      q: sp.get("q"),
     });
     return NextResponse.json(result);
   } catch (error) {
