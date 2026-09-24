@@ -24,8 +24,10 @@ interface StaffDirectoryProps {
   setForm: (f: any) => void;
   error: string | null;
   createStaff: () => void;
-  updateRole: (id: string, role: "admin" | "staff") => void;
+  updateRole: (id: string, role: "admin" | "staff" | "store_keeper") => void;
   updateBranch: (id: string, branchId: string) => void;
+  updateStore: (id: string, storeId: string) => void;
+  busyId: string | null;
   resetPassword: (id: string) => void;
   deleteStaff: (id: string) => void;
   credentials?: StaffCredentialStatusJSON[];
@@ -44,6 +46,8 @@ export default function StaffDirectory({
   createStaff,
   updateRole,
   updateBranch,
+  updateStore,
+  busyId,
   resetPassword,
   deleteStaff,
   credentials,
@@ -89,7 +93,7 @@ export default function StaffDirectory({
             <option value="staff">Staff (retail branch)</option>
             <option value="admin">Admin</option>
             <option value="store_manager">Store Manager (all bulk stores)</option>
-            <option value="store_keeper">Store Keeper (one bulk store)</option>
+            <option value="store_keeper">Store Keeper (one bulk store, optional branch)</option>
             <option value="pharmacist">Pharmacist</option>
           </select>
           <div className="relative flex items-center">
@@ -165,13 +169,13 @@ export default function StaffDirectory({
               ))}
             </select>
           )}
-          {form.role === "staff" && (
+          {(form.role === "staff" || form.role === "store_keeper") && (
             <select
               value={form.branchId || ""}
               onChange={(e) => setForm({ ...form, branchId: e.target.value })}
               className="rounded border border-zinc-300 px-2 py-1.5 text-sm"
             >
-              <option value="">Default to active branch...</option>
+              <option value="">{form.role === "store_keeper" ? "No branch (bulk store only)" : "Default to active branch..."}</option>
               {branches.map((branch) => (
                 <option key={branch._id} value={branch._id}>
                   {branch.branchName}
@@ -214,15 +218,20 @@ export default function StaffDirectory({
                     <td className="px-3 py-2 font-medium text-zinc-900">{member.name}</td>
                     <td className="px-3 py-2 text-zinc-600">{member.phoneNumber}</td>
                     <td className="px-3 py-2">
-                      {member.role === "admin" || member.role === "staff" ? (
-                        <select
-                          value={member.role}
-                          onChange={(e) => updateRole(member._id, e.target.value as "admin" | "staff")}
-                          className="rounded border border-zinc-300 px-2 py-1 text-sm"
-                        >
-                          <option value="staff">Staff</option>
-                          <option value="admin">Admin</option>
-                        </select>
+                      {member.role === "admin" || member.role === "staff" || member.role === "store_keeper" ? (
+                        <div className="flex flex-col gap-1">
+                          <select
+                            value={member.role}
+                            disabled={busyId === member._id}
+                            onChange={(e) => updateRole(member._id, e.target.value as "admin" | "staff" | "store_keeper")}
+                            className="rounded border border-zinc-300 px-2 py-1 text-sm disabled:opacity-50"
+                          >
+                            <option value="staff">Staff</option>
+                            <option value="store_keeper">Store Keeper</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                          {busyId === member._id && <span className="text-xs text-zinc-500">Updating…</span>}
+                        </div>
                       ) : (
                         <span className="text-zinc-700">{ROLE_LABEL[member.role]}</span>
                       )}
@@ -237,13 +246,31 @@ export default function StaffDirectory({
                       </div>
                     </td>
                     <td className="px-3 py-2 text-zinc-600">
-                      {branches.length > 0 && (member.role === "staff" || member.role === "pharmacist") ? (
+                      {member.role === "store_keeper" && (
+                        <select
+                          value={member.storeId || ""}
+                          disabled={busyId === member._id}
+                          onChange={(e) => updateStore(member._id, e.target.value)}
+                          className={`mb-1 block rounded border px-2 py-1 text-sm disabled:opacity-50 ${
+                            member.storeId ? "border-zinc-300" : "border-amber-400 bg-amber-50"
+                          }`}
+                        >
+                          <option value="">Select a bulk store…</option>
+                          {stores.map((st) => (
+                            <option key={st._id} value={st._id}>
+                              {st.storeName}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {branches.length > 0 && (member.role === "staff" || member.role === "pharmacist" || member.role === "store_keeper") ? (
                         <select
                           value={member.branchId || ""}
+                          disabled={busyId === member._id}
                           onChange={(e) => updateBranch(member._id, e.target.value)}
-                          className="rounded border border-zinc-300 px-2 py-1 text-sm"
+                          className="rounded border border-zinc-300 px-2 py-1 text-sm disabled:opacity-50"
                         >
-                          <option value="">Select branch...</option>
+                          <option value="">{member.role === "store_keeper" ? "No branch (bulk store only)" : "Select branch..."}</option>
                           {branches.map((b) => (
                             <option key={b._id} value={b._id}>
                               {b.branchName}

@@ -82,22 +82,41 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
     loadStaff();
   }
 
-  async function updateRole(id: string, role: "admin" | "staff") {
-    await fetch(`/api/staff/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role }),
-    });
-    loadStaff();
+  // Row-level change (role / branch / store): show a loading state on that row until the
+  // server has saved and the directory has been reloaded.
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function patchMember(id: string, body: Record<string, unknown>) {
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/staff/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Could not update this person");
+      }
+      await loadStaff();
+    } catch {
+      setError("Could not update this person — check your connection and try again");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updateRole(id: string, role: "admin" | "staff" | "store_keeper") {
+    await patchMember(id, { role });
   }
 
   async function updateBranch(id: string, branchId: string) {
-    await fetch(`/api/staff/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ branchId }),
-    });
-    loadStaff();
+    await patchMember(id, { branchId });
+  }
+
+  async function updateStore(id: string, storeId: string) {
+    await patchMember(id, { storeId });
   }
 
   async function resetPassword(id: string) {
@@ -186,6 +205,8 @@ export default function StaffClient({ branchId, userRole }: { branchId: string |
           createStaff={createStaff}
           updateRole={updateRole}
           updateBranch={updateBranch}
+          updateStore={updateStore}
+          busyId={busyId}
           resetPassword={resetPassword}
           deleteStaff={deleteStaff}
           credentials={userRole === "admin" ? credentials : undefined}

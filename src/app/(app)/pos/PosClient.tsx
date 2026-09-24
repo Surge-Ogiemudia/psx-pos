@@ -235,6 +235,10 @@ export default function PosClient({
   userRole?: string;
 }) {
   const isAdminSession = userRole === "admin";
+  // Store keepers attached to a branch may add/edit items directly (no admin password), but
+  // never see or change cost prices.
+  const isKeeperSession = userRole === "store_keeper";
+  const canManageItems = isAdminSession || isKeeperSession;
   const { isOnline, syncStatus, lastSyncedAt, pendingSales, syncPendingSales } = usePosOfflineSync(branchId);
 
   // Asked once per login (sessionStorage — cleared on sign-out, see clearPosSaleMode),
@@ -1012,7 +1016,7 @@ export default function PosClient({
     longPressTimerRef.current = setTimeout(() => {
       longPressTriggeredRef.current = true;
       if (navigator.vibrate) navigator.vibrate(30);
-      if (isAdminSession) {
+      if (canManageItems) {
         openQuickEdit(product);
       } else {
         setAdminPasswordPromptProduct(product);
@@ -1529,7 +1533,7 @@ export default function PosClient({
                 <span>{isOnline ? "Online" : "Offline Mode"}</span>
               </span>
               <span className="text-zinc-500">{syncStatus}</span>
-              {isAdminSession && (
+              {canManageItems && (
                 <button
                   onClick={openQuickAdd}
                   className="rounded-full bg-teal-700 px-3 py-0.5 font-semibold text-white hover:bg-teal-800 shadow-sm"
@@ -1717,7 +1721,7 @@ export default function PosClient({
                     }}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      if (isAdminSession) {
+                      if (canManageItems) {
                         openQuickEdit(product);
                       } else {
                         setAdminPasswordPromptProduct(product);
@@ -2712,6 +2716,7 @@ export default function PosClient({
                     className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-teal-400"
                   />
                 </label>
+                {!isKeeperSession && (
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Cost Price</span>
                   <input
@@ -2722,6 +2727,7 @@ export default function PosClient({
                     className="rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
                   />
                 </label>
+                )}
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Retail Price</span>
                   <input

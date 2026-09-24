@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     const passwordHash = await bcrypt.hash(password, 12);
     
     let targetBranchId = body.branchId || null;
-    if (!targetBranchId) {
+    if (!targetBranchId && role !== "store_keeper") {
       const defaultBranch = await Branch.findOne({ pharmacyId: session.user.pharmacyId }).lean();
       if (defaultBranch) targetBranchId = defaultBranch._id.toString();
     }

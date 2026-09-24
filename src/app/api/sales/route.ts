@@ -80,6 +80,9 @@ function normalizeSale(sale: Record<string, unknown> & Partial<SaleDoc>) {
 export async function GET(request: NextRequest) {
   try {
     const session = await requireApiSession();
+    if (session.user.role === "store_keeper") {
+      return NextResponse.json({ error: "Use the Receipts page" }, { status: 403 });
+    }
     await dbConnect();
 
     const from = request.nextUrl.searchParams.get("from");

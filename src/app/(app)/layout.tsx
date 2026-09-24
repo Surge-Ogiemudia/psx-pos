@@ -20,12 +20,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // manager get the switchers instead, whose own visible value serves the same purpose.
   let scopeLabel: string | null = null;
   const effectiveBranchId = session.user.branchId || activeBranchId;
-  if (session.user.role !== "admin" && effectiveBranchId) {
+  if (session.user.role === "store_keeper") {
+    // A keeper works in one bulk store and, optionally, one branch's catalog.
+    const store = session.user.storeId ? await Store.findById(session.user.storeId).lean() : null;
+    const branch = session.user.branchId ? await Branch.findById(session.user.branchId).lean() : null;
+    scopeLabel = [store?.storeName, branch?.branchName].filter(Boolean).join(" + ") || null;
+  } else if (session.user.role !== "admin" && effectiveBranchId) {
     const branch = await Branch.findById(effectiveBranchId).lean();
     scopeLabel = branch?.branchName ?? null;
-  } else if (session.user.role === "store_keeper" && session.user.storeId) {
-    const store = await Store.findById(session.user.storeId).lean();
-    scopeLabel = store?.storeName ?? null;
   }
 
   const brandColor = pharmacy?.brandColor || "#0f766e";
@@ -39,6 +41,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         logoUrl={logoUrl}
         userName={session.user.name ?? ""}
         userRole={session.user.role}
+        hasBranch={!!session.user.branchId}
         pharmacyId={session.user.pharmacyId}
         branches={branches}
         activeBranchId={activeBranchId}

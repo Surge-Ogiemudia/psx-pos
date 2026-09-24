@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
-import { requireAdminApiSession, getBranchScope } from "@/lib/session";
+import { requireItemManagerApiSession, getBranchScope } from "@/lib/session";
 import { findSimilarProducts } from "@/lib/productSimilarity";
 import { handleApiError } from "@/lib/apiError";
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await requireAdminApiSession();
+    const session = await requireItemManagerApiSession();
     await dbConnect();
 
     const params = request.nextUrl.searchParams;

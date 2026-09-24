@@ -51,6 +51,7 @@ export default function NavBar({
   userName,
   userRole,
   pharmacyId,
+  hasBranch,
   branches,
   activeBranchId,
   stores,
@@ -63,6 +64,7 @@ export default function NavBar({
   userName: string;
   userRole: UserRole;
   pharmacyId?: string;
+  hasBranch?: boolean;
   branches: BranchOption[];
   activeBranchId: string | null;
   stores: StoreOption[];
@@ -92,6 +94,13 @@ export default function NavBar({
 
   const links = [
     ...(userRole === "admin" || userRole === "staff" ? RETAIL_LINKS : []),
+    ...(userRole === "store_keeper" && hasBranch
+      ? [
+          { href: "/pos", label: "Point of Sale" },
+          { href: "/products", label: "Catalog" },
+          { href: "/receipts", label: "Receipts" },
+        ]
+      : []),
     ...(userRole === "admin" ? ADMIN_LINKS : []),
     ...(userRole === "admin" && pharmacyId === MONAK_PHARMACY_ID ? [MONAK_TRIAGE_LINK] : []),
     ...(userRole === "admin" || userRole === "store_manager" || userRole === "store_keeper" ? STORE_LINKS : []),
