@@ -5,6 +5,7 @@ import Product from "@/models/Product";
 import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { isDuplicateText } from "@/lib/duplicateDetection";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 // Panel 1->2: when an operator opens a draft into Panel 2, this finds OTHER still-
 // "extracted" drafts (same pharmacy/branch, excluding the one just opened) that look like
@@ -24,6 +25,7 @@ import { isDuplicateText } from "@/lib/duplicateDetection";
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const { id } = await params;

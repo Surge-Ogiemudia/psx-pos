@@ -8,6 +8,7 @@ import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
 import { formatProductLabel } from "@/lib/types";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 interface MergeDuplicatesPayload {
   branchId?: string;
@@ -24,6 +25,7 @@ interface MergeDuplicatesPayload {
 export async function POST(request: NextRequest) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const body = (await request.json()) as MergeDuplicatesPayload;

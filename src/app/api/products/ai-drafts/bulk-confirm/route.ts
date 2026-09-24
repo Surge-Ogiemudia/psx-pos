@@ -8,6 +8,7 @@ import { requireAdminApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
 import { parseExpiryDate } from "@/lib/parseExpiryDate";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 // Emergency pre-open safety valve: push every already AI-read snap straight into the
 // live catalog in one shot, price simply flagged missing rather than blocking (checkout
@@ -29,6 +30,7 @@ import { parseExpiryDate } from "@/lib/parseExpiryDate";
 export async function POST(request: NextRequest) {
   try {
     const session = await requireAdminApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const body = await request.json().catch(() => ({}));

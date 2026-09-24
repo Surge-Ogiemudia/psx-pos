@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongodb";
 import { AiDraftProduct } from "@/models/AiDraftProduct";
 import { requireApiSession } from "@/lib/session";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     if (!session?.user?.pharmacyId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);

@@ -215,6 +215,9 @@ export function useMonakTriageOfflineSync(branchId: string): OfflineSyncState {
             const res = await replayPendingAction(action);
             if (res.ok) {
               await triageDb.pendingActions.update(action.id!, { status: "synced", errorMessage: undefined });
+            } else if (res.status === 503) {
+              // Triage is locked / temporarily unavailable - keep the saved work and retry later, don't mark it failed.
+              throw new Error("triage temporarily unavailable");
             } else {
               const err = await res.json().catch(() => ({ error: `${action.actionType} sync failed` }));
               console.error("Triage action sync rejected by server:", action, err);

@@ -4,6 +4,7 @@ import Product from "@/models/Product";
 import { requireApiSession } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { isDuplicateText } from "@/lib/duplicateDetection";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 // Mobile Triage's duplicates step: given the live product an operator is currently on,
 // find OTHER live products (same branch) that look like the same physical item. Product
@@ -12,6 +13,7 @@ import { isDuplicateText } from "@/lib/duplicateDetection";
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const { id } = await params;

@@ -4,6 +4,7 @@ import Product from "@/models/Product";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { fuzzyRank } from "@/lib/fuzzyMatch";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -20,6 +21,7 @@ function escapeRegex(s: string): string {
 export async function GET(request: NextRequest) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const search = request.nextUrl.searchParams.get("search")?.trim() ?? "";

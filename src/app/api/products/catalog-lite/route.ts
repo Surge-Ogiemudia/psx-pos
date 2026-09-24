@@ -3,6 +3,7 @@ import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 // A trimmed, paginated, branch-scoped slice of the product catalog — built for Monak Triage
 // Mobile's offline sync (see useMonakTriageOfflineSync.ts), which needs just enough of the
@@ -13,6 +14,7 @@ import { handleApiError } from "@/lib/apiError";
 export async function GET(request: NextRequest) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const scope = getBranchScope(session, request.nextUrl.searchParams.get("branchId"));

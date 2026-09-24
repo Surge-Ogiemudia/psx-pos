@@ -3,6 +3,7 @@ import { dbConnect } from "@/lib/mongodb";
 import DuplicateReviewDecision from "@/models/DuplicateReviewDecision";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+import { isMonakTriageLocked, triageLockedResponse } from "@/lib/monakTriageLock";
 
 interface DismissPayload {
   branchId?: string;
@@ -16,6 +17,7 @@ interface DismissPayload {
 export async function POST(request: NextRequest) {
   try {
     const session = await requireApiSession();
+    if (isMonakTriageLocked(session.user.pharmacyId)) return triageLockedResponse();
     await dbConnect();
 
     const body = (await request.json()) as DismissPayload;
