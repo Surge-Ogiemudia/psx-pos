@@ -44,6 +44,10 @@ body {
   display: none;
 }
 
+.print-receipt-root {
+  display: none;
+}
+
 @media print {
   @page {
     /* Set continuous roll dimensions. Height 'auto' cuts immediately after content ends. */
@@ -56,10 +60,13 @@ body {
     height: auto !important;
     background: transparent !important;
   }
-  body * {
-    visibility: hidden;
-    position: static !important;
-    transform: none !important;
+  /* The receipt is portaled directly under <body>; remove everything else from the print
+     layout entirely (visibility:hidden kept its height and printed as many blank pages). */
+  body > *:not(.print-receipt-root) {
+    display: none !important;
+  }
+  .print-receipt-root {
+    display: block !important;
   }
   .print-receipt,
   .print-receipt * {
@@ -71,9 +78,6 @@ body {
     page-break-inside: avoid !important;
   }
   .print-receipt {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
     width: 100% !important;
     max-width: 55mm !important;
     margin: 0 !important;

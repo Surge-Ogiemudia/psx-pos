@@ -10,6 +10,7 @@ import { usePosOfflineSync } from "./usePosOfflineSync";
 import { db } from "@/lib/db";
 import { POS_SALE_MODE_KEY, type PosSaleMode } from "@/lib/posSaleMode";
 import { fuzzyRank } from "@/lib/fuzzyMatch";
+import { getReceiptPaper, setReceiptPaper, type ReceiptPaper } from "@/lib/receiptPaper";
 
 type CartLine =
   | {
@@ -315,6 +316,10 @@ export default function PosClient({
   const [ailment, setAilment] = useState("");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showPrintPrompt, setShowPrintPrompt] = useState(false);
+  const [receiptPaper, setReceiptPaperState] = useState<ReceiptPaper>("58");
+  useEffect(() => {
+    setReceiptPaperState(getReceiptPaper());
+  }, []);
   const [enablePrintListener, setEnablePrintListener] = useState(false);
   const [lastSale, setLastSale] = useState<ReceiptSale | null>(null);
   const [enlargedImage, setEnlargedImage] = useState<{ url: string; name: string } | null>(null);
@@ -2474,6 +2479,24 @@ export default function PosClient({
             <h2 className="text-lg font-bold text-zinc-900 mb-2">Sale Successful!</h2>
             <p className="text-sm text-zinc-500 mb-6">How would you like to handle the receipt?</p>
             
+            <div className="mb-4 flex items-center justify-center gap-2 text-xs text-zinc-600">
+              <span>Receipt paper:</span>
+              {(["58", "80"] as const).map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => {
+                    setReceiptPaper(w);
+                    setReceiptPaperState(w);
+                  }}
+                  className={`rounded-full border px-3 py-1 font-semibold ${
+                    receiptPaper === w ? "border-teal-700 bg-teal-700 text-white" : "border-zinc-300 bg-white text-zinc-700"
+                  }`}
+                >
+                  {w}mm
+                </button>
+              ))}
+            </div>
             <div className="flex flex-col gap-3">
               <button
                 onClick={handleLocalPrint}

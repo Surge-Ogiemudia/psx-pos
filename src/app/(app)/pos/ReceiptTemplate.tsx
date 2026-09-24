@@ -1,6 +1,8 @@
 "use client";
 
-import React, { forwardRef } from "react";
+import React, { forwardRef, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { getReceiptPaper, onReceiptPaperChange, type ReceiptPaper } from "@/lib/receiptPaper";
 
 export interface ReceiptSale {
   _id: string;
@@ -31,6 +33,12 @@ interface ReceiptTemplateProps {
 
 const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
   ({ sale, pharmacyName, branchName, branchAddress }, ref) => {
+    const [paper, setPaper] = useState<ReceiptPaper>("58");
+    useEffect(() => {
+      setPaper(getReceiptPaper());
+      return onReceiptPaperChange(() => setPaper(getReceiptPaper()));
+    }, []);
+
     const formattedDate = new Date(sale.timestamp).toLocaleString("en-GB", {
       day: "2-digit",
       month: "2-digit",
@@ -39,7 +47,15 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
       minute: "2-digit",
     });
 
-    return (
+    // Rendered straight under <body>, outside the POS layout, so printing can hide every other
+    // body child with display:none. (Merely hiding the page with visibility left its full height
+    // in the print job and produced many blank pages.)
+    if (typeof document === "undefined") return null;
+    return createPortal(
+      <div className="print-receipt-root">
+      {paper === "80" && (
+        <style>{`@media print { @page { size: 80mm auto; margin: 0 !important; } .print-receipt { max-width: 72mm !important; } }`}</style>
+      )}
       <div
         ref={ref}
         className="print-receipt"
@@ -147,6 +163,8 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
           <p style={{ margin: "3px 0 0" }}>Please call again.</p>
         </div>
       </div>
+      </div>,
+      document.body
     );
   }
 );
