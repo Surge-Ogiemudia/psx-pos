@@ -5,6 +5,7 @@ import TriageDuplicateGroup from "@/models/TriageDuplicateGroup";
 import TriagePriceHint from "@/models/TriagePriceHint";
 import { getSnapProductIds } from "./groups";
 import { unitsSoldByProduct } from "./stats";
+import { keysClaimedByOthers } from "./claims";
 
 export type QueueTab = "dup_priced" | "dup_unpriced" | "price";
 
@@ -84,6 +85,7 @@ export async function getQueue(opts: {
   limit?: number;
   cursor?: string | null;
   q?: string | null;
+  userId?: string | null;
 }) {
   const { pharmacyId, branchId, tab } = opts;
   const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
@@ -103,6 +105,9 @@ export async function getQueue(opts: {
     const hit = await Product.find({ ...scopeQ, $and: and } as never).select("_id").lean<any[]>();
     searchIds = new Set(hit.map((h) => String(h._id)));
   }
+
+  // Items another operator is working on right now are hidden from this operator.
+  const claimed = opts.userId ? await keysClaimedByOthers(scope, opts.userId) : new Set<string>();
 
   // Open groups: light read (ids only) — used for the price tab exclusion and dup counts.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -142,7 +147,9 @@ export async function getQueue(opts: {
   const tabCounts = { dup_priced: dupPriced, dup_unpriced: dupUnpriced, price: priceList.length };
 
   if (tab === "price") {
-    let rows = searchIds ? priceList.filter((p) => searchIds!.has(String(p._id))) : priceList;
+    let rows = (searchIds ? priceList.filter((p) => searchIds!.has(String(p._id))) : priceList).filter(
+      (p) => !claimed.has(String(p._id))
+    );
     if (cursorOid) rows = rows.filter((p) => String(p._id) > String(cursorOid));
     const page = rows.slice(0, limit);
     const nextCursor = rows.length > limit ? String(page[page.length - 1]._id) : null;
@@ -157,7 +164,14 @@ export async function getQueue(opts: {
     status: "open",
     hasPrice: tab === "dup_priced",
     ...(searchIds ? { productIds: { $in: Array.from(searchIds).map(oid) } } : {}),
-    ...(cursorOid ? { _id: { $gt: cursorOid } } : {}),
+    ...(cursorOid || claimed.size
+      ? {
+          _id: {
+            ...(cursorOid ? { $gt: cursorOid } : {}),
+            ...(claimed.size ? { $nin: Array.from(claimed).filter((k) => mongoose.isValidObjectId(k)).map(oid) } : {}),
+          },
+        }
+      : {}),
   })
     .sort({ _id: 1 })
     .limit(limit + 1)

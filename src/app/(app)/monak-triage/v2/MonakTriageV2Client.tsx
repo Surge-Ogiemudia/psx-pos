@@ -1092,6 +1092,38 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, safeIdx, cur.items.length, cur.nextCursor]);
 
+  // Operator views: claim the card on screen so no other operator is handed the same item.
+  const curKey = focus
+    ? tab === "price"
+      ? (cur.items[safeIdx] as PriceItem | undefined)?._id
+      : (cur.items[safeIdx] as GroupItem | undefined)?.groupId
+    : undefined;
+  const [takenNote, setTakenNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!curKey) return;
+    let dead = false;
+    const claim = async () => {
+      try {
+        const r = await post<{ mine: string[]; taken: { key: string; by: string }[] }>("/api/triage-v2/claim", {
+          branchId,
+          keys: [curKey],
+        });
+        if (dead || !r.taken.length) return;
+        setTakenNote(`${r.taken[0].by} is already working on that one — skipped it.`);
+        removeItem(tab, (i) => ((i as GroupItem).groupId ?? (i as PriceItem)._id) === curKey);
+      } catch {
+        /* claiming is best-effort */
+      }
+    };
+    void claim();
+    const t = setInterval(claim, 4 * 60 * 1000);
+    return () => {
+      dead = true;
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curKey]);
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-4 p-4 sm:p-6">
       <h1 className="text-2xl font-bold text-zinc-900">Monak Triage</h1>
@@ -1116,6 +1148,10 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
           {focus ? "Show full list" : "One at a time"}
         </button>
       </div>
+
+      {takenNote && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{takenNote}</div>
+      )}
 
       {!cur.loaded && <div className="py-16 text-center text-sm text-zinc-500">Loading…</div>}
 
