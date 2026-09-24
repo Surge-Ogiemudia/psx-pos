@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
       limit: Number(sp.get("limit")) || 50,
       cursor: sp.get("cursor"),
       q: sp.get("q"),
-      userId: session.user.id,
+      userId: String(sp.get("op") ?? "").trim().slice(0, 40) || session.user.id,
     });
     return NextResponse.json(result);
   } catch (error) {

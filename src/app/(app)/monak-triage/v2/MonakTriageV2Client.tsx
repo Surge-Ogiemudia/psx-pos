@@ -75,6 +75,7 @@ const TABS: { key: TabKey; label: string }[] = [
 ];
 
 const STORAGE_KEY = "monakTriageV2Tab";
+const OPERATOR_KEY = "monakTriageV2Operator";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -147,8 +148,35 @@ const inputCls =
 // Small shared components
 // ---------------------------------------------------------------------------
 
-function PhotoPair({ member, onZoom }: { member: Member; onZoom: (src: string) => void }) {
+interface ZoomState {
+  front: string | null;
+  back: string | null;
+  start: "front" | "back";
+}
+
+// single = one thumbnail (front, "+back" badge); tap opens the viewer where front/back can be switched.
+function PhotoPair({ member, onZoom, single = false }: { member: Member; onZoom: (z: ZoomState) => void; single?: boolean }) {
   const { frontImageUrl, backImageUrl } = member.photos;
+  if (single) {
+    const start = frontImageUrl ? "front" : "back";
+    return (
+      <div className="relative w-fit">
+        <ResilientThumb
+          src={frontImageUrl ?? backImageUrl}
+          alt="Photo"
+          label={start === "front" ? "Front" : "Back"}
+          size={256}
+          className="h-24 w-24"
+          onClick={() => (frontImageUrl || backImageUrl) && onZoom({ front: frontImageUrl, back: backImageUrl, start })}
+        />
+        {frontImageUrl && backImageUrl && (
+          <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+            +back
+          </span>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="flex gap-2">
       <ResilientThumb
@@ -157,7 +185,7 @@ function PhotoPair({ member, onZoom }: { member: Member; onZoom: (src: string) =
         label="Front"
         size={256}
         className="h-24 w-24"
-        onClick={() => frontImageUrl && onZoom(frontImageUrl)}
+        onClick={() => frontImageUrl && onZoom({ front: frontImageUrl, back: backImageUrl, start: "front" })}
       />
       <ResilientThumb
         src={backImageUrl}
@@ -165,13 +193,15 @@ function PhotoPair({ member, onZoom }: { member: Member; onZoom: (src: string) =
         label="Back"
         size={256}
         className="h-24 w-24"
-        onClick={() => backImageUrl && onZoom(backImageUrl)}
+        onClick={() => backImageUrl && onZoom({ front: frontImageUrl, back: backImageUrl, start: "back" })}
       />
     </div>
   );
 }
 
-function ZoomOverlay({ src, onClose }: { src: string; onClose: () => void }) {
+function ZoomOverlay({ zoom, onClose }: { zoom: ZoomState; onClose: () => void }) {
+  const [side, setSide] = useState<"front" | "back">(zoom.start);
+  const src = (side === "front" ? zoom.front : zoom.back) ?? zoom.front ?? zoom.back;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -187,7 +217,20 @@ function ZoomOverlay({ src, onClose }: { src: string; onClose: () => void }) {
       aria-label="Photo zoom"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt="Full size" className="max-h-full max-w-full rounded-lg object-contain shadow-2xl" />
+      <img src={src ?? ""} alt="Full size" className="max-h-full max-w-full rounded-lg object-contain shadow-2xl" />
+      {zoom.front && zoom.back && (
+        <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-2" onClick={(e) => e.stopPropagation()}>
+          {(["front", "back"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setSide(k)}
+              className={`rounded-full px-5 py-2 text-sm font-bold ${side === k ? "bg-white text-zinc-900" : "bg-white/30 text-white"}`}
+            >
+              {k === "front" ? "Front" : "Back"}
+            </button>
+          ))}
+        </div>
+      )}
       <button
         onClick={onClose}
         className="absolute right-4 top-4 rounded-full bg-white/90 px-3 py-1 text-sm font-semibold text-zinc-800 hover:bg-white"
@@ -289,7 +332,7 @@ function GroupCard({
   onSkip?: () => void;
   group: GroupItem;
   branchId: string;
-  onZoom: (src: string) => void;
+  onZoom: (z: ZoomState) => void;
   onMerged: (res: MergeResponse, group: GroupItem, keptId: string, fields: MergeFields) => void;
   onRemoved: (group: GroupItem) => void;
 }) {
@@ -462,7 +505,7 @@ function GroupCard({
                 </label>
                 {isKept && <Chip cls="bg-emerald-100 text-emerald-700 border-emerald-200">Kept</Chip>}
               </div>
-              <PhotoPair member={m} onZoom={onZoom} />
+              <PhotoPair member={m} onZoom={onZoom} single />
               <div className="mt-2 space-y-0.5">
                 <div className="text-sm font-bold text-zinc-900">{m.itemName}</div>
                 <div className="text-zinc-600">
@@ -779,7 +822,7 @@ function PriceRow({
 }: {
   item: PriceItem;
   branchId: string;
-  onZoom: (src: string) => void;
+  onZoom: (z: ZoomState) => void;
   onSaved: (item: PriceItem) => void;
 }) {
   const [retail, setRetail] = useState(Number(item.retailPrice) > 0 ? String(item.retailPrice) : "");
@@ -929,13 +972,16 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
     dup_unpriced: EMPTY_TAB,
     price: EMPTY_TAB,
   });
-  const [zoom, setZoom] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<ZoomState | null>(null);
   const closeZoom = useCallback(() => setZoom(null), []);
   const inflight = useRef<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
   const [focus, setFocus] = useState(true);
   const [idx, setIdx] = useState(0);
   const qRef = useRef("");
+  // Everyone shares one admin login, so each person picks a name; that name owns their claims.
+  const opRef = useRef("");
+  const [operator, setOperator] = useState<string | undefined>(undefined);
   const firstQ = useRef(true);
 
   const patchTab = useCallback((key: TabKey, patch: Partial<TabState>) => {
@@ -946,7 +992,9 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
     (key: TabKey, limit: number, cursor?: string | null) =>
       `/api/triage-v2/queue?tab=${key}&branchId=${encodeURIComponent(branchId)}&limit=${limit}${
         cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
-      }${qRef.current ? `&q=${encodeURIComponent(qRef.current)}` : ""}`,
+      }${qRef.current ? `&q=${encodeURIComponent(qRef.current)}` : ""}${
+        opRef.current ? `&op=${encodeURIComponent(opRef.current)}` : ""
+      }`,
     [branchId]
   );
 
@@ -997,8 +1045,32 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
       /* ignore */
     }
     setTab(initial);
-    void loadTab(initial);
+    let op = "";
+    try {
+      op = localStorage.getItem(OPERATOR_KEY) ?? "";
+    } catch {
+      /* ignore */
+    }
+    opRef.current = op;
+    setOperator(op);
+    if (op || initial !== "price") void loadTab(initial);
   }, [loadTab]);
+
+  function pickOperator(name: string) {
+    const n = name.trim().slice(0, 40);
+    if (!n) return;
+    try {
+      localStorage.setItem(OPERATOR_KEY, n);
+    } catch {
+      /* ignore */
+    }
+    opRef.current = n;
+    setOperator(n);
+    inflight.current = {};
+    setTabs({ dup_priced: EMPTY_TAB, dup_unpriced: EMPTY_TAB, price: EMPTY_TAB });
+    setIdx(0);
+    void loadTab(tab);
+  }
 
   // Search: debounce typing, then reload every tab with the new filter.
   useEffect(() => {
@@ -1093,12 +1165,11 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
   }, [focus, safeIdx, cur.items.length, cur.nextCursor]);
 
   // Operator views: claim the card on screen so no other operator is handed the same item.
-  const curKey = focus
-    ? tab === "price"
-      ? (cur.items[safeIdx] as PriceItem | undefined)?._id
-      : (cur.items[safeIdx] as GroupItem | undefined)?.groupId
-    : undefined;
+  // Only the price tab is split between operators; duplicates are handled by one person.
+  const curKey =
+    focus && tab === "price" && operator ? (cur.items[safeIdx] as PriceItem | undefined)?._id : undefined;
   const [takenNote, setTakenNote] = useState<string | null>(null);
+  const [newOp, setNewOp] = useState("");
   useEffect(() => {
     if (!curKey) return;
     let dead = false;
@@ -1106,6 +1177,7 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
       try {
         const r = await post<{ mine: string[]; taken: { key: string; by: string }[] }>("/api/triage-v2/claim", {
           branchId,
+          operator: opRef.current,
           keys: [curKey],
         });
         if (dead || !r.taken.length) return;
@@ -1124,9 +1196,62 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curKey]);
 
+  const needPicker = tab === "price" && operator === "";
+  const picker = (
+    <div className="mx-auto max-w-md space-y-4 p-6">
+      <h1 className="text-2xl font-bold text-zinc-900">Who is working?</h1>
+      <p className="text-sm text-zinc-600">
+        Pick your view for Price & fixes. Items someone else is working on stay out of your queue, so you never do the same one twice.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {["Operator 1", "Operator 2", "Operator 3", "Operator 4", "Operator 5", "Operator 6"].map((o) => (
+          <button
+            key={o}
+            onClick={() => pickOperator(o)}
+            className="rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm font-bold text-zinc-800 hover:bg-zinc-50"
+          >
+            {o}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={newOp}
+          onChange={(e) => setNewOp(e.target.value)}
+          placeholder="Or type your name"
+          className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+        />
+        <button
+          onClick={() => pickOperator(newOp)}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white"
+        >
+          Start
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-4 p-4 sm:p-6">
-      <h1 className="text-2xl font-bold text-zinc-900">Monak Triage</h1>
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-2xl font-bold text-zinc-900">Monak Triage</h1>
+        {tab === "price" && operator && (
+        <button
+          onClick={() => {
+            try {
+              localStorage.removeItem(OPERATOR_KEY);
+            } catch {
+              /* ignore */
+            }
+            opRef.current = "";
+            setOperator("");
+          }}
+          className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-700"
+        >
+          Working as {operator} · Change
+        </button>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="search"
@@ -1149,13 +1274,15 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
         </button>
       </div>
 
-      {takenNote && (
+      {needPicker && picker}
+
+      {takenNote && tab === "price" && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{takenNote}</div>
       )}
 
-      {!cur.loaded && <div className="py-16 text-center text-sm text-zinc-500">Loading…</div>}
+      {!needPicker && !cur.loaded && <div className="py-16 text-center text-sm text-zinc-500">Loading…</div>}
 
-      {cur.loaded && cur.error && (
+      {!needPicker && cur.loaded && cur.error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
           {cur.error}
           <button
@@ -1170,13 +1297,13 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
         </div>
       )}
 
-      {cur.loaded && !cur.error && cur.items.length === 0 && (
+      {!needPicker && cur.loaded && !cur.error && cur.items.length === 0 && (
         <div className="rounded-xl border border-zinc-200 bg-white py-16 text-center text-sm font-semibold text-zinc-500">
           Nothing left here — all done
         </div>
       )}
 
-      {focus && cur.loaded && cur.items.length > 0 && (
+      {!needPicker && focus && cur.loaded && cur.items.length > 0 && (
         <div className="mx-auto max-w-3xl space-y-3">
           <div className="flex items-center justify-between text-sm text-zinc-600">
             <button
@@ -1221,7 +1348,7 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
         </div>
       )}
 
-      {!focus && cur.loaded && cur.items.length > 0 && (
+      {!needPicker && !focus && cur.loaded && cur.items.length > 0 && (
         <div className="space-y-4">
           {tab === "price"
             ? (cur.items as PriceItem[]).map((it) => (
@@ -1257,7 +1384,7 @@ export default function MonakTriageV2Client({ branchId }: { branchId: string }) 
         </div>
       )}
 
-      {zoom && <ZoomOverlay src={zoom} onClose={closeZoom} />}
+      {zoom && <ZoomOverlay zoom={zoom} onClose={closeZoom} />}
     </div>
   );
 }
