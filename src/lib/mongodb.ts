@@ -22,9 +22,23 @@ export async function dbConnect(): Promise<typeof mongoose> {
   }
 
   if (!cache.promise) {
-    cache.promise = mongoose.connect(MONGODB_URI, { bufferCommands: false, maxPoolSize: 5 });
+    // maxIdleTimeMS closes unused connections so many short-lived serverless instances don't
+    // pile up against Atlas's 500-connection cap on the free tier.
+    cache.promise = mongoose.connect(MONGODB_URI, {
+      bufferCommands: false,
+      maxPoolSize: 5,
+      maxIdleTimeMS: 20000,
+      serverSelectionTimeoutMS: 10000,
+    });
   }
 
-  cache.conn = await cache.promise;
+  try {
+    cache.conn = await cache.promise;
+  } catch (err) {
+    // Don't cache a failed connect: otherwise this instance keeps re-throwing the same error
+    // long after the database has recovered.
+    cache.promise = null;
+    throw err;
+  }
   return cache.conn;
 }
