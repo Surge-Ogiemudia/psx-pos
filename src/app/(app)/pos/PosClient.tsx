@@ -330,6 +330,8 @@ export default function PosClient({
   // admin session server-side — this client-side isAdminSession check is just so
   // non-admin staff never see the option, not the actual enforcement).
   const [quickEditProduct, setQuickEditProduct] = useState<ProductJSON | null>(null);
+  // Staff only: proof an admin approved this product's edit (from /api/auth/verify-admin).
+  const [approvalToken, setApprovalToken] = useState<string | null>(null);
   const [quickEditForm, setQuickEditForm] = useState({
     itemName: "",
     brand: "",
@@ -888,6 +890,7 @@ export default function PosClient({
   }
 
   function closeQuickEdit() {
+    setApprovalToken(null);
     setQuickEditProduct(null);
     setQuickAddOpen(false);
     setQuickAddMatches(null);
@@ -968,7 +971,10 @@ export default function PosClient({
     try {
       const res = await fetch(`/api/products/${quickEditProduct._id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(!isAdminSession && approvalToken ? { "x-admin-approval": approvalToken } : {}),
+        },
         body: JSON.stringify({
           branchId,
           itemName: quickEditForm.itemName,
@@ -2854,10 +2860,12 @@ export default function PosClient({
                         const res = await fetch("/api/auth/verify-admin", {
                            method: "POST",
                            headers: { "Content-Type": "application/json" },
-                           body: JSON.stringify({ password: adminPasswordInput, userId: selectedAdminId })
+                           body: JSON.stringify({ password: adminPasswordInput, userId: selectedAdminId, productId: adminPasswordPromptProduct._id })
                         });
                         if (res.ok) {
+                           const okData = await res.json().catch(() => ({}));
                            const p = adminPasswordPromptProduct;
+                           setApprovalToken(okData.approvalToken ?? null);
                            setAdminPasswordPromptProduct(null);
                            openQuickEdit(p);
                         } else {
@@ -2895,10 +2903,12 @@ export default function PosClient({
                     const res = await fetch("/api/auth/verify-admin", {
                        method: "POST",
                        headers: { "Content-Type": "application/json" },
-                       body: JSON.stringify({ password: adminPasswordInput, userId: selectedAdminId })
+                       body: JSON.stringify({ password: adminPasswordInput, userId: selectedAdminId, productId: adminPasswordPromptProduct._id })
                     });
                     if (res.ok) {
+                       const okData = await res.json().catch(() => ({}));
                        const p = adminPasswordPromptProduct;
+                       setApprovalToken(okData.approvalToken ?? null);
                        setAdminPasswordPromptProduct(null);
                        openQuickEdit(p);
                     } else {

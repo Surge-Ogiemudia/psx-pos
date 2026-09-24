@@ -4,6 +4,7 @@ import { dbConnect } from "@/lib/mongodb";
 import User from "@/models/User";
 import bcrypt from "bcryptjs";
 import { getMainPsxUrl } from "@/lib/mainPsx";
+import { signEditApproval } from "@/lib/adminApproval";
 
 export async function GET(req: Request) {
   try {
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { password, userId } = await req.json();
+    const { password, userId, productId } = await req.json();
     if (!password || !userId) {
       return NextResponse.json({ error: "Password and User ID required" }, { status: 400 });
     }
@@ -45,11 +46,29 @@ export async function POST(req: Request) {
       _id: userId,
       pharmacyId: session.user.pharmacyId, 
       role: "admin" 
-    }).select("passwordHash phoneNumber").lean();
+    }).select("passwordHash phoneNumber name").lean();
+
 
     if (!admin) {
       return NextResponse.json({ error: "Invalid admin account" }, { status: 401 });
     }
+
+    // On success, also hand back a short-lived token that lets a staff session save ONE edit to
+    // this product (checked by PATCH /api/products/[id]).
+    const ok = () =>
+      NextResponse.json({
+        success: true,
+        ...(productId
+          ? {
+              approvalToken: signEditApproval({
+                adminId: String(admin._id),
+                adminName: (admin as { name?: string }).name || "Admin",
+                pharmacyId: String(session.user.pharmacyId),
+                productId: String(productId),
+              }),
+            }
+          : {}),
+      });
 
     // Attempt to verify against Main PSX (source of truth for admin/pharmacy accounts)
     try {
@@ -61,7 +80,7 @@ export async function POST(req: Request) {
           body: JSON.stringify({ phoneNumber: admin.phoneNumber, password })
         });
         if (loginRes.ok) {
-          return NextResponse.json({ success: true });
+          return ok();
         }
         
         const errData = await loginRes.json().catch(() => ({}));
@@ -80,7 +99,7 @@ export async function POST(req: Request) {
 
     const isMatch = await bcrypt.compare(password, admin.passwordHash);
     if (isMatch) {
-      return NextResponse.json({ success: true });
+      return ok();
     }
 
     return NextResponse.json({ error: "Incorrect admin password" }, { status: 401 });

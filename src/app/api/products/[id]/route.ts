@@ -3,7 +3,9 @@ import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import DeletionLog from "@/models/DeletionLog";
 import ProductBatch from "@/models/ProductBatch";
-import { requireAdminApiSession, getBranchScope } from "@/lib/session";
+import { requireAdminApiSession, requireApiSession, getBranchScope, ApiAuthError } from "@/lib/session";
+import { verifyEditApproval } from "@/lib/adminApproval";
+import ActivityLog from "@/models/ActivityLog";
 import { parseNumeric } from "@/lib/numberInput";
 import { formatProductLabel } from "@/lib/types";
 import { productsToCsv } from "@/lib/csv";
@@ -35,9 +37,22 @@ export async function PATCH(
   ctx: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAdminApiSession();
-    await dbConnect();
+    // Admins edit directly. A staff member can edit only with a fresh admin-approval token
+    // (issued by /api/auth/verify-admin after an admin typed their password for this product).
+    const session = await requireApiSession();
     const { id } = await ctx.params;
+    let approvedBy: { adminId: string; adminName: string } | null = null;
+    if (session.user.role !== "admin") {
+      const claims = verifyEditApproval(request.headers.get("x-admin-approval"), {
+        pharmacyId: String(session.user.pharmacyId),
+        productId: String(id),
+      });
+      if (!claims || !["staff"].includes(session.user.role)) {
+        throw new ApiAuthError(403, "Admin approval required");
+      }
+      approvedBy = { adminId: claims.adminId, adminName: claims.adminName };
+    }
+    await dbConnect();
 
     const body = await request.json();
     const allowedFields = [
@@ -105,6 +120,23 @@ export async function PATCH(
 
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
+    }
+
+    if (approvedBy) {
+      ActivityLog.create({
+        pharmacyId: session.user.pharmacyId,
+        scope: "branch",
+        branchId: scope.branchId,
+        storeId: null,
+        actorUserId: session.user.id,
+        actorName: session.user.name ?? "Staff",
+        action: "stock_adjustment",
+        summary: `${session.user.name ?? "Staff"} edited ${product.itemName}, approved by admin ${approvedBy.adminName}`,
+        metadata: { approvedByAdminId: approvedBy.adminId, approvedByAdminName: approvedBy.adminName, fields: Object.keys(update) },
+        refCollection: "products",
+        refId: product._id,
+        timestamp: new Date(),
+      }).catch(() => {});
     }
 
     // Fire-and-forget PSX sync for updated medicine
