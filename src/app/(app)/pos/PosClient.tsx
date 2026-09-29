@@ -1223,6 +1223,13 @@ export default function PosClient({
     amountTendered >= total - EPS &&
     changeFeeValue <= changeDue + EPS;
 
+  // Clear a stale "Amount tendered is less than the sale total" (or similar) error the moment
+  // the cart/payment is fixed, so the red text doesn't sit there looking wrong after a cashier
+  // has already corrected the amount — it used to only clear on the next submit attempt.
+  useEffect(() => {
+    if (canCompleteSale) setMessage((m) => (m?.type === "error" ? null : m));
+  }, [canCompleteSale]);
+
   function openConfirmModal() {
     if (!canCompleteSale) return;
     setShowConfirmModal(true);
