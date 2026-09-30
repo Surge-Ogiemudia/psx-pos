@@ -40,7 +40,7 @@ export default function ReceiptPrintOptions() {
             setLongModeState(e.target.checked);
           }}
         />
-        Long receipt (wholesale) — for this computer only, use if long receipts print cut into pieces
+        Long receipt (for very large carts) — for this computer only, use if long receipts print cut into pieces
       </label>
     </>
   );
