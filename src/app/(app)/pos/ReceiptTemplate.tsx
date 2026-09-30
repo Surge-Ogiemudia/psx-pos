@@ -80,6 +80,9 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
           <p style={{ margin: "5px 0 0", fontSize: "12px", color: "#000" }}>Date: {formattedDate}</p>
           <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#000" }}>Receipt: #{sale.receiptNumber}</p>
           <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#000" }}>Staff: {sale.userName || "Admin"}</p>
+          {sale.customerName && (
+            <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#000" }}>Customer: {sale.customerName}</p>
+          )}
         </div>
 
         <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "8px 0" }} />
