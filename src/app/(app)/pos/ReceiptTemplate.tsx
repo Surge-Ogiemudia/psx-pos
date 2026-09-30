@@ -1,6 +1,6 @@
 "use client";
 
-import React, { forwardRef, useEffect, useState } from "react";
+import React, { forwardRef, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   getReceiptPaper,
@@ -50,6 +50,28 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
       return onReceiptLongModeChange(() => setLongMode(getReceiptLongMode()));
     }, []);
 
+    // Long mode: measure the ACTUAL rendered receipt and size @page to fit it exactly, instead
+    // of guessing a fixed height. A guessed height that's too short reproduces the original
+    // bug (still splits into extra sheets on a big enough wholesale cart); one that's too tall
+    // wastes paper on every print, including short ones, since a fixed page height makes the
+    // printer feed that whole length regardless of how much of it is actual content. Sizing to
+    // the true content avoids both. Needs the receipt actually laid out (real width, real
+    // wrapped line breaks) to measure correctly — see the root <div>'s style below.
+    const innerRef = useRef<HTMLDivElement | null>(null);
+    const [dynamicPageCss, setDynamicPageCss] = useState<string | null>(null);
+    useLayoutEffect(() => {
+      if (!longMode) {
+        setDynamicPageCss(null);
+        return;
+      }
+      const el = innerRef.current;
+      if (!el) return;
+      const PX_TO_MM = 25.4 / 96;
+      const heightMm = Math.ceil(el.scrollHeight * PX_TO_MM) + 15; // small buffer for print-engine rounding
+      setDynamicPageCss(`@page { size: ${paper}mm ${heightMm}mm; margin: 0 !important; }`);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [longMode, paper, sale]);
+
     const formattedDate = new Date(sale.timestamp).toLocaleString("en-GB", {
       day: "2-digit",
       month: "2-digit",
@@ -63,24 +85,33 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
     // in the print job and produced many blank pages.)
     if (typeof document === "undefined") return null;
     return createPortal(
-      <div className="print-receipt-root">
-      {paper === "80" && (
-        <style>{`@media print { @page { size: 80mm auto; margin: 0 !important; } .print-receipt-root, .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; } .print-receipt-root .print-receipt { padding: 0 2mm !important; } }`}</style>
-      )}
-      {longMode && (
-        // Some browsers' print pipeline silently splits a very long "auto" height page into
-        // several print jobs (a long wholesale cart's header/body/footer each land on their
-        // own piece of paper). A large fixed height avoids that on the printers we've seen it
-        // on. Opt-in per device (see receiptPaper.ts) — off everywhere else.
-        <style>{`@media print { @page { size: ${paper}mm 3000mm; margin: 0 !important; } }`}</style>
-      )}
       <div
-        ref={ref}
+        className="print-receipt-root"
+        // In long mode the receipt needs to be genuinely laid out (not display:none) so its
+        // real height can be measured above — kept off-screen here instead, only for devices
+        // that opted into long mode; every other device keeps the plain display:none default
+        // from globals.css untouched.
+        style={longMode ? { position: "fixed", top: 0, left: "-100000px", display: "block" } : undefined}
+      >
+      {paper === "80" && (
+        // The width here is also set inline below (for on/off-screen measurement in long
+        // mode), but globals.css's print rule sets max-width:55mm with !important, which
+        // beats a plain inline style — this !important is what actually wins at print time.
+        <style>{`@media print { @page { size: 80mm auto; margin: 0 !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 2mm !important; } }`}</style>
+      )}
+      {dynamicPageCss && <style>{`@media print { ${dynamicPageCss} }`}</style>}
+      <div
+        ref={(node) => {
+          innerRef.current = node;
+          if (typeof ref === "function") ref(node);
+          else if (ref) ref.current = node;
+        }}
         className="print-receipt"
         style={{
-          width: "100%", 
-          maxWidth: "55mm", // Standard 58mm thermal paper width limit
-          padding: "0",
+          width: "100%",
+          maxWidth: paper === "80" ? "none" : "55mm", // Standard 58mm thermal paper width limit
+          boxSizing: "border-box",
+          padding: paper === "80" ? "0 2mm" : "0",
           margin: "0 auto",
           marginTop: "-5mm", // Slight negative margin to combat stubborn printer drivers
           fontFamily: "Arial, Helvetica, sans-serif",
