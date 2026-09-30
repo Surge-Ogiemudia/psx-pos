@@ -91,7 +91,15 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         // real height can be measured above — kept off-screen here instead, only for devices
         // that opted into long mode; every other device keeps the plain display:none default
         // from globals.css untouched.
-        style={longMode ? { position: "fixed", top: 0, left: "-100000px", display: "block" } : undefined}
+        style={
+          longMode
+            ? // width is the fix that matters here: without it this fixed-position box
+              // shrinks-to-fit to something much wider than the real receipt, so text barely
+              // wraps during measurement — the real (narrow) print then wraps onto far more
+              // lines and comes out taller than what got measured, splitting again.
+              { position: "fixed", top: 0, left: "-100000px", display: "block", width: `${paper}mm` }
+            : undefined
+        }
       >
       {paper === "80" && (
         // The width here is also set inline below (for on/off-screen measurement in long
