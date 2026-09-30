@@ -67,6 +67,13 @@ body {
   }
   .print-receipt-root {
     display: block !important;
+    /* Long mode positions this off-screen (position:fixed; left:-100000px) via inline style
+       so its real height can be measured before printing — reset that back to normal here,
+       an !important stylesheet rule being the one thing that can beat that inline style,
+       or the receipt prints off the edge of the page as blank paper. */
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
   }
   .print-receipt,
   .print-receipt * {
