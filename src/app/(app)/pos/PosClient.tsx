@@ -239,7 +239,7 @@ export default function PosClient({
   // never see or change cost prices.
   const isKeeperSession = userRole === "store_keeper";
   const canManageItems = isAdminSession || isKeeperSession;
-  const { isOnline, syncStatus, lastSyncedAt, pendingSales, syncPendingSales } = usePosOfflineSync(branchId);
+  const { isOnline, syncStatus, lastSyncedAt, pendingSales, syncPendingSales } = usePosOfflineSync(branchId, pharmacyId);
 
   // Asked once per login (sessionStorage — cleared on sign-out, see clearPosSaleMode),
   // not stored per-device. A per-computer lock would go silently stale if a machine ever

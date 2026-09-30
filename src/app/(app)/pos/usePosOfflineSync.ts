@@ -3,7 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import { ProductJSON } from "@/lib/types";
 
-export function usePosOfflineSync(branchId: string | null) {
+export function usePosOfflineSync(branchId: string | null, pharmacyId: string) {
   const [isOnline, setIsOnline] = useState(true);
   const [syncStatus, setSyncStatus] = useState<string>("Initializing...");
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
@@ -19,11 +19,25 @@ export function usePosOfflineSync(branchId: string | null) {
 
   useEffect(() => {
     setIsOnline(navigator.onLine);
+    let cancelled = false;
+
+    const startSync = async () => {
+      // This IndexedDB database lives per BROWSER, not per logged-in account — the same
+      // computer can be used for more than one pharmacy (e.g. a real store's till also used
+      // to log into a test account), and an admin can switch branches. Neither used to reset
+      // the local cache, so a previous pharmacy's/branch's products could sit there looking
+      // completely normal and only fail, confusingly, at the point of sale. Wipe the cache
+      // whenever it turns out to belong to a different pharmacy+branch than the one we're
+      // in now.
+      await ensureCacheScope();
+      if (cancelled) return;
+      syncCatalog();
+      syncPendingSales();
+    };
 
     const handleOnline = () => {
       setIsOnline(true);
-      syncCatalog();
-      syncPendingSales();
+      startSync();
     };
     const handleOffline = () => {
       setIsOnline(false);
@@ -35,18 +49,40 @@ export function usePosOfflineSync(branchId: string | null) {
 
     // Initial sync
     if (navigator.onLine) {
-      syncCatalog();
-      syncPendingSales();
+      startSync();
     } else {
       setSyncStatus("Offline (Local Mode)");
       loadLastSyncTime();
     }
 
     return () => {
+      cancelled = true;
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [branchId]);
+  }, [branchId, pharmacyId]);
+
+  async function ensureCacheScope() {
+    if (!pharmacyId) return;
+    const owner = `${pharmacyId}:${branchId ?? ""}`;
+    try {
+      const meta = await db.syncMetadata.get("products");
+      if (meta?.owner && meta.owner !== owner) {
+        await db.products.clear();
+        // Any offline sale still queued under a DIFFERENT pharmacy definitely doesn't belong
+        // here — it would just fail confusingly like the products did. A same-pharmacy branch
+        // switch is left alone; that queue doesn't currently record which branch it was made
+        // for, so nothing is discarded on a guess.
+        const stalePharmacySales = await db.pendingSales.filter((s) => s.pharmacyId !== pharmacyId).toArray();
+        if (stalePharmacySales.length > 0) {
+          await db.pendingSales.bulkDelete(stalePharmacySales.map((s) => s.id!).filter(Boolean));
+        }
+      }
+      await db.syncMetadata.put({ id: "products", lastSyncedAt: meta?.owner === owner ? meta.lastSyncedAt : "", owner });
+    } catch (err) {
+      console.error("Cache scope check failed:", err);
+    }
+  }
 
   async function loadLastSyncTime() {
     const meta = await db.syncMetadata.get("products");
@@ -104,10 +140,9 @@ export function usePosOfflineSync(branchId: string | null) {
       }
 
       if (firstPageTimestamp) {
-        await db.syncMetadata.put({
-          id: "products",
-          lastSyncedAt: firstPageTimestamp.toString(),
-        });
+        // .update (merge) not .put (replace) — ensureCacheScope() already stamped this same
+        // row with `owner`, and a plain .put here would silently wipe that back out.
+        await db.syncMetadata.update("products", { lastSyncedAt: firstPageTimestamp.toString() });
         setLastSyncedAt(new Date(firstPageTimestamp));
       }
 

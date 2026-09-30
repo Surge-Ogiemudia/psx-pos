@@ -21,6 +21,11 @@ export interface PendingSale {
 export interface SyncMetadata {
   id: string; // e.g. "products"
   lastSyncedAt: string;
+  // Which pharmacy+branch this cache belongs to ("<pharmacyId>:<branchId>"). This whole
+  // IndexedDB database lives per BROWSER, not per account — if the same device is used to
+  // log into a different pharmacy or switch branch, a stale owner here is how the sync hook
+  // knows to wipe the old tenant's cached products instead of silently mixing them in.
+  owner?: string;
 }
 
 export class PosDatabase extends Dexie {
