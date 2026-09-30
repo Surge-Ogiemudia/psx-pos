@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ReceiptTemplate, { type ReceiptSale } from "../pos/ReceiptTemplate";
+import ReceiptPrintOptions from "../pos/ReceiptPrintOptions";
 
 export default function ReceiptsClient({
   branchId,
@@ -20,6 +21,7 @@ export default function ReceiptsClient({
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [printing, setPrinting] = useState<ReceiptSale | null>(null);
+  const [confirmSale, setConfirmSale] = useState<ReceiptSale | null>(null);
   const [daysBack, setDaysBack] = useState(3);
 
   useEffect(() => {
@@ -107,7 +109,7 @@ export default function ReceiptsClient({
                   </div>
                 </button>
                 <button
-                  onClick={() => reprint(r)}
+                  onClick={() => setConfirmSale(r)}
                   className="shrink-0 rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-800"
                 >
                   Reprint
@@ -137,6 +139,40 @@ export default function ReceiptsClient({
           branchName={branchName}
           branchAddress={branchAddress}
         />
+      )}
+
+      {confirmSale && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+          onClick={() => setConfirmSale(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl bg-white p-6 text-center shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="mb-1 text-lg font-bold text-zinc-900">Reprint receipt #{confirmSale.receiptNumber}</h2>
+            <p className="mb-6 text-sm text-zinc-500">Check the printer settings, then print.</p>
+            <ReceiptPrintOptions />
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => {
+                  const sale = confirmSale;
+                  setConfirmSale(null);
+                  reprint(sale);
+                }}
+                className="w-full rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-800"
+              >
+                Print
+              </button>
+              <button
+                onClick={() => setConfirmSale(null)}
+                className="w-full rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-600 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
