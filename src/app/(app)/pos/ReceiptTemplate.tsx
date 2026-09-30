@@ -2,7 +2,13 @@
 
 import React, { forwardRef, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { getReceiptPaper, onReceiptPaperChange, type ReceiptPaper } from "@/lib/receiptPaper";
+import {
+  getReceiptPaper,
+  onReceiptPaperChange,
+  type ReceiptPaper,
+  getReceiptLongMode,
+  onReceiptLongModeChange,
+} from "@/lib/receiptPaper";
 
 export interface ReceiptSale {
   _id: string;
@@ -38,6 +44,11 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
       setPaper(getReceiptPaper());
       return onReceiptPaperChange(() => setPaper(getReceiptPaper()));
     }, []);
+    const [longMode, setLongMode] = useState(false);
+    useEffect(() => {
+      setLongMode(getReceiptLongMode());
+      return onReceiptLongModeChange(() => setLongMode(getReceiptLongMode()));
+    }, []);
 
     const formattedDate = new Date(sale.timestamp).toLocaleString("en-GB", {
       day: "2-digit",
@@ -55,6 +66,13 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
       <div className="print-receipt-root">
       {paper === "80" && (
         <style>{`@media print { @page { size: 80mm auto; margin: 0 !important; } .print-receipt-root, .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; } .print-receipt-root .print-receipt { padding: 0 2mm !important; } }`}</style>
+      )}
+      {longMode && (
+        // Some browsers' print pipeline silently splits a very long "auto" height page into
+        // several print jobs (a long wholesale cart's header/body/footer each land on their
+        // own piece of paper). A large fixed height avoids that on the printers we've seen it
+        // on. Opt-in per device (see receiptPaper.ts) — off everywhere else.
+        <style>{`@media print { @page { size: ${paper}mm 3000mm; margin: 0 !important; } }`}</style>
       )}
       <div
         ref={ref}

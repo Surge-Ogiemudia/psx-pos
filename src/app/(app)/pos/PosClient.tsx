@@ -10,7 +10,7 @@ import { usePosOfflineSync } from "./usePosOfflineSync";
 import { db } from "@/lib/db";
 import { POS_SALE_MODE_KEY, type PosSaleMode } from "@/lib/posSaleMode";
 import { fuzzyRank } from "@/lib/fuzzyMatch";
-import { getReceiptPaper, setReceiptPaper, type ReceiptPaper } from "@/lib/receiptPaper";
+import { getReceiptPaper, setReceiptPaper, type ReceiptPaper, getReceiptLongMode, setReceiptLongMode } from "@/lib/receiptPaper";
 
 type CartLine =
   | {
@@ -321,8 +321,10 @@ export default function PosClient({
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showPrintPrompt, setShowPrintPrompt] = useState(false);
   const [receiptPaper, setReceiptPaperState] = useState<ReceiptPaper>("58");
+  const [receiptLongMode, setReceiptLongModeState] = useState(false);
   useEffect(() => {
     setReceiptPaperState(getReceiptPaper());
+    setReceiptLongModeState(getReceiptLongMode());
   }, []);
   const [enablePrintListener, setEnablePrintListener] = useState(false);
   const [lastSale, setLastSale] = useState<ReceiptSale | null>(null);
@@ -2605,6 +2607,17 @@ export default function PosClient({
                 </button>
               ))}
             </div>
+            <label className="mb-4 flex items-center justify-center gap-2 text-xs text-zinc-600">
+              <input
+                type="checkbox"
+                checked={receiptLongMode}
+                onChange={(e) => {
+                  setReceiptLongMode(e.target.checked);
+                  setReceiptLongModeState(e.target.checked);
+                }}
+              />
+              Long receipt (wholesale) — for this computer only, use if long receipts print cut into pieces
+            </label>
             <div className="flex flex-col gap-3">
               <button
                 onClick={handleLocalPrint}
