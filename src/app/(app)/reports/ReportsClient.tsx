@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import type { ActivityLogJSON, PaymentMethod, RefundJSON, SaleJSON } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
 import ReceiptTemplate, { ReceiptSale } from "../pos/ReceiptTemplate";
+import ReceiptPrintOptions from "../pos/ReceiptPrintOptions";
 
 const ACTIVITY_ACTION_LABEL: Record<string, string> = {
   product_create: "Added product",
@@ -51,6 +52,7 @@ export default function ReportsClient({
   const [refunds, setRefunds] = useState<RefundJSON[]>([]);
 
   const [reprintingSale, setReprintingSale] = useState<ReceiptSale | null>(null);
+  const [reprintConfirmSale, setReprintConfirmSale] = useState<SaleJSON | null>(null);
 
   const [refundingSaleId, setRefundingSaleId] = useState<string | null>(null);
   const [refundQuantities, setRefundQuantities] = useState<Record<string, string>>({});
@@ -505,7 +507,7 @@ export default function ReportsClient({
                   </td>
                   <td className="px-3 py-2 flex items-center gap-3">
                     <button
-                      onClick={() => handleReprint(sale)}
+                      onClick={() => setReprintConfirmSale(sale)}
                       className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 hover:underline"
                     >
                       Reprint
@@ -757,6 +759,40 @@ export default function ReportsClient({
           branchName={branchName}
           branchAddress={branchAddress}
         />
+      )}
+
+      {reprintConfirmSale && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+          onClick={() => setReprintConfirmSale(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl bg-white p-6 text-center shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="mb-1 text-lg font-bold text-zinc-900">Reprint receipt #{reprintConfirmSale.receiptNumber}</h2>
+            <p className="mb-6 text-sm text-zinc-500">Check the printer settings, then print.</p>
+            <ReceiptPrintOptions />
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => {
+                  const sale = reprintConfirmSale;
+                  setReprintConfirmSale(null);
+                  handleReprint(sale);
+                }}
+                className="w-full rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-800"
+              >
+                Print
+              </button>
+              <button
+                onClick={() => setReprintConfirmSale(null)}
+                className="w-full rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-600 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
