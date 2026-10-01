@@ -278,7 +278,10 @@ export async function POST(request: NextRequest) {
             { session: dbSession }
           );
           if (!existingProduct) {
-            throw new Error(`Product not found for item ${item.productId}`);
+            throw new Error(
+              `An item in this cart (id ${item.productId}) isn't in this branch's catalog — it may have been removed, ` +
+                `or this device's cached catalog is out of date. Reload the page and rebuild the cart.`
+            );
           }
 
           let baseQuantity = item.quantity;
@@ -392,9 +395,17 @@ export async function POST(request: NextRequest) {
         }
 
         // Total is only known once live prices are read above, so tender/change validation
-        // has to happen here rather than before the transaction starts.
+        // has to happen here rather than before the transaction starts. The actual numbers are
+        // in the message (not just the generic line below) because this can legitimately be
+        // the register's own total having moved since the cart was built — e.g. a price was
+        // edited elsewhere mid-sale — which a cashier otherwise has no way to tell apart from
+        // "retype the same amount and it'll work," when it won't.
         if (amountTendered < totalAmount - EPS) {
-          throw new Error("Amount tendered is less than the sale total");
+          const short = round2(totalAmount - amountTendered);
+          throw new Error(
+            `Amount tendered (₦${amountTendered.toFixed(2)}) is ₦${short.toFixed(2)} short of the sale total (₦${totalAmount.toFixed(2)}). ` +
+              `A price may have changed since this cart was built — reload the cart and try again.`
+          );
         }
         const changeDue = round2(Math.max(0, amountTendered - totalAmount));
         if (changeFeeInput > changeDue + EPS) {
