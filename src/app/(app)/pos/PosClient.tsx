@@ -305,6 +305,60 @@ export default function PosClient({
   // scan just silently doing nothing.
   const [pendingScanBarcode, setPendingScanBarcode] = useState<string | null>(null);
   const [barcodeLinkToast, setBarcodeLinkToast] = useState<string | null>(null);
+  const [cartPriceRefreshToast, setCartPriceRefreshToast] = useState<string | null>(null);
+
+  // A cart line keeps its own snapshot of the product (price, stock, name...) from the moment
+  // it was added — neither a catalog sync nor a same-device catalog edit reaches into lines
+  // already sitting in the cart on their own. On a big, slow-built cart that snapshot can go
+  // stale (someone edits the price elsewhere mid-sale, admin or the same cashier via quick
+  // edit), and the register's own total then silently disagrees with the server's, rejecting
+  // the sale for a reason nothing on screen explains. This brings any catalog line in the
+  // cart up to date from a given fresh copy of that product — called below both after every
+  // routine catalog sync and right after a quick edit saves, so the cart always reflects the
+  // current catalog without the cashier re-adding anything.
+  function refreshCartLinesFromProducts(freshById: Map<string, ProductJSON>) {
+    let changed = 0;
+    setCart((prev) =>
+      prev.map((line) => {
+        if (line.kind !== "catalog") return line;
+        const updated = freshById.get(line.product._id);
+        if (!updated) return line; // not in the local cache (e.g. removed) — left alone here, same as before
+        const p = line.product;
+        if (
+          updated.retailPrice === p.retailPrice &&
+          updated.wholesalePrice === p.wholesalePrice &&
+          updated.distributorPrice === p.distributorPrice &&
+          updated.itemName === p.itemName &&
+          updated.quantityInStock === p.quantityInStock
+        ) {
+          return line;
+        }
+        changed++;
+        return { ...line, product: updated };
+      })
+    );
+    if (changed > 0) {
+      const msg = `${changed} item${changed === 1 ? "" : "s"} in the cart updated to the current catalog price.`;
+      setCartPriceRefreshToast(msg);
+      window.setTimeout(() => setCartPriceRefreshToast((t) => (t === msg ? null : t)), 4000);
+    }
+  }
+
+  useEffect(() => {
+    if (!lastSyncedAt || cart.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const ids = Array.from(new Set(cart.filter((l) => l.kind === "catalog").map((l) => l.product._id)));
+      if (ids.length === 0) return;
+      const fresh = await db.products.bulkGet(ids);
+      if (cancelled) return;
+      refreshCartLinesFromProducts(new Map(fresh.filter((p): p is ProductJSON => !!p).map((p) => [p._id, p])));
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastSyncedAt]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -1005,6 +1059,9 @@ export default function PosClient({
       // above) in sync so the new values survive a reload/offline session too.
       setProducts((prev) => prev.map((p) => (p._id === updated._id ? updated : p)));
       db.products.put(updated).catch(() => {});
+      // Same-device edit — doesn't go through a catalog sync, so a matching line already in
+      // the cart (quite possibly the very item just edited) needs updating right here too.
+      refreshCartLinesFromProducts(new Map([[updated._id, updated]]));
       setQuickEditProduct(null);
     } catch (err) {
       setQuickEditError(err instanceof Error ? err.message : "Failed to update product");
@@ -2834,6 +2891,13 @@ export default function PosClient({
         <div className="fixed top-6 right-6 z-[80] flex items-center gap-2 rounded-xl bg-teal-700 px-5 py-3 font-semibold text-white shadow-xl animate-in slide-in-from-top-2">
           <span>✅</span>
           <span>{barcodeLinkToast}</span>
+        </div>
+      )}
+
+      {cartPriceRefreshToast && (
+        <div className="fixed top-6 right-6 z-[80] flex items-center gap-2 rounded-xl bg-amber-600 px-5 py-3 font-semibold text-white shadow-xl animate-in slide-in-from-top-2">
+          <span>🔄</span>
+          <span>{cartPriceRefreshToast}</span>
         </div>
       )}
 
