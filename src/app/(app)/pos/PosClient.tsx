@@ -1219,12 +1219,15 @@ export default function PosClient({
     amountTendered >= total - EPS &&
     changeFeeValue <= changeDue + EPS;
 
-  // Clear a stale "Amount tendered is less than the sale total" (or similar) error the moment
-  // the cart/payment is fixed, so the red text doesn't sit there looking wrong after a cashier
-  // has already corrected the amount — it used to only clear on the next submit attempt.
+  // Clear a stale error (e.g. "Amount tendered is less than the sale total") the moment the
+  // cashier touches the cart or payment again, so an old, already-resolved message never sits
+  // there looking like a current problem. Keyed to the actual edits, not to canCompleteSale —
+  // a slow server response can arrive (and set the error) after canCompleteSale was already
+  // true, in which case it never flips again and the earlier version of this fix never fired.
   useEffect(() => {
-    if (canCompleteSale) setMessage((m) => (m?.type === "error" ? null : m));
-  }, [canCompleteSale]);
+    setMessage((m) => (m?.type === "error" ? null : m));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart, payments]);
 
   function openConfirmModal() {
     if (!canCompleteSale) return;
