@@ -15,7 +15,7 @@ export default function ReceiptPrintOptions() {
     <>
       <div className="mb-4 flex items-center justify-center gap-2 text-xs text-zinc-600">
         <span>Receipt paper:</span>
-        {(["58", "80"] as const).map((w) => (
+        {(["58", "80", "A4"] as const).map((w) => (
           <button
             key={w}
             type="button"
@@ -27,21 +27,27 @@ export default function ReceiptPrintOptions() {
               paper === w ? "border-teal-700 bg-teal-700 text-white" : "border-zinc-300 bg-white text-zinc-700"
             }`}
           >
-            {w}mm
+            {w === "A4" ? "A4 (office printer)" : `${w}mm`}
           </button>
         ))}
       </div>
-      <label className="mb-4 flex items-center justify-center gap-2 text-xs text-zinc-600">
-        <input
-          type="checkbox"
-          checked={longMode}
-          onChange={(e) => {
-            setReceiptLongMode(e.target.checked);
-            setLongModeState(e.target.checked);
-          }}
-        />
-        Long receipt (for very large carts) — for this computer only, use if long receipts print cut into pieces
-      </label>
+      {paper === "A4" ? (
+        <p className="mb-4 text-center text-xs text-zinc-500">
+          Prints on a normal A4 printer. A very long receipt will run to a second page — that&apos;s normal for A4.
+        </p>
+      ) : (
+        <label className="mb-4 flex items-center justify-center gap-2 text-xs text-zinc-600">
+          <input
+            type="checkbox"
+            checked={longMode}
+            onChange={(e) => {
+              setReceiptLongMode(e.target.checked);
+              setLongModeState(e.target.checked);
+            }}
+          />
+          Long receipt (for very large carts) — for this computer only, use if long receipts print cut into pieces
+        </label>
+      )}
     </>
   );
 }
