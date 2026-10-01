@@ -753,6 +753,16 @@ export default function PosClient({
     setMessage(null);
     setShowHeld(false);
     scrollToCart();
+    // A held sale can sit parked for a long time — its lines may have gone stale since it was
+    // held (and the sync-triggered refresh above only fires on a NEW sync, which resuming one
+    // doesn't cause on its own). Bring it up to date against the catalog right now.
+    const ids = Array.from(new Set(held.cart.filter((l) => l.kind === "catalog").map((l) => l.product._id)));
+    if (ids.length > 0) {
+      db.products
+        .bulkGet(ids)
+        .then((fresh) => refreshCartLinesFromProducts(new Map(fresh.filter((p): p is ProductJSON => !!p).map((p) => [p._id, p]))))
+        .catch(() => {});
+    }
   }
 
   function discardHeldSale(id: string) {
