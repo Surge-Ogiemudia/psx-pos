@@ -116,7 +116,9 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         // A fallback for a till whose thermal printer won't cooperate — same receipt, printed
         // on a normal office printer instead. A real page with real margins, and no attempt to
         // force it onto one sheet: a long receipt runs to page 2/3, same as any other document.
-        <style>{`@media print { @page { size: A4; margin: 15mm; } .print-receipt-root .print-receipt { width: 100% !important; max-width: 180mm !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } }`}</style>
+        // Explicit mm dimensions, not the "A4" keyword — keyword page sizes are less reliably
+        // supported than plain numbers, which is what every other working rule here uses.
+        <style>{`@media print { @page { size: 210mm 297mm !important; margin: 15mm !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: 180mm !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } }`}</style>
       )}
       {dynamicPageCss && <style>{`@media print { ${dynamicPageCss} }`}</style>}
       <div
