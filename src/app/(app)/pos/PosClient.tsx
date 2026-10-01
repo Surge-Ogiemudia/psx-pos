@@ -105,14 +105,21 @@ function unitPriceFor(product: ProductJSON, mode: PosSaleMode): number {
   return mode === "wholesale" ? product.wholesalePrice : product.retailPrice;
 }
 
+// Mirrors src/app/api/sales/route.ts's own line-total math exactly, step for step and
+// rounding at the same points, so the two can never land on a different total for what's
+// supposedly the same sale (see the `total` useMemo below for why that matters).
 function lineAmount(line: CartLine, mode: PosSaleMode): number {
-  const base =
-    line.kind === "catalog"
-      ? line.customPrice !== undefined
-        ? line.customPrice
-        : unitPriceFor(line.product, mode) * piecesPerForm(line.product, line.form)
-      : line.unitPrice;
-  return discountedUnitPrice(base, line.discountPercent) * line.quantity;
+  const discountPercent = line.discountPercent || 0;
+  if (line.kind === "catalog") {
+    const base =
+      line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, mode) * piecesPerForm(line.product, line.form);
+    let lineTotal = round2(base * line.quantity);
+    if (discountPercent > 0) lineTotal = round2(lineTotal * (1 - discountPercent / 100));
+    return lineTotal;
+  }
+  const originalUnitPrice = round2(line.unitPrice);
+  const unitPrice = round2(originalUnitPrice * (1 - discountPercent / 100));
+  return round2(unitPrice * line.quantity);
 }
 
 function lineCost(line: CartLine): number {
@@ -1085,8 +1092,14 @@ export default function PosClient({
   }
 
   const effectiveSaleMode: PosSaleMode = saleMode ?? "retail";
+  // Round EACH line before summing — same order of operations the server uses
+  // (src/app/api/sales/route.ts) to compute its own authoritative total. Summing raw,
+  // unrounded line amounts and rounding only the final number looks identical on screen
+  // (both show as e.g. "98300.00") but can land on a genuinely different number once a cart
+  // has enough lines for per-line rounding to add up — the server then rejects an amount
+  // that matched the screen exactly, for a reason nothing on screen explained.
   const total = useMemo(
-    () => cart.reduce((sum, line) => sum + lineAmount(line, effectiveSaleMode), 0),
+    () => round2(cart.reduce((sum, line) => sum + lineAmount(line, effectiveSaleMode), 0)),
     [cart, effectiveSaleMode]
   );
 
