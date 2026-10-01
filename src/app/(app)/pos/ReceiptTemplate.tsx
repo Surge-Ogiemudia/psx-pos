@@ -50,6 +50,11 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
       return onReceiptLongModeChange(() => setLongMode(getReceiptLongMode()));
     }, []);
 
+    // Long mode only applies to the thermal (58/80mm) printers it was built for — A4 is a
+    // fixed-length sheet a long receipt can't be stretched to fit onto in one page anyway, so
+    // it just paginates normally there (see the A4 @page rule below) and skips all of this.
+    const isLongMode = longMode && paper !== "A4";
+
     // Long mode: measure the ACTUAL rendered receipt and size @page to fit it exactly, instead
     // of guessing a fixed height. A guessed height that's too short reproduces the original
     // bug (still splits into extra sheets on a big enough wholesale cart); one that's too tall
@@ -60,7 +65,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
     const innerRef = useRef<HTMLDivElement | null>(null);
     const [dynamicPageCss, setDynamicPageCss] = useState<string | null>(null);
     useLayoutEffect(() => {
-      if (!longMode) {
+      if (!isLongMode) {
         setDynamicPageCss(null);
         return;
       }
@@ -70,7 +75,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
       const heightMm = Math.ceil(el.scrollHeight * PX_TO_MM) + 15; // small buffer for print-engine rounding
       setDynamicPageCss(`@page { size: ${paper}mm ${heightMm}mm; margin: 0 !important; }`);
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [longMode, paper, sale]);
+    }, [isLongMode, paper, sale]);
 
     const formattedDate = new Date(sale.timestamp).toLocaleString("en-GB", {
       day: "2-digit",
@@ -92,7 +97,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         // that opted into long mode; every other device keeps the plain display:none default
         // from globals.css untouched.
         style={
-          longMode
+          isLongMode
             ? // width is the fix that matters here: without it this fixed-position box
               // shrinks-to-fit to something much wider than the real receipt, so text barely
               // wraps during measurement — the real (narrow) print then wraps onto far more
@@ -107,6 +112,12 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         // beats a plain inline style — this !important is what actually wins at print time.
         <style>{`@media print { @page { size: 80mm auto; margin: 0 !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 2mm !important; } }`}</style>
       )}
+      {paper === "A4" && (
+        // A fallback for a till whose thermal printer won't cooperate — same receipt, printed
+        // on a normal office printer instead. A real page with real margins, and no attempt to
+        // force it onto one sheet: a long receipt runs to page 2/3, same as any other document.
+        <style>{`@media print { @page { size: A4; margin: 15mm; } .print-receipt-root .print-receipt { width: 100% !important; max-width: 180mm !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } }`}</style>
+      )}
       {dynamicPageCss && <style>{`@media print { ${dynamicPageCss} }`}</style>}
       <div
         ref={(node) => {
@@ -117,11 +128,11 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         className="print-receipt"
         style={{
           width: "100%",
-          maxWidth: paper === "80" ? "none" : "55mm", // Standard 58mm thermal paper width limit
+          maxWidth: paper === "A4" ? "180mm" : paper === "80" ? "none" : "55mm", // thermal paper width, or a normal printable A4 column
           boxSizing: "border-box",
           padding: paper === "80" ? "0 2mm" : "0",
           margin: "0 auto",
-          marginTop: "-5mm", // Slight negative margin to combat stubborn printer drivers
+          marginTop: paper === "A4" ? "0" : "-5mm", // Slight negative margin to combat stubborn thermal printer drivers — not needed/wanted on A4
           fontFamily: "Arial, Helvetica, sans-serif",
           fontSize: "12px",
           color: "#000",

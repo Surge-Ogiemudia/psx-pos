@@ -1,13 +1,18 @@
-// Receipt paper width is a per-device choice (each till has its own printer), kept in localStorage.
-// Default 58mm so existing pharmacies are unaffected; 80mm is for printers like the Xprinter XP-80.
-export type ReceiptPaper = "58" | "80";
+// Receipt paper is a per-device choice (each till has its own printer), kept in localStorage.
+// Default 58mm so existing pharmacies are unaffected; 80mm is for printers like the Xprinter
+// XP-80; "A4" is a plain fallback for a till whose thermal printer won't cooperate — prints the
+// same receipt on a normal office printer, normal page, normal page breaks if it runs long
+// (unlike thermal roll paper, a fixed A4 sheet can't be stretched to fit a long receipt on one
+// page, so a big wholesale cart is expected to run to a second/third A4 page there).
+export type ReceiptPaper = "58" | "80" | "A4";
 
 const KEY = "psxReceiptPaper";
 const EVENT = "psx-receipt-paper";
 
 export function getReceiptPaper(): ReceiptPaper {
   try {
-    return localStorage.getItem(KEY) === "80" ? "80" : "58";
+    const v = localStorage.getItem(KEY);
+    return v === "80" || v === "A4" ? v : "58";
   } catch {
     return "58";
   }
