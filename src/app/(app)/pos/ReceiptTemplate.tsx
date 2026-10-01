@@ -118,7 +118,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         // force it onto one sheet: a long receipt runs to page 2/3, same as any other document.
         // Explicit mm dimensions, not the "A4" keyword — keyword page sizes are less reliably
         // supported than plain numbers, which is what every other working rule here uses.
-        <style>{`@media print { @page { size: 210mm 297mm !important; margin: 15mm !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: 180mm !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } .print-receipt-root .print-receipt * { page-break-inside: auto !important; } .print-receipt-root .print-receipt .receipt-item-row { page-break-inside: avoid !important; } }`}</style>
+        <style>{`@media print { @page { size: 210mm 297mm !important; margin: 15mm !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } .print-receipt-root .print-receipt * { page-break-inside: auto !important; } .print-receipt-root .print-receipt .receipt-item-row { page-break-inside: avoid !important; } }`}</style>
       )}
       {dynamicPageCss && <style>{`@media print { ${dynamicPageCss} }`}</style>}
       <div
@@ -130,7 +130,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         className="print-receipt"
         style={{
           width: "100%",
-          maxWidth: paper === "A4" ? "180mm" : paper === "80" ? "none" : "55mm", // thermal paper width, or a normal printable A4 column
+          maxWidth: paper === "A4" || paper === "80" ? "none" : "55mm", // thermal paper width, or fill whatever the page gives it (80mm/A4)
           boxSizing: "border-box",
           padding: paper === "80" ? "0 2mm" : "0",
           margin: "0 auto",
