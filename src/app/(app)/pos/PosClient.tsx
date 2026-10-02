@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { POS_SALE_MODE_KEY, type PosSaleMode } from "@/lib/posSaleMode";
 import { fuzzyRank } from "@/lib/fuzzyMatch";
 import ReceiptPrintOptions from "./ReceiptPrintOptions";
+import { takePosResume, type ResumeItem } from "@/lib/posResume";
 
 type CartLine =
   | {
@@ -603,7 +604,13 @@ export default function PosClient({
   // overwrite the just-loaded cart with the stale pre-hydration value.
   const isHydratingRef = useRef(false);
 
+  // "Return Sale" (Reports/Receipts) hands off here via a one-shot localStorage payload and a
+  // full navigation to /pos — read it exactly once, synchronously, before any effect below can
+  // run, so there's no race over which one gets to decide the starting cart.
+  const [pendingResume] = useState<ResumeItem[] | null>(() => takePosResume());
+
   useEffect(() => {
+    if (pendingResume) return; // the resume effect further below owns the cart this time
     isHydratingRef.current = true;
     const saved = localStorage.getItem(cartStorageKey(branchId));
     const timeout = setTimeout(() => {
@@ -614,7 +621,7 @@ export default function PosClient({
       }
     }, 0);
     return () => clearTimeout(timeout);
-  }, [branchId]);
+  }, [branchId, pendingResume]);
 
   useEffect(() => {
     if (isHydratingRef.current) {
@@ -623,6 +630,66 @@ export default function PosClient({
     }
     localStorage.setItem(cartStorageKey(branchId), JSON.stringify(cart));
   }, [cart, branchId]);
+
+  // Rebuild the cart from the returned sale's items against the CURRENT catalog (current
+  // prices/stock, not whatever they were at the original, now-voided sale) — same reasoning as
+  // the auto cart-price-refresh above. A line whose product no longer exists is left out rather
+  // than failing the whole thing; the cashier is told so, and can re-add it under its new id.
+  useEffect(() => {
+    if (!pendingResume || pendingResume.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const ids = Array.from(new Set(pendingResume.filter((i) => !i.isCustom && i.productId).map((i) => i.productId as string)));
+      const fresh = ids.length ? await db.products.bulkGet(ids) : [];
+      if (cancelled) return;
+      const byId = new Map(fresh.filter((p): p is ProductJSON => !!p).map((p) => [p._id, p]));
+      const rebuilt: CartLine[] = [];
+      let skipped = 0;
+      for (const item of pendingResume) {
+        const frozenUnitPrice = item.discountPercent > 0 ? item.originalUnitPrice ?? item.unitPrice : item.unitPrice;
+        if (item.isCustom) {
+          rebuilt.push({
+            kind: "custom",
+            key: `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            itemName: item.itemName || "",
+            brand: item.brand || "",
+            size: item.size || "",
+            category: (item.category as ProductCategory) || "non-medicine",
+            unitPrice: frozenUnitPrice,
+            unitCost: 0,
+            quantity: item.formQuantity ?? item.quantity,
+            discountPercent: item.discountPercent || undefined,
+          });
+          continue;
+        }
+        const product = item.productId ? byId.get(item.productId) : undefined;
+        if (!product) {
+          skipped++;
+          continue;
+        }
+        rebuilt.push({
+          kind: "catalog",
+          key: product._id,
+          product,
+          form: item.form || baseUnitName(product),
+          quantity: item.formQuantity ?? item.quantity,
+          customPrice: frozenUnitPrice,
+          discountPercent: item.discountPercent || undefined,
+        });
+      }
+      setCart(rebuilt);
+      if (skipped > 0) {
+        setMessage({
+          type: "error",
+          text: `${skipped} item${skipped === 1 ? "" : "s"} from that sale ${skipped === 1 ? "is" : "are"} no longer in the catalog and ${skipped === 1 ? "was" : "were"} left out — re-add if needed.`,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingResume]);
 
   const [heldSales, setHeldSales] = useState<HeldSale[]>([]);
   const [showHeld, setShowHeld] = useState(false);

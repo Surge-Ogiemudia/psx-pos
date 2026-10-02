@@ -21,7 +21,8 @@ interface LogActivityInput {
     | "product_create"
     | "refund"
     | "receive"
-    | "duplicate_merge";
+    | "duplicate_merge"
+    | "sale_return";
   summary: string;
   metadata?: Record<string, unknown>;
   refCollection?: string;

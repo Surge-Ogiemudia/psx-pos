@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     await dbConnect();
 
     const scope = getBranchScope(session, request.nextUrl.searchParams.get("branchId"));
-    const sales = await Sale.find({ ...scope, timestamp: { $gte: windowStart() } })
+    const sales = await Sale.find({ ...scope, timestamp: { $gte: windowStart() }, voided: { $ne: true } })
       .sort({ timestamp: -1 })
       .limit(300)
       .lean();
