@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
+import { requireApiSession } from "@/lib/session";
+import { handleApiError } from "@/lib/apiError";
 
 const apiKey = process.env.GEMINI_API_KEY;
 const ai = new GoogleGenAI({ apiKey: apiKey || "dummy-key" });
 
 export async function POST(req: NextRequest) {
+  try {
+    await requireApiSession();
+  } catch (error) {
+    return handleApiError(error);
+  }
+
   try {
     if (!apiKey) {
       return NextResponse.json(
