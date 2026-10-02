@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Fragment, useEffect, useState, useRef } from "react";
 import type { ActivityLogJSON, PaymentMethod, RefundJSON, SaleJSON } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
 import ReceiptTemplate, { ReceiptSale } from "../pos/ReceiptTemplate";
@@ -48,6 +48,9 @@ export default function ReportsClient({
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
   const [searchQuery, setSearchQuery] = useState("");
+  // Collapsed by default — a sale with 100+ lines (wholesale) would otherwise make every row a
+  // different, often huge, height. Only one open at a time, same as the Receipts page.
+  const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
   const [report, setReport] = useState<ReportData | null>(null);
   const [sales, setSales] = useState<SaleJSON[]>([]);
   const [refunds, setRefunds] = useState<RefundJSON[]>([]);
@@ -477,50 +480,26 @@ export default function ReportsClient({
               const fullyRefunded = refundableLines.every(
                 (line) => refundedQuantity(sale._id, line.productId as string) >= line.quantity
               );
+              const expanded = expandedSaleId === sale._id;
               return (
-                <tr key={sale._id} className="border-b border-zinc-100 last:border-0">
+                <Fragment key={sale._id}>
+                <tr className="border-b border-zinc-100 last:border-0">
                   <td className="px-3 py-2 font-mono text-xs text-zinc-500 w-[100px] min-w-[100px] sticky left-0 z-10 bg-white shadow-[1px_0_0_0_#f4f4f5]" title={sale._id}>
                     {sale.receiptNumber}
                   </td>
                   <td className="px-3 py-2 text-zinc-600 w-[160px] min-w-[160px] sticky left-[100px] z-10 bg-white shadow-[1px_0_0_0_#f4f4f5]">{new Date(sale.timestamp).toLocaleString()}</td>
                   <td className="px-3 py-2 text-zinc-600 w-[120px] min-w-[120px] sticky left-[260px] z-10 bg-white shadow-[1px_0_0_0_#f4f4f5]">{sale.userName}</td>
                   <td className="px-3 py-2 text-zinc-600 min-w-[300px] sticky left-[380px] z-10 bg-white border-r border-zinc-100 shadow-[1px_0_0_0_#f4f4f5]">
-                    <div className="flex flex-col gap-1">
-                      {sale.items.map((i, idx) => {
-                        const qty = i.formQuantity ?? i.quantity;
-                        const qtySuffix = i.form ? ` ${i.form}${qty === 1 ? "" : "s"}` : "";
-                        const cost = i.unitCost || 0;
-                        const profit = i.unitPrice - cost;
-                        return (
-                          <div key={idx} className="flex flex-col border-b border-zinc-100 last:border-0 pb-1 last:pb-0">
-                            <span className="font-medium text-sm text-zinc-800">
-                              {i.productName}
-                              {!!i.discountPercent && (
-                                <span className="ml-1.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
-                                  −{i.discountPercent}% DISCOUNT
-                                </span>
-                              )}
-                            </span>
-                            <div className="flex flex-wrap gap-x-3 text-xs text-zinc-500">
-                              <span>Qty: <span className="font-medium text-zinc-700">{qty}{qtySuffix}</span></span>
-                              <span>Cost: <span className="font-medium text-zinc-700">₦{cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
-                              <span>
-                                Sell:{" "}
-                                {!!i.discountPercent && i.originalUnitPrice != null && (
-                                  <span className="text-zinc-400 line-through mr-1">
-                                    ₦{i.originalUnitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                  </span>
-                                )}
-                                <span className={`font-medium ${i.discountPercent ? "text-red-600" : "text-zinc-700"}`}>
-                                  ₦{i.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </span>
-                              </span>
-                              <span>Profit: <span className={`font-medium ${profit >= 0 ? "text-orange-600" : "text-red-600"}`}>₦{profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <button
+                      onClick={() => setExpandedSaleId((id) => (id === sale._id ? null : sale._id))}
+                      className="text-left text-sm text-zinc-700 hover:text-zinc-900"
+                    >
+                      <span className="font-medium">
+                        {sale.items.length} item{sale.items.length === 1 ? "" : "s"}
+                      </span>
+                      <span className="text-zinc-400"> — {sale.items.map((i) => i.productName).slice(0, 2).join(", ")}</span>
+                      {sale.items.length > 2 && <span className="text-zinc-400"> +{sale.items.length - 2} more</span>}
+                    </button>
                   </td>
                   <td className="px-3 py-2 text-zinc-600">
                     {sale.payments.map((p) => `${PAYMENT_METHOD_LABEL[p.method]} ₦${p.amount.toFixed(2)}`).join(", ")}
@@ -535,41 +514,102 @@ export default function ReportsClient({
                     ₦{sale.totalAmount.toFixed(2)}
                     {refunded > 0 && <div className="text-xs text-red-600">-₦{refunded.toFixed(2)} refunded</div>}
                   </td>
-                  <td className="px-3 py-2 flex items-center gap-3">
+                  <td className="px-3 py-2">
                     <button
-                      onClick={() => setReprintConfirmSale(sale)}
-                      className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 hover:underline"
+                      onClick={() => setExpandedSaleId((id) => (id === sale._id ? null : sale._id))}
+                      className="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
                     >
-                      Reprint
+                      {expanded ? "Hide ▴" : "Details ▾"}
                     </button>
-                    <button
-                      onClick={() => openEditPayment(sale)}
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
-                    >
-                      Edit Payment
-                    </button>
-                    {fullyRefunded ? (
-                      <span className="text-xs text-zinc-400">Fully refunded</span>
-                    ) : (
-                      <button onClick={() => openRefund(sale)} className="text-xs text-teal-700 hover:underline">
-                        Refund
-                      </button>
-                    )}
-                    {isToday(sale.timestamp) && refunded === 0 && (
-                      <button
-                        onClick={() => setReturnConfirmSale(sale)}
-                        className="text-xs font-semibold text-red-600 hover:text-red-800 hover:underline"
-                      >
-                        Return Sale
-                      </button>
-                    )}
                   </td>
-                </tr>
+                  </tr>
+                  {expanded && (
+                    <tr className="border-b border-zinc-100 bg-zinc-50/60">
+                      <td colSpan={7} className="px-4 py-3">
+                        <div className="mb-3 space-y-1.5">
+                          {sale.items.map((i, idx) => {
+                            const qty = i.formQuantity ?? i.quantity;
+                            const qtySuffix = i.form ? ` ${i.form}${qty === 1 ? "" : "s"}` : "";
+                            const cost = i.unitCost || 0;
+                            const profit = i.unitPrice - cost;
+                            return (
+                              <div key={idx} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-zinc-100 pb-1.5 last:border-0 last:pb-0">
+                                <span className="shrink-0 text-zinc-400">▸</span>
+                                <span className="font-medium text-sm text-zinc-800">
+                                  {i.productName}
+                                  {!!i.discountPercent && (
+                                    <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
+                                      −{i.discountPercent}% DISCOUNT
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-xs text-zinc-500">Qty: <span className="font-medium text-zinc-700">{qty}{qtySuffix}</span></span>
+                                <span className="text-xs text-zinc-500">Cost: <span className="font-medium text-zinc-700">₦{cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                                <span className="text-xs text-zinc-500">
+                                  Sell:{" "}
+                                  {!!i.discountPercent && i.originalUnitPrice != null && (
+                                    <span className="text-zinc-400 line-through mr-1">
+                                      ₦{i.originalUnitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  )}
+                                  <span className="font-medium text-zinc-700">
+                                    ₦{i.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                </span>
+                                <span className="text-xs text-zinc-500">
+                                  Profit: <span className={`font-medium ${profit >= 0 ? "text-orange-600" : "text-red-600"}`}>₦{profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex flex-col gap-1.5 border-t border-zinc-200 pt-2.5">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => setReprintConfirmSale(sale)}
+                              className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            >
+                              🖨️ Reprint
+                            </button>
+                            <button
+                              onClick={() => openEditPayment(sale)}
+                              className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                            >
+                              💳 Edit Payment
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {fullyRefunded ? (
+                              <span className="rounded-lg border border-zinc-200 bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-500">
+                                Fully refunded
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => openRefund(sale)}
+                                className="rounded-lg border border-teal-300 bg-white px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+                              >
+                                ↩️ Refund
+                              </button>
+                            )}
+                            {isToday(sale.timestamp) && refunded === 0 && (
+                              <button
+                                onClick={() => setReturnConfirmSale(sale)}
+                                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50"
+                              >
+                                ⟲ Return Sale
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
             {sales.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-zinc-500">
+                <td colSpan={7} className="px-3 py-6 text-center text-zinc-500">
                   No sales in this range.
                 </td>
               </tr>
