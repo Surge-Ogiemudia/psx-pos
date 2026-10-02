@@ -4,7 +4,7 @@ import type { Session } from "next-auth";
 import { cookies } from "next/headers";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
+const JWT_SECRET = process.env.JWT_SECRET as string;
 
 export async function getSsoSession(): Promise<Session | null> {
   const cookieStore = await cookies();

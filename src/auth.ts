@@ -8,7 +8,7 @@ import { getMainPsxUrl } from "@/lib/mainPsx";
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
-const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
+const JWT_SECRET = process.env.JWT_SECRET as string;
 
 class InvalidCredentialsError extends CredentialsSignin {
   code = "invalid-credentials";
