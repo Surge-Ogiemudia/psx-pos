@@ -21,7 +21,7 @@ function diceSimilarity(str1, str2) {
 }
 
 async function run() {
-  const jsonPath = "cleaned_monak_inventory.json";
+  const jsonPath = process.argv[2] || "cleaned_monak_inventory.json";
   const enrichedItems = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
 
   const envFile = fs.readFileSync(".env.local", "utf8");
