@@ -1,19 +1,19 @@
 ﻿import { NextRequest } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { auth } from "@/auth";
 import { getSsoSession } from "@/lib/session";
 
 export const APCARE_PHARMACY_ID = "6aa3cdfd7f1e8b4387e43c22";
 export const APCARE_BRANCH_ID = "6aa3d0fde6b6e0f4c19e695a";
-const VALID_SYNC_KEY = process.env.PSX_SYNC_API_KEY || "***REMOVED***";
+
+// Shared key for the MD pricing-review link. Key access is disabled when unset.
+const PRICING_REVIEW_KEY = process.env.PRICING_REVIEW_KEY;
 
 export function isPricingKeyValid(key?: string | null): boolean {
-  if (!key) return false;
-  const trimmed = key.trim();
-  return (
-    trimmed === VALID_SYNC_KEY ||
-    trimmed === "***REMOVED***" ||
-    trimmed === APCARE_PHARMACY_ID
-  );
+  if (!key || !PRICING_REVIEW_KEY) return false;
+  const given = Buffer.from(key.trim());
+  const expected = Buffer.from(PRICING_REVIEW_KEY);
+  return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
 export async function verifyPricingAccess(req: NextRequest): Promise<boolean> {
