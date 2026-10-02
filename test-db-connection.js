@@ -1,7 +1,7 @@
 const { MongoClient } = require('mongodb');
 
-const uri1 = "mongodb+srv://pharmastakx_db_user:***REMOVED***@cluster0.tpkohgb.mongodb.net/?appName=Cluster0";
-const uri2 = "mongodb+srv://pharmastakx_db_user:***REMOVED***@cluster0.tpkohgb.mongodb.net/?appName=Cluster0";
+const uri1 = process.env.PSX_MONGO_URI;
+const uri2 = process.env.PSX_MONGO_URI;
 
 async function testConnection(uri, label) {
   const client = new MongoClient(uri);

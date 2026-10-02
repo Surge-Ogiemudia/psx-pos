@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const { PrismaClient } = require("../PSX EMR/node_modules/@prisma/client");
 
-const uri = "mongodb+srv://psxnig_db_user:***REMOVED***@cluster0.06byfg6.mongodb.net/pharmastackx?appName=Cluster0";
+const uri = process.env.EMR_MONGODB_URI;
 
 async function run() {
   await mongoose.connect(uri);

@@ -1,6 +1,6 @@
 const { MongoClient } = require('mongodb');
 
-const uri = "mongodb+srv://pharmastakx_db_user:***REMOVED***@cluster0.tpkohgb.mongodb.net/?appName=Cluster0";
+const uri = process.env.PSX_MONGO_URI;
 
 async function analyze() {
   const client = new MongoClient(uri);

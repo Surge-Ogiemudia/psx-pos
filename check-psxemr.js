@@ -1,6 +1,6 @@
 const { MongoClient } = require('mongodb');
 
-const uri = "mongodb+srv://psxnig_db_user:***REMOVED***@cluster0.06byfg6.mongodb.net/psxemr?appName=Cluster0";
+const uri = process.env.EMR_MONGODB_URI;
 
 async function run() {
   const client = new MongoClient(uri);
