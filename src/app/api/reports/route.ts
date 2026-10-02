@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
     const match: Record<string, unknown> = {
       pharmacyId: new mongoose.Types.ObjectId(session.user.pharmacyId),
       timestamp: { $gte: from, $lte: to },
+      voided: { $ne: true },
     };
     if (requestedBranchId) match.branchId = new mongoose.Types.ObjectId(requestedBranchId);
 

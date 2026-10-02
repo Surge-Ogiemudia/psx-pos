@@ -88,10 +88,10 @@ export async function GET(request: NextRequest) {
     const from = request.nextUrl.searchParams.get("from");
     const to = request.nextUrl.searchParams.get("to");
 
-    const query: Record<string, unknown> = getBranchScope(
-      session,
-      request.nextUrl.searchParams.get("branchId")
-    );
+    const query: Record<string, unknown> = {
+      ...getBranchScope(session, request.nextUrl.searchParams.get("branchId")),
+      voided: { $ne: true },
+    };
     if (session.user.role === "staff") {
       query.userId = session.user.id;
     }

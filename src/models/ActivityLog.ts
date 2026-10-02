@@ -24,6 +24,7 @@ const ActivityLogSchema = new Schema(
         "refund",
         "receive",
         "duplicate_merge",
+        "sale_return",
       ],
       required: true,
     },

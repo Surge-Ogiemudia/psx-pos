@@ -72,6 +72,13 @@ const SaleSchema = new Schema(
     changeFee: { type: Number, required: true, default: 0, min: 0 },
     printStatus: { type: String, enum: ["pending", "printed", "not_needed"], default: "not_needed" },
     timestamp: { type: Date, required: true, default: Date.now },
+    // "Return Sale" (same-day only — see /api/sales/[id]/return): cleanly undoes a sale rung up
+    // today, restocking everything, so the cashier can edit and resell. Soft-voided, not
+    // deleted — kept out of totals/listings but still here for the activity log to point at.
+    voided: { type: Boolean, default: false, index: true },
+    voidedAt: { type: Date, default: null },
+    voidedByUserId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    voidedByName: { type: String, default: null },
   },
   { timestamps: true }
 );
