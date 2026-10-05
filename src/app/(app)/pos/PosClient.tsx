@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { formatProductLabel, type PaymentMethod, type ProductCategory, type ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
@@ -127,6 +127,35 @@ function lineCost(line: CartLine): number {
   return line.kind === "catalog"
     ? (line.product.costPrice || 0) * piecesPerForm(line.product, line.form) * line.quantity
     : (line.unitCost || 0) * line.quantity;
+}
+
+function sameCatalogLine(a: CartLine, b: CartLine): boolean {
+  return a.kind === "catalog" && b.kind === "catalog" && a.product._id === b.product._id && a.form === b.form;
+}
+
+// Fold an EMR prescription into the sale in progress. Where a prescription item matches a
+// line already in the cart (same product, same unit form) the prescription's quantity is
+// SET, not added — so loading the same prescription twice, or after the cashier already
+// rang those items up by hand, never doubles them. Everything else in the cart is kept.
+function mergePrescriptionLines(prev: CartLine[], incoming: CartLine[]): CartLine[] {
+  const merged = [...prev];
+  for (const line of incoming) {
+    const idx = merged.findIndex((l) => sameCatalogLine(l, line));
+    if (idx >= 0) {
+      const existing = merged[idx];
+      if (existing.kind === "catalog" && line.kind === "catalog") {
+        merged[idx] = { ...existing, quantity: line.quantity, instruction: line.instruction ?? existing.instruction };
+      }
+      continue;
+    }
+    // Same product in a different unit form: its own line, with a key that can't collide.
+    if (merged.some((l) => l.key === line.key)) {
+      merged.push({ ...line, key: `${line.key}-rx-${Date.now()}` });
+      continue;
+    }
+    merged.push(line);
+  }
+  return merged;
 }
 
 // Per-line discount control — a red % stepper that sits beside a price field, plus the
@@ -425,6 +454,44 @@ export default function PosClient({
 
   // No native patient search state needed, EMR iframe handles it.
 
+  // The EMR message handler below is registered once, so it reads the live cart and linked
+  // customer through these refs rather than the (stale) values it closed over.
+  const cartRef = useRef<CartLine[]>([]);
+  const currentCustomerRef = useRef(currentCustomer);
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+  useEffect(() => {
+    currentCustomerRef.current = currentCustomer;
+  }, [currentCustomer]);
+
+  // Set when the EMR picker reports a customer while the cashier already has items in the
+  // cart: nothing is touched until they say whether those items belong to that customer.
+  const [pendingEmrLink, setPendingEmrLink] = useState<{
+    customer: { id: string | null; name: string; encounterId: string | null };
+    lines: CartLine[];
+  } | null>(null);
+
+  const applyEmrCustomer = useCallback(
+    (customer: { id: string | null; name: string; encounterId: string | null }, lines: CartLine[], mode: "link" | "fresh") => {
+      setCurrentCustomer(customer);
+      if (mode === "fresh") {
+        // Same reset as "Clear all", minus the confirm — the cashier just chose this.
+        setCart(lines);
+        setPayments([{ method: "cash", amount: "" }]);
+        setPaymentsTouched(false);
+        setChangeFee("0");
+      } else if (lines.length > 0) {
+        setCart((prev) => mergePrescriptionLines(prev, lines));
+      }
+      if (lines.length > 0) {
+        setMessage({ type: "success", text: `Loaded EMR prescription for ${customer.name} (${lines.length} items)` });
+      }
+      setPendingEmrLink(null);
+    },
+    []
+  );
+
   // Listen for POPULATE_CART from the EMR Dispensary iframe
   useEffect(() => {
     async function handleMessage(event: MessageEvent) {
@@ -434,19 +501,17 @@ export default function PosClient({
         const patientId = event.data.patientId || null;
         const encounterId = event.data.encounterId || null;
         
-        setCurrentCustomer({ id: patientId, name: patientName, encounterId });
+        const customer = { id: patientId, name: patientName, encounterId };
 
         // Picking or registering a customer in the iframe can fire this with no
-        // prescription. That must only link the customer — rebuilding the cart from an
-        // empty list was wiping whatever the cashier had already rung up.
-        if (!Array.isArray(medicines) || medicines.length === 0) return;
-
-        setLoadingPrescription(true);
+        // prescription — that must never rebuild (and so wipe) the cart.
+        const hasPrescription = Array.isArray(medicines) && medicines.length > 0;
         const nextCart: CartLine[] = [];
-        
-        const allProducts = await db.products.toArray();
 
-        for (const med of medicines) {
+        if (hasPrescription) setLoadingPrescription(true);
+        const allProducts = hasPrescription ? await db.products.toArray() : [];
+
+        for (const med of hasPrescription ? medicines : []) {
           if (!med || !med.name) continue;
           
           try {
@@ -511,33 +576,20 @@ export default function PosClient({
           }
         }
         
-        // Merge into the sale in progress instead of replacing it.
-        setCart((prev) => {
-          const merged = [...prev];
-          for (const line of nextCart) {
-            if (line.kind === "catalog") {
-              const idx = merged.findIndex(
-                (l) => l.kind === "catalog" && l.product._id === line.product._id && l.form === line.form
-              );
-              if (idx >= 0) {
-                const existing = merged[idx];
-                if (existing.kind === "catalog") {
-                  merged[idx] = { ...existing, quantity: existing.quantity + line.quantity, instruction: line.instruction || existing.instruction };
-                }
-                continue;
-              }
-              // Same product in a different unit form: keep it as its own line, with a key that can't collide.
-              if (merged.some((l) => l.key === line.key)) {
-                merged.push({ ...line, key: `${line.key}-rx-${Date.now()}` });
-                continue;
-              }
-            }
-            merged.push(line);
-          }
-          return merged;
-        });
-        setMessage({ type: "success", text: `Loaded EMR prescription for ${patientName} (${nextCart.length} items)` });
         setLoadingPrescription(false);
+
+        // Read the live cart/customer (the awaits above may have let them change).
+        const cartNow = cartRef.current;
+        const linked = currentCustomerRef.current;
+        const sameCustomer = Boolean(customer.id && linked.id === customer.id);
+
+        if (sameCustomer || cartNow.length === 0) {
+          // Nothing at stake: an empty cart, or the customer already linked re-sending.
+          applyEmrCustomer(customer, nextCart, "link");
+        } else {
+          // Items are already rung up — ask the cashier what they belong to before touching them.
+          setPendingEmrLink({ customer, lines: nextCart });
+        }
       } else if (event.data?.type === "RESIZE_IFRAME" && event.data.height) {
         setIframeHeight(event.data.height);
       }
@@ -545,7 +597,7 @@ export default function PosClient({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [branchId]);
+  }, [branchId, applyEmrCustomer]);
 
   const [customMode, setCustomMode] = useState(false);
   const [customForm, setCustomForm] = useState({
@@ -2593,6 +2645,68 @@ export default function PosClient({
             </p>
           )}
       </div>
+
+      {pendingEmrLink && (() => {
+        const { customer, lines } = pendingEmrLink;
+        // A customer is already linked to these items → this is a switch, not a first link.
+        const switching = Boolean(currentCustomer.name);
+        const overlap = lines.filter((l) => cart.some((c) => sameCatalogLine(c, l))).length;
+        const itemWord = cart.length === 1 ? "item is" : "items are";
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+            <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-2xl">
+              <h2 className="text-lg font-bold text-zinc-900">
+                {switching ? `Switch to ${customer.name}?` : `Are these items for ${customer.name}?`}
+              </h2>
+              <p className="mt-2 text-sm text-zinc-600">
+                {switching ? (
+                  <>
+                    The {cart.length} {itemWord} in the cart are for <strong>{currentCustomer.name}</strong>. Clear them and start a new sale for <strong>{customer.name}</strong>?
+                  </>
+                ) : (
+                  <>
+                    {cart.length} {itemWord} already in the cart. Link them to <strong>{customer.name}</strong>, or clear the cart and start a fresh sale for them?
+                  </>
+                )}
+              </p>
+              {lines.length > 0 && (
+                <p className="mt-2 rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">
+                  {customer.name} has a prescription with {lines.length} item{lines.length === 1 ? "" : "s"}.
+                  {!switching && overlap > 0 && ` ${overlap} already in the cart will use the prescription quantity.`}
+                </p>
+              )}
+              <div className="mt-4 flex flex-col gap-2">
+                {!switching && (
+                  <button
+                    type="button"
+                    onClick={() => applyEmrCustomer(customer, lines, "link")}
+                    className="rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-800"
+                  >
+                    Yes, link these items to {customer.name}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => applyEmrCustomer(customer, lines, "fresh")}
+                  className="rounded-lg border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700 hover:bg-red-100"
+                >
+                  {switching ? `Clear cart & switch to ${customer.name}` : "No, clear the cart and start fresh"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingEmrLink(null)}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
+                >
+                  Cancel — keep the cart as it is
+                </button>
+              </div>
+              <p className="mt-3 text-[11px] text-zinc-400">
+                Cancel doesn&apos;t link {customer.name} to this sale (the EMR box may still show them selected).
+              </p>
+            </div>
+          </div>
+        );
+      })()}
 
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
