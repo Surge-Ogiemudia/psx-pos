@@ -15,12 +15,6 @@ import { takePosResume, type ResumeItem } from "@/lib/posResume";
 
 type WholesaleCustomer = { _id: string; name: string; phoneNumber: string; buyerType: BuyerType };
 
-const BUYER_TYPE_LABEL: Record<BuyerType, string> = {
-  wholesaler: "Wholesaler",
-  distributor: "Distributor",
-  retailer: "Retailer",
-};
-
 type CartLine =
   | {
       kind: "catalog";
@@ -423,7 +417,7 @@ export default function PosClient({
   const [custSearchedFor, setCustSearchedFor] = useState("");
   const [custSearching, setCustSearching] = useState(false);
   const [showAddCustomer, setShowAddCustomer] = useState(false);
-  const [newCust, setNewCust] = useState<{ name: string; phone: string; type: BuyerType }>({ name: "", phone: "", type: "wholesaler" });
+  const [newCust, setNewCust] = useState<{ name: string; phone: string }>({ name: "", phone: "" });
   const [newCustError, setNewCustError] = useState<{ message: string; existing?: WholesaleCustomer } | null>(null);
   const [savingCust, setSavingCust] = useState(false);
   const [ailment, setAilment] = useState("");
@@ -561,7 +555,7 @@ export default function PosClient({
   }
 
   function openAddCustomer() {
-    setNewCust({ name: custQuery.trim(), phone: "", type: "wholesaler" });
+    setNewCust({ name: custQuery.trim(), phone: "" });
     setNewCustError(null);
     setShowAddCustomer(true);
   }
@@ -574,7 +568,7 @@ export default function PosClient({
       const res = await fetch("/api/pos-customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newCust.name, phoneNumber: newCust.phone, buyerType: newCust.type }),
+        body: JSON.stringify({ name: newCust.name, phoneNumber: newCust.phone }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.customer) {
@@ -2314,7 +2308,7 @@ export default function PosClient({
                           >
                             <span className="min-w-0 truncate font-medium text-zinc-900">{c.name}</span>
                             <span className="shrink-0 text-xs text-zinc-500">
-                              {c.phoneNumber || "no phone"} · {BUYER_TYPE_LABEL[c.buyerType]}
+                              {c.phoneNumber || "no phone"}
                             </span>
                           </button>
                         </li>
@@ -2834,21 +2828,6 @@ export default function PosClient({
               onChange={(e) => setNewCust((c) => ({ ...c, phone: e.target.value }))}
               className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600"
             />
-
-            <div className="mt-3 flex gap-2">
-              {(Object.keys(BUYER_TYPE_LABEL) as BuyerType[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setNewCust((c) => ({ ...c, type: t }))}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                    newCust.type === t ? "bg-amber-600 text-white" : "border border-zinc-300 text-zinc-700"
-                  }`}
-                >
-                  {BUYER_TYPE_LABEL[t]}
-                </button>
-              ))}
-            </div>
 
             {newCustError && (
               <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
