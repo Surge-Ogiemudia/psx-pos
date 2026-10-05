@@ -61,6 +61,8 @@ const SaleSchema = new Schema(
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     customerId: { type: Schema.Types.ObjectId, ref: "Patient", default: null },
     customerName: { type: String, default: null },
+    // Wholesale sales link to a saved customer (Buyer) so repeat buyers can be searched by name/phone.
+    buyerId: { type: Schema.Types.ObjectId, ref: "Buyer", default: null, index: true },
     items: { type: [SaleItemSchema], required: true, validate: (v: unknown[]) => v.length > 0 },
     totalAmount: { type: Number, required: true, min: 0 },
     totalCost: { type: Number, required: true, default: 0, min: 0 },
