@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { formatProductLabel, type PaymentMethod, type ProductCategory, type ProductJSON } from "@/lib/types";
+import { formatProductLabel, type BuyerType, type PaymentMethod, type ProductCategory, type ProductJSON } from "@/lib/types";
 import { getExpiryStatus, EXPIRY_BADGE_CLASS } from "@/lib/expiry";
 import { computeBaseUnitsPerLevel, pluralize } from "@/lib/unitHierarchy";
 import { parseNumeric } from "@/lib/numberInput";
@@ -12,6 +12,14 @@ import { POS_SALE_MODE_KEY, type PosSaleMode } from "@/lib/posSaleMode";
 import { fuzzyRank } from "@/lib/fuzzyMatch";
 import ReceiptPrintOptions from "./ReceiptPrintOptions";
 import { takePosResume, type ResumeItem } from "@/lib/posResume";
+
+type WholesaleCustomer = { _id: string; name: string; phoneNumber: string; buyerType: BuyerType };
+
+const BUYER_TYPE_LABEL: Record<BuyerType, string> = {
+  wholesaler: "Wholesaler",
+  distributor: "Distributor",
+  retailer: "Retailer",
+};
 
 type CartLine =
   | {
@@ -408,6 +416,16 @@ export default function PosClient({
   const [currentCustomer, setCurrentCustomer] = useState<{ id: string | null; name: string | null; encounterId: string | null }>({ id: null, name: null, encounterId: null });
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  // Wholesale customer picker: type to search saved customers, or add a new one.
+  const [buyerId, setBuyerId] = useState<string | null>(null);
+  const [custQuery, setCustQuery] = useState("");
+  const [custResults, setCustResults] = useState<WholesaleCustomer[]>([]);
+  const [custSearchedFor, setCustSearchedFor] = useState("");
+  const [custSearching, setCustSearching] = useState(false);
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [newCust, setNewCust] = useState<{ name: string; phone: string; type: BuyerType }>({ name: "", phone: "", type: "wholesaler" });
+  const [newCustError, setNewCustError] = useState<{ message: string; existing?: WholesaleCustomer } | null>(null);
+  const [savingCust, setSavingCust] = useState(false);
   const [ailment, setAilment] = useState("");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showPrintPrompt, setShowPrintPrompt] = useState(false);
@@ -491,6 +509,85 @@ export default function PosClient({
     },
     []
   );
+
+  // Wholesale customer search: as the cashier types, look the name (or phone) up in our own
+  // saved customers. Debounced; a stale response for an older query is dropped.
+  useEffect(() => {
+    const q = custQuery.trim();
+    if (q.length < 2 || buyerId || !isOnline) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setCustSearching(true);
+      try {
+        const res = await fetch(`/api/pos-customers?search=${encodeURIComponent(q)}`);
+        const data = res.ok ? await res.json() : { customers: [] };
+        if (!cancelled) {
+          setCustResults(data.customers || []);
+          setCustSearchedFor(q);
+        }
+      } catch {
+        if (!cancelled) {
+          setCustResults([]);
+          setCustSearchedFor(q);
+        }
+      } finally {
+        if (!cancelled) setCustSearching(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [custQuery, buyerId, isOnline]);
+
+  function selectWholesaleCustomer(c: WholesaleCustomer) {
+    setBuyerId(c._id);
+    setCustomerName(c.name);
+    setCustomerPhone(c.phoneNumber);
+    setCustQuery("");
+    setCustResults([]);
+    setCustSearchedFor("");
+    setShowAddCustomer(false);
+    setNewCustError(null);
+  }
+
+  function changeWholesaleCustomer() {
+    setBuyerId(null);
+    setCustomerName("");
+    setCustomerPhone("");
+    setCustQuery("");
+    setCustResults([]);
+    setCustSearchedFor("");
+  }
+
+  function openAddCustomer() {
+    setNewCust({ name: custQuery.trim(), phone: "", type: "wholesaler" });
+    setNewCustError(null);
+    setShowAddCustomer(true);
+  }
+
+  async function saveNewCustomer() {
+    if (savingCust) return;
+    setSavingCust(true);
+    setNewCustError(null);
+    try {
+      const res = await fetch("/api/pos-customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCust.name, phoneNumber: newCust.phone, buyerType: newCust.type }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.customer) {
+        selectWholesaleCustomer(data.customer);
+      } else {
+        setNewCustError({ message: data.error || "Could not save the customer", existing: data.existing });
+      }
+    } catch {
+      setNewCustError({ message: "Could not reach the server — check the connection and try again." });
+    } finally {
+      setSavingCust(false);
+    }
+  }
 
   // Listen for POPULATE_CART from the EMR Dispensary iframe
   useEffect(() => {
@@ -1299,6 +1396,8 @@ export default function PosClient({
     setCart([]);
     setCurrentCustomer({ id: null, name: null, encounterId: null });
     setCustomerName("");
+    setBuyerId(null);
+    setCustQuery("");
     setCustomerPhone("");
     setAilment("");
     setPayments([{ method: "cash", amount: "" }]);
@@ -1507,6 +1606,7 @@ export default function PosClient({
       customerId: currentCustomer.id,
       customerName: effectiveCustomerName,
       customerPhone: customerPhone.trim() || undefined,
+      buyerId: buyerId || undefined,
       ailment: ailment.trim() || undefined,
       payments: payments.map((p) => ({ method: p.method, amount: parseNumeric(p.amount) })),
       changeFee: changeFeeValue,
@@ -1550,6 +1650,8 @@ export default function PosClient({
       setCart([]);
       setCurrentCustomer({ id: null, name: null, encounterId: null });
       setCustomerName("");
+      setBuyerId(null);
+      setCustQuery("");
       setAilment("");
       setCustomerPhone("");
       setPayments([{ method: "cash", amount: "" }]);
@@ -1591,6 +1693,8 @@ export default function PosClient({
     setCart([]);
     setCurrentCustomer({ id: null, name: null, encounterId: null });
     setCustomerName("");
+    setBuyerId(null);
+    setCustQuery("");
     setAilment("");
     setCustomerPhone("");
     setPayments([{ method: "cash", amount: "" }]);
@@ -2153,26 +2257,85 @@ export default function PosClient({
         </div>
         <div className="flex flex-col rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
           {effectiveSaleMode === "wholesale" ? (
-            // Wholesale buyers aren't EMR patients, so no EMR picker here — just the buyer's
-            // name (required to complete the sale) and an optional phone.
+            // Wholesale buyers aren't EMR patients, so no EMR picker here. Instead: type to search
+            // our saved customers (name or phone), pick one, or add a new one. A customer is
+            // required to complete the sale.
             <div className="mb-4 pb-4 shrink-0 border-b border-amber-200">
               <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-amber-800">
-                Customer / Business name <span className="text-red-600">*</span>
+                Customer <span className="text-red-600">*</span>
               </label>
-              <input
-                type="text"
-                placeholder="Who is buying? (required)"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className="w-full rounded-lg border border-amber-300 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600"
-              />
-              <input
-                type="tel"
-                placeholder="Phone (optional)"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                className="mt-2 w-full rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-amber-600"
-              />
+              {buyerId ? (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-bold text-amber-950">{customerName}</div>
+                    {customerPhone && <div className="text-xs text-amber-800">{customerPhone}</div>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={changeWholesaleCustomer}
+                    className="shrink-0 text-xs font-semibold text-red-600 hover:underline"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : !isOnline ? (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Customer name (offline — not saved to the customer list)"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="w-full rounded-lg border border-amber-300 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600"
+                  />
+                </>
+              ) : (
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Type the customer's name or phone..."
+                    value={custQuery}
+                    onChange={(e) => {
+                      setCustQuery(e.target.value);
+                      if (e.target.value.trim().length < 2) {
+                        setCustResults([]);
+                        setCustSearchedFor("");
+                      }
+                    }}
+                    className="w-full rounded-lg border border-amber-300 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600"
+                  />
+                  {custQuery.trim().length >= 2 && (
+                    <ul className="mt-1 overflow-hidden rounded-lg border border-zinc-200 bg-white text-sm shadow-sm">
+                      {custResults.map((c) => (
+                        <li key={c._id}>
+                          <button
+                            type="button"
+                            onClick={() => selectWholesaleCustomer(c)}
+                            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-amber-50"
+                          >
+                            <span className="min-w-0 truncate font-medium text-zinc-900">{c.name}</span>
+                            <span className="shrink-0 text-xs text-zinc-500">
+                              {c.phoneNumber || "no phone"} · {BUYER_TYPE_LABEL[c.buyerType]}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                      {custSearching || custSearchedFor !== custQuery.trim() ? (
+                        <li className="px-3 py-2 text-xs text-zinc-500">Searching…</li>
+                      ) : (
+                        <li className={custResults.length > 0 ? "border-t border-zinc-100" : ""}>
+                          <button
+                            type="button"
+                            onClick={openAddCustomer}
+                            className="w-full px-3 py-2 text-left text-sm font-semibold text-amber-800 hover:bg-amber-50"
+                          >
+                            ➕ Add &ldquo;{custQuery.trim()}&rdquo; as new customer
+                          </button>
+                        </li>
+                      )}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
           <div className="mb-4 pb-4 shrink-0 border-b border-zinc-100">
@@ -2621,7 +2784,7 @@ export default function PosClient({
 
               {needsCustomerName && (
                 <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
-                  Enter the customer / business name above to complete this wholesale sale.
+                  Pick or add the customer above to complete this wholesale sale.
                 </p>
               )}
 
@@ -2645,6 +2808,84 @@ export default function PosClient({
             </p>
           )}
       </div>
+
+      {showAddCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-2xl">
+            <h2 className="text-lg font-bold text-zinc-900">Add new customer</h2>
+            <p className="mt-1 text-xs text-zinc-500">They&apos;ll be saved and linked to this sale. Your cart stays as it is.</p>
+
+            <label className="mt-4 block text-xs font-semibold uppercase tracking-wider text-zinc-500">Name</label>
+            <input
+              type="text"
+              value={newCust.name}
+              onChange={(e) => setNewCust((c) => ({ ...c, name: e.target.value }))}
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600"
+            />
+
+            <label className="mt-3 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Phone number <span className="text-red-600">*</span>
+            </label>
+            <input
+              type="tel"
+              autoFocus
+              placeholder="e.g. 0803 123 4567"
+              value={newCust.phone}
+              onChange={(e) => setNewCust((c) => ({ ...c, phone: e.target.value }))}
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600"
+            />
+
+            <div className="mt-3 flex gap-2">
+              {(Object.keys(BUYER_TYPE_LABEL) as BuyerType[]).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setNewCust((c) => ({ ...c, type: t }))}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                    newCust.type === t ? "bg-amber-600 text-white" : "border border-zinc-300 text-zinc-700"
+                  }`}
+                >
+                  {BUYER_TYPE_LABEL[t]}
+                </button>
+              ))}
+            </div>
+
+            {newCustError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {newCustError.message}
+                {newCustError.existing && (
+                  <button
+                    type="button"
+                    onClick={() => selectWholesaleCustomer(newCustError.existing!)}
+                    className="mt-2 block w-full rounded-lg bg-amber-600 px-3 py-2 text-sm font-bold text-white hover:bg-amber-700"
+                  >
+                    Use {newCustError.existing.name}
+                    {newCustError.existing.phoneNumber ? ` (${newCustError.existing.phoneNumber})` : ""} instead
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={saveNewCustomer}
+                disabled={savingCust || !newCust.name.trim() || !newCust.phone.trim()}
+                className="flex-1 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-60"
+              >
+                {savingCust ? "Saving…" : "Save & use for this sale"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAddCustomer(false)}
+                className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pendingEmrLink && (() => {
         const { customer, lines } = pendingEmrLink;

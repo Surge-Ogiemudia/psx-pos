@@ -4,6 +4,7 @@ import { dbConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import ProductBatch from "@/models/ProductBatch";
 import Sale, { type SaleDoc } from "@/models/Sale";
+import Buyer from "@/models/Buyer";
 import Counter from "@/models/Counter";
 import ProductRequest from "@/models/ProductRequest";
 import User from "@/models/User";
@@ -197,6 +198,17 @@ export async function POST(request: NextRequest) {
 
     const amountTendered = round2(payments.reduce((sum, p) => sum + p.amount, 0));
     const scope = getBranchScope(session, body.branchId);
+
+    // A wholesale sale may point at a saved customer; it has to be one of this pharmacy's own.
+    let buyerId: string | null = null;
+    if (body.buyerId) {
+      const known =
+        mongoose.isValidObjectId(body.buyerId) &&
+        (await Buyer.exists({ _id: body.buyerId, pharmacyId: session.user.pharmacyId }));
+      if (!known) return NextResponse.json({ error: "Unknown customer" }, { status: 400 });
+      buyerId = String(body.buyerId);
+    }
+
     const dbSession = await mongoose.startSession();
     try {
       let saleDoc: any;
@@ -432,6 +444,7 @@ export async function POST(request: NextRequest) {
               offlineReceiptNumber: body.offlineReceiptNumber || null,
               userId: session.user.id,
               customerId,
+              buyerId,
               customerName,
               items: saleItems,
               totalAmount,
