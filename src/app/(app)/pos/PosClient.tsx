@@ -1360,6 +1360,35 @@ export default function PosClient({
   const changeFeeValue = parseNumeric(changeFee) || 0;
   const cashToHandBack = round2(Math.max(0, changeDue - changeFeeValue));
 
+  // Problems the till can already see before pressing Complete Sale — named item by item, with
+  // the real numbers, so a cashier knows exactly what to change. The server still makes the final
+  // call (stock may have moved since this till last synced), so this is a heads-up, not a block.
+  const cartProblems = useMemo(() => {
+    const out: { label: string; text: string }[] = [];
+    for (const line of cart) {
+      if (line.kind !== "catalog") continue;
+      const label = formatProductLabel(line.product);
+      const pieces = piecesPerForm(line.product, line.form);
+      const baseUnit = baseUnitName(line.product);
+      const requestedBase = line.quantity * pieces;
+      const unitPriceNow = line.customPrice !== undefined ? line.customPrice : unitPriceFor(line.product, effectiveSaleMode);
+      if (!(unitPriceNow > 0)) {
+        out.push({ label, text: `No price is set for this item, so it can't be sold. Type a price for it in the cart, or set one in Catalog.` });
+      }
+      if (requestedBase > line.product.quantityInStock) {
+        const max = Math.max(0, Math.floor(line.product.quantityInStock / pieces));
+        const left = line.product.quantityInStock;
+        out.push({
+          label,
+          text: left === 0
+            ? `None left in stock, but the cart has ${line.quantity} ${line.form}. Remove it from the cart.`
+            : `The cart has ${line.quantity} ${line.form}, but only ${left} ${baseUnit}${left === 1 ? "" : "s"} is in stock. Lower it to ${max} ${line.form}${max === 1 ? "" : "s"} or less, or remove it.`,
+        });
+      }
+    }
+    return out;
+  }, [cart, effectiveSaleMode]);
+
   const canCompleteSale =
     cart.length > 0 &&
     payments.every((p) => parseNumeric(p.amount) > 0) &&
@@ -1393,6 +1422,7 @@ export default function PosClient({
       line.kind === "catalog"
         ? {
             productId: line.product._id,
+            productName: formatProductLabel(line.product),
             quantity: line.quantity,
             form: line.product.unitHierarchy?.length ? line.form : undefined,
             priceTier: effectiveSaleMode,
@@ -2507,6 +2537,20 @@ export default function PosClient({
               </div>
               )}
 
+              {cartProblems.length > 0 && (
+                <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  <p className="mb-1.5 font-bold">Fix these before completing the sale:</p>
+                  <ul className="space-y-1.5">
+                    {cartProblems.map((p, idx) => (
+                      <li key={idx}>
+                        <span className="font-semibold">{p.label}</span>
+                        <br />
+                        <span className="text-amber-800">{p.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <button
                 onClick={openConfirmModal}
                 disabled={submitting || !canCompleteSale}

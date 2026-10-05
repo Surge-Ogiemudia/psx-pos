@@ -44,6 +44,8 @@ const DISCOUNT_APPROVAL_THRESHOLD = 25;
 
 interface SaleItemInput {
   productId?: string;
+  // Sent by the till purely so an error can name the item in plain words when it can't be found.
+  productName?: string;
   quantity: number;
   priceTier?: "retail" | "wholesale" | "distributor";
   form?: string;
@@ -278,9 +280,10 @@ export async function POST(request: NextRequest) {
             { session: dbSession }
           );
           if (!existingProduct) {
+            const name = item.productName ? `"${item.productName}"` : "An item in the cart";
             throw new Error(
-              `An item in this cart (id ${item.productId}) isn't in this branch's catalog — it may have been removed, ` +
-                `or this device's cached catalog is out of date. Reload the page and rebuild the cart.`
+              `${name} can't be found in this branch's stock list, so it can't be sold. ` +
+                `Remove it from the cart and add it again. If it still fails, tell the manager — the item may have been removed or merged.`
             );
           }
 
@@ -308,7 +311,30 @@ export async function POST(request: NextRequest) {
           );
 
           if (!product) {
-            throw new Error(`Insufficient stock or product not found for item ${item.productId}`);
+            // Re-read so the message reports the real number on the shelf, not a guess.
+            const fresh = await Product.findOne({ _id: item.productId, ...scope }, null, { session: dbSession });
+            const label = formatProductLabel(existingProduct);
+            const baseUnit = existingProduct.unitHierarchy?.length
+              ? existingProduct.unitHierarchy[existingProduct.unitHierarchy.length - 1].unitName
+              : "unit";
+            const plural = (n: number, u: string) => `${n} ${u}${n === 1 ? "" : "s"}`;
+            if (!fresh) {
+              throw new Error(`"${formatProductLabel(existingProduct)}" can't be found in this branch's stock list, so it can't be sold. Remove it from the cart and add it again.`);
+            }
+            const onShelf = Math.max(0, fresh.quantityInStock ?? 0);
+            const asked = form
+              ? `${plural(item.quantity, form)} (${plural(baseQuantity, baseUnit)})`
+              : plural(baseQuantity, baseUnit);
+            const sellable = form
+              ? `${Math.floor(onShelf / (baseQuantity / item.quantity))} ${form}${Math.floor(onShelf / (baseQuantity / item.quantity)) === 1 ? "" : "s"}`
+              : plural(onShelf, baseUnit);
+            const fix = onShelf === 0
+              ? `There are none left, so remove "${label}" from the cart.`
+              : `Lower the quantity of "${label}" in the cart to ${sellable} or less, or remove it, then press Complete Sale again.`;
+            throw new Error(
+              `Not enough stock for "${label}". The cart asks for ${asked}, but only ${plural(onShelf, baseUnit)} is in stock right now. ` +
+                fix
+            );
           }
 
           // Draw down real batches FIFO (soonest expiry first) on a best-effort basis — the
