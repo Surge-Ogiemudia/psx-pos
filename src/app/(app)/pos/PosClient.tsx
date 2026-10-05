@@ -435,6 +435,12 @@ export default function PosClient({
         const encounterId = event.data.encounterId || null;
         
         setCurrentCustomer({ id: patientId, name: patientName, encounterId });
+
+        // Picking or registering a customer in the iframe can fire this with no
+        // prescription. That must only link the customer — rebuilding the cart from an
+        // empty list was wiping whatever the cashier had already rung up.
+        if (!Array.isArray(medicines) || medicines.length === 0) return;
+
         setLoadingPrescription(true);
         const nextCart: CartLine[] = [];
         
@@ -505,7 +511,31 @@ export default function PosClient({
           }
         }
         
-        setCart(nextCart);
+        // Merge into the sale in progress instead of replacing it.
+        setCart((prev) => {
+          const merged = [...prev];
+          for (const line of nextCart) {
+            if (line.kind === "catalog") {
+              const idx = merged.findIndex(
+                (l) => l.kind === "catalog" && l.product._id === line.product._id && l.form === line.form
+              );
+              if (idx >= 0) {
+                const existing = merged[idx];
+                if (existing.kind === "catalog") {
+                  merged[idx] = { ...existing, quantity: existing.quantity + line.quantity, instruction: line.instruction || existing.instruction };
+                }
+                continue;
+              }
+              // Same product in a different unit form: keep it as its own line, with a key that can't collide.
+              if (merged.some((l) => l.key === line.key)) {
+                merged.push({ ...line, key: `${line.key}-rx-${Date.now()}` });
+                continue;
+              }
+            }
+            merged.push(line);
+          }
+          return merged;
+        });
         setMessage({ type: "success", text: `Loaded EMR prescription for ${patientName} (${nextCart.length} items)` });
         setLoadingPrescription(false);
       } else if (event.data?.type === "RESIZE_IFRAME" && event.data.height) {
@@ -1360,7 +1390,13 @@ export default function PosClient({
   const changeFeeValue = parseNumeric(changeFee) || 0;
   const cashToHandBack = round2(Math.max(0, changeDue - changeFeeValue));
 
+  // A wholesale sale must say who it's for — without this the server would invent a
+  // "ClientN-date" placeholder name, which tells nobody anything on a wholesale record.
+  const hasCustomerName = Boolean((currentCustomer.name || customerName).trim());
+  const needsCustomerName = effectiveSaleMode === "wholesale" && !hasCustomerName;
+
   const canCompleteSale =
+    !needsCustomerName &&
     cart.length > 0 &&
     payments.every((p) => parseNumeric(p.amount) > 0) &&
     amountTendered >= total - EPS &&
@@ -1447,7 +1483,7 @@ export default function PosClient({
       const fullSaleData: ReceiptSale = {
         _id: `offline-${Date.now()}`,
         receiptNumber: offlineReceiptNumber,
-        customerName: currentCustomer.name || undefined,
+        customerName: effectiveCustomerName,
         userName: staffName || "Staff",
         items: payloadItems as any,
         totalAmount: total,
@@ -2064,13 +2100,36 @@ export default function PosClient({
           </div>
         </div>
         <div className="flex flex-col rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+          {effectiveSaleMode === "wholesale" ? (
+            // Wholesale buyers aren't EMR patients, so no EMR picker here — just the buyer's
+            // name (required to complete the sale) and an optional phone.
+            <div className="mb-4 pb-4 shrink-0 border-b border-amber-200">
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-amber-800">
+                Customer / Business name <span className="text-red-600">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Who is buying? (required)"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="w-full rounded-lg border border-amber-300 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600"
+              />
+              <input
+                type="tel"
+                placeholder="Phone (optional)"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                className="mt-2 w-full rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-amber-600"
+              />
+            </div>
+          ) : (
           <div className="mb-4 pb-4 shrink-0 border-b border-zinc-100">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-500">Customer (EMR Patient)</label>
-            <div 
-              className="overflow-hidden transition-all duration-200" 
+            <div
+              className="overflow-hidden transition-all duration-200"
               style={{ height: `${Math.max(42, iframeHeight)}px` }}
             >
-              <iframe 
+              <iframe
                 ref={iframeRef}
                 src={`https://emr.psx.ng/embed/dispensary?pharmacyId=${pharmacyId}`}
                 className="w-full h-full border-0"
@@ -2078,6 +2137,7 @@ export default function PosClient({
               />
             </div>
           </div>
+          )}
 
           {loadingPrescription ? (
             <div className="flex flex-col items-center justify-center p-6 border border-zinc-100 rounded-lg bg-zinc-50/50">
@@ -2507,6 +2567,12 @@ export default function PosClient({
               </div>
               )}
 
+              {needsCustomerName && (
+                <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                  Enter the customer / business name above to complete this wholesale sale.
+                </p>
+              )}
+
               <button
                 onClick={openConfirmModal}
                 disabled={submitting || !canCompleteSale}
@@ -2550,10 +2616,10 @@ export default function PosClient({
               {(currentCustomer.name || customerName) && (
                 <div className="rounded-lg border border-teal-200 bg-teal-50/60 p-3 flex items-center gap-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 text-white font-bold text-xs">
-                    EMR
+                    {effectiveSaleMode === "wholesale" ? "👤" : "EMR"}
                   </div>
                   <div>
-                    <span className="text-xs font-semibold text-teal-800 uppercase tracking-wider block">Customer / Patient</span>
+                    <span className="text-xs font-semibold text-teal-800 uppercase tracking-wider block">{effectiveSaleMode === "wholesale" ? "Customer" : "Customer / Patient"}</span>
                     <span className="text-sm font-bold text-teal-950">{currentCustomer.name || customerName}</span>
                     {customerPhone && <span className="text-xs text-zinc-500 block">{customerPhone}</span>}
                   </div>
