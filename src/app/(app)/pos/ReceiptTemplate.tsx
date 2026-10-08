@@ -352,13 +352,18 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         // A fallback for a till whose thermal printer won't cooperate — same receipt, printed
         // on a normal office printer instead, with no attempt to force it onto one sheet: a long
         // receipt runs to page 2/3, same as any other document.
+        // The paper size is left to the print dialog ("size: auto") and every width is a
+        // percentage of whatever page that gives, so the receipt fits A4, Letter or any custom
+        // margins the dialog falls back to after a printer switch, instead of being laid out
+        // for a fixed 210mm sheet. On a narrow page (an A4-set till that ends up on a thermal
+        // roll) the side gap shrinks so nothing is squeezed off the edge.
         // The page margin is 0 on purpose: browsers print their own header/footer (date, page
         // title, URL, page numbers) inside the page margin, and drop it when the margin is 0.
         // The breathing room is supplied by the spacer rows of the frame table below instead,
         // which repeat on every page.
         // Explicit mm dimensions, not the "A4" keyword — keyword page sizes are less reliably
         // supported than plain numbers, which is what every other working rule here uses.
-        <style>{`@media print { @page { size: 210mm 297mm !important; margin: 0 !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } .print-receipt-root .print-receipt * { page-break-inside: auto !important; } .print-receipt-root .print-receipt .receipt-item-row { page-break-inside: avoid !important; } .print-receipt-root .print-receipt thead { page-break-inside: avoid !important; break-inside: avoid !important; } }`}</style>
+        <style>{`@media print { @page { size: auto !important; margin: 0 !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } .print-receipt-root .print-receipt * { page-break-inside: auto !important; } .print-receipt-root .print-receipt .receipt-item-row { page-break-inside: avoid !important; } .print-receipt-root .print-receipt thead { page-break-inside: avoid !important; break-inside: avoid !important; } .print-receipt-root .a4-frame-cell { padding: 0 15mm !important; } @media (max-width: 120mm) { .print-receipt-root .a4-frame-cell { padding: 0 2mm !important; } .print-receipt-root .a4-frame-cell table { font-size: 8px !important; } .print-receipt-root .a4-frame-cell th, .print-receipt-root .a4-frame-cell td { padding: 1px 2px !important; overflow-wrap: anywhere !important; } } }`}</style>
       )}
       {dynamicPageCss && <style>{`@media print { ${dynamicPageCss} }`}</style>}
       <div
@@ -388,7 +393,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
               <tr><td style={{ height: "6mm", padding: 0, border: 0 }} /></tr>
             </thead>
             <tbody>
-              <tr><td style={{ padding: "0 15mm", border: 0, verticalAlign: "top" }}>{receiptBody}</td></tr>
+              <tr><td className="a4-frame-cell" style={{ border: 0, verticalAlign: "top" }}>{receiptBody}</td></tr>
             </tbody>
             <tfoot style={{ display: "table-footer-group" }}>
               <tr><td style={{ height: "6mm", padding: 0, border: 0 }} /></tr>
