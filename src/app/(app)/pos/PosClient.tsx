@@ -10,6 +10,13 @@ import { usePosOfflineSync } from "./usePosOfflineSync";
 import { db } from "@/lib/db";
 import { POS_SALE_MODE_KEY, type PosSaleMode } from "@/lib/posSaleMode";
 import { fuzzyRank } from "@/lib/fuzzyMatch";
+import {
+  POS_CATEGORY_FILTER_KEY,
+  POS_CATEGORY_OPTIONS,
+  filterByCategory,
+  isPosCategoryFilter,
+  type PosCategoryFilter,
+} from "@/lib/posCategoryFilter";
 import ReceiptPrintOptions from "./ReceiptPrintOptions";
 import { takePosResume, type ResumeItem } from "@/lib/posResume";
 
@@ -336,6 +343,30 @@ export default function PosClient({
   const [products, setProducts] = useState<ProductJSON[]>([]);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  // View-only: narrows the search results to one category. Remembered per device so a till on
+  // the supermarket side keeps showing supermarket items.
+  const [categoryFilter, setCategoryFilter] = useState<PosCategoryFilter>("all");
+  useEffect(() => {
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(POS_CATEGORY_FILTER_KEY);
+    } catch {
+      // localStorage can be blocked — the switch just starts on "All".
+    }
+    if (isPosCategoryFilter(saved)) {
+      const value = saved;
+      // Applied after mount (not during first render) so server and browser render the same HTML.
+      queueMicrotask(() => setCategoryFilter(value));
+    }
+  }, []);
+  function chooseCategoryFilter(next: PosCategoryFilter) {
+    setCategoryFilter(next);
+    try {
+      localStorage.setItem(POS_CATEGORY_FILTER_KEY, next);
+    } catch {
+      // Not remembering the choice is fine.
+    }
+  }
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Set when a barcode scan finds no match locally or on the server — most of the
@@ -1046,6 +1077,9 @@ export default function PosClient({
     const fetchProducts = async () => {
       const trimmedSearch = debouncedSearch.trim();
       const allProducts = await db.products.toArray();
+      // The category switch narrows what is searched. A barcode match below still looks at
+      // everything: an exact scan should always find its item, whichever view is on.
+      const searchable = filterByCategory(allProducts, categoryFilter);
 
       // Ranked, not just filtered — was a literal substring match with results sliced to
       // 50 in whatever order came back, unranked. That meant a broad query with >50
@@ -1060,11 +1094,11 @@ export default function PosClient({
         ? allProducts.filter((p) => p.barcode && p.barcode.includes(trimmedSearch))
         : [];
       const ranked = trimmedSearch
-        ? fuzzyRank(trimmedSearch, allProducts, (p) => `${p.itemName ?? ""} ${p.brand ?? ""}`, {
+        ? fuzzyRank(trimmedSearch, searchable, (p) => `${p.itemName ?? ""} ${p.brand ?? ""}`, {
             limit: 50,
             minScore: 0.2,
           })
-        : [...allProducts].sort((a, b) => (a.itemName || "").localeCompare(b.itemName || "")).slice(0, 50);
+        : [...searchable].sort((a, b) => (a.itemName || "").localeCompare(b.itemName || "")).slice(0, 50);
       const seenIds = new Set(barcodeMatches.map((p) => p._id));
       const filtered = [...barcodeMatches, ...ranked.filter((p) => !seenIds.has(p._id))].slice(0, 50);
 
@@ -1081,7 +1115,7 @@ export default function PosClient({
           const res = await fetch(`/api/products?${params.toString()}`);
           if (res.ok) {
             const data = await res.json();
-            setProducts((data.products ?? []).slice(0, 50));
+            setProducts(filterByCategory((data.products ?? []) as ProductJSON[], categoryFilter).slice(0, 50));
             return;
           }
         } catch (e) {
@@ -1092,7 +1126,7 @@ export default function PosClient({
       setProducts(filtered as unknown as ProductJSON[]);
     };
     fetchProducts();
-  }, [debouncedSearch, branchId]);
+  }, [debouncedSearch, branchId, categoryFilter]);
 
   // Global Barcode Scanner Listener
   useEffect(() => {
@@ -1721,7 +1755,7 @@ export default function PosClient({
     setChangeFee("0");
     const query = debouncedSearch.toLowerCase();
     const allProducts = await db.products.toArray();
-    const filtered = allProducts.filter(p => 
+    const filtered = filterByCategory(allProducts, categoryFilter).filter(p => 
       (p.itemName && p.itemName.toLowerCase().includes(query)) ||
       (p.brand && p.brand.toLowerCase().includes(query)) ||
       (p.barcode && p.barcode.includes(query))
@@ -1944,6 +1978,24 @@ export default function PosClient({
                 Clear
               </button>
             )}
+          </div>
+          <div className="mb-2 flex flex-wrap items-center gap-1.5" role="group" aria-label="Show category">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Show</span>
+            {POS_CATEGORY_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => chooseCategoryFilter(o.value)}
+                aria-pressed={categoryFilter === o.value}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                  categoryFilter === o.value
+                    ? "border-teal-700 bg-teal-700 text-white"
+                    : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-100"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
           </div>
 
           <button
