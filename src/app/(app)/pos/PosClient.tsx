@@ -13,7 +13,15 @@ import { fuzzyRank } from "@/lib/fuzzyMatch";
 import ReceiptPrintOptions from "./ReceiptPrintOptions";
 import { takePosResume, type ResumeItem } from "@/lib/posResume";
 
-type WholesaleCustomer = { _id: string; name: string; phoneNumber: string; buyerType: BuyerType };
+type WholesaleCustomer = {
+  _id: string;
+  name: string;
+  phoneNumber: string;
+  buyerType: BuyerType;
+  // "emr" = found in the EMR's patient records; picking one saves it as a customer first.
+  source?: "buyer" | "emr";
+  emrPatientId?: string;
+};
 
 type CartLine =
   | {
@@ -543,6 +551,23 @@ export default function PosClient({
     setCustSearchedFor("");
     setShowAddCustomer(false);
     setNewCustError(null);
+  }
+
+  // Search results from the EMR aren't saved customers yet — save (or reuse) one, then select it.
+  async function chooseWholesaleCustomer(c: WholesaleCustomer) {
+    if (c.source !== "emr") return selectWholesaleCustomer(c);
+    try {
+      const res = await fetch("/api/pos-customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emrPatientId: c.emrPatientId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.customer) selectWholesaleCustomer(data.customer);
+      else setMessage({ type: "error", text: data.error || "Could not use that customer" });
+    } catch {
+      setMessage({ type: "error", text: "Could not reach the server — check the connection and try again." });
+    }
   }
 
   function changeWholesaleCustomer() {
@@ -2303,10 +2328,15 @@ export default function PosClient({
                         <li key={c._id}>
                           <button
                             type="button"
-                            onClick={() => selectWholesaleCustomer(c)}
+                            onClick={() => chooseWholesaleCustomer(c)}
                             className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-amber-50"
                           >
-                            <span className="min-w-0 truncate font-medium text-zinc-900">{c.name}</span>
+                            <span className="min-w-0 truncate font-medium text-zinc-900">
+                              {c.name}
+                              {c.source === "emr" && (
+                                <span className="ml-1.5 rounded bg-teal-100 px-1 py-0.5 text-[10px] font-semibold text-teal-800">EMR</span>
+                              )}
+                            </span>
                             <span className="shrink-0 text-xs text-zinc-500">
                               {c.phoneNumber || "no phone"}
                             </span>
