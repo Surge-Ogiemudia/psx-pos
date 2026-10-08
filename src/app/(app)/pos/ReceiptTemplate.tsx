@@ -177,6 +177,39 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         }}
       >
         {/* Header */}
+        {paper === "A4" ? (
+          // A4: the pharmacy name stands alone on top; everything else sits in a small grid,
+          // three to a row (two rows at most) instead of one line each.
+          <div style={{ marginBottom: "6px" }}>
+            <h2 style={{ margin: "0 0 4px", fontSize: "16px", fontWeight: "bold", color: "#000", textAlign: "center" }}>{pharmacyName}</h2>
+            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: "11px", lineHeight: "1.25", color: "#000" }}>
+              <tbody>
+                {(() => {
+                  const cells: { label: string; value: string; bold?: boolean }[] = [];
+                  if (branchName) cells.push({ label: "Branch", value: branchName, bold: true });
+                  cells.push({ label: "Date", value: formattedDate });
+                  cells.push({ label: "Receipt", value: `#${sale.receiptNumber}` });
+                  if (branchAddress) cells.push({ label: "Address", value: branchAddress });
+                  cells.push({ label: "Staff", value: sale.userName || "Admin" });
+                  if (sale.customerName) cells.push({ label: "Customer", value: sale.customerName, bold: true });
+                  const rows: (typeof cells)[] = [];
+                  for (let i = 0; i < cells.length; i += 3) rows.push(cells.slice(i, i + 3));
+                  return rows.map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((c, ci) => (
+                        <td key={c.label} colSpan={ci === row.length - 1 ? 4 - row.length : 1} style={{ border: "1px solid #000", padding: "2px 4px", verticalAlign: "top", wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
+                          <span style={{ fontWeight: "normal" }}>{c.label}: </span>
+                          <span style={{ fontWeight: c.bold ? "bold" : "normal" }}>{c.value}</span>
+                        </td>
+                      ))}
+                    </tr>
+                  ));
+                })()}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <>
         <div style={{ textAlign: "center", marginBottom: "12px" }}>
           <h2 style={{ margin: "0", fontSize: "16px", fontWeight: "bold", color: "#000" }}>{pharmacyName}</h2>
           {branchName && <p style={{ margin: "2px 0 0", fontSize: "12px", fontWeight: "bold", color: "#000" }}>{branchName}</p>}
@@ -188,8 +221,11 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
             <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#000" }}>Customer: {sale.customerName}</p>
           )}
         </div>
+          </>
+        )}
 
-        <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "8px 0" }} />
+        {/* The A4 grids carry their own borders, so the dashed rule is thermal-only. */}
+        {paper !== "A4" && <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "8px 0" }} />}
 
         {paper === "A4" ? (
           // A4: an invoice-style grid, one line per item where it fits. The column header
