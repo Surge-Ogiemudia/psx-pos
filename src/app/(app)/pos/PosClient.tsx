@@ -12,6 +12,7 @@ import { POS_SALE_MODE_KEY, type PosSaleMode } from "@/lib/posSaleMode";
 import { fuzzyRank } from "@/lib/fuzzyMatch";
 import { amountOffFromPercent, formatAmount } from "@/lib/discount";
 import DiscountControl, { DISCOUNT_MODE_KEY, type DiscountMode } from "./DiscountControl";
+import ItemImageField from "./ItemImageField";
 import {
   POS_CATEGORY_FILTER_KEY,
   POS_CATEGORY_OPTIONS,
@@ -436,7 +437,9 @@ export default function PosClient({
     batchNumber: "",
     expiryDate: "",
     barcode: "",
+    imageUrl: "",
   });
+  const [quickImageBusy, setQuickImageBusy] = useState(false); // a photo is mid-upload
   // Quick add: same modal as quick edit, but creates a new product (POST /api/products).
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddMatches, setQuickAddMatches] = useState<{ product: ProductJSON }[] | null>(null);
@@ -1183,6 +1186,7 @@ export default function PosClient({
       batchNumber: product.batchNumber || "",
       expiryDate: product.expiryDate ? String(product.expiryDate).slice(0, 10) : "",
       barcode: "",
+      imageUrl: product.imageUrl || "",
     });
     setQuickEditError("");
   }
@@ -1204,6 +1208,7 @@ export default function PosClient({
       batchNumber: "",
       expiryDate: "",
       barcode: "",
+      imageUrl: "",
     });
     setQuickEditError("");
   }
@@ -1256,6 +1261,7 @@ export default function PosClient({
           batchNumber: f.batchNumber,
           expiryDate: f.expiryDate || null,
           barcode: f.barcode.trim(),
+          imageUrl: f.imageUrl || undefined,
         }),
       });
       const data = await res.json();
@@ -1307,6 +1313,8 @@ export default function PosClient({
           distributorPrice: quickEditForm.distributorPrice,
           batchNumber: quickEditForm.batchNumber,
           expiryDate: quickEditForm.expiryDate || null,
+          // Only sent when the photo was added, changed or removed here.
+          ...(quickEditForm.imageUrl !== (quickEditProduct.imageUrl || "") ? { imageUrl: quickEditForm.imageUrl } : {}),
         }),
       });
       const data = await res.json();
@@ -3279,6 +3287,17 @@ export default function PosClient({
                     <option value="supermarket">Supermarket</option>
                   </select>
                 </label>
+                {canManageItems && (
+                  <div className="col-span-2">
+                    <ItemImageField
+                      imageUrl={quickEditForm.imageUrl}
+                      onChange={(url) => setQuickEditForm((f) => ({ ...f, imageUrl: url }))}
+                      onBusyChange={setQuickImageBusy}
+                      onError={setQuickEditError}
+                      isOnline={isOnline}
+                    />
+                  </div>
+                )}
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Stock Qty</span>
                   <input
@@ -3391,7 +3410,7 @@ export default function PosClient({
               </button>
               <button
                 onClick={quickAddOpen ? () => saveQuickAdd(!!quickAddMatches) : saveQuickEdit}
-                disabled={quickEditSaving}
+                disabled={quickEditSaving || quickImageBusy}
                 className="flex-1 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
               >
                 {quickEditSaving ? (quickAddOpen ? "Adding…" : "Saving…") : quickAddOpen ? (quickAddMatches ? "Add anyway" : "Add item") : "Save"}
