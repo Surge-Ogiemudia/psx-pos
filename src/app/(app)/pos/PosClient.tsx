@@ -10,6 +10,8 @@ import { usePosOfflineSync } from "./usePosOfflineSync";
 import { db } from "@/lib/db";
 import { POS_SALE_MODE_KEY, type PosSaleMode } from "@/lib/posSaleMode";
 import { fuzzyRank } from "@/lib/fuzzyMatch";
+import { amountOffFromPercent, formatAmount } from "@/lib/discount";
+import DiscountControl, { DISCOUNT_MODE_KEY, type DiscountMode } from "./DiscountControl";
 import {
   POS_CATEGORY_FILTER_KEY,
   POS_CATEGORY_OPTIONS,
@@ -54,11 +56,6 @@ type CartLine =
       instruction?: string;
       discountPercent?: number;
     };
-
-// Never more than 25% off without an admin actually logged into this terminal — the
-// admin-approval gate for a larger discount reuses the real login/role check rather than
-// a new PIN system, same trust model as the wholesale-mode lock elsewhere on this screen.
-const DISCOUNT_APPROVAL_THRESHOLD = 25;
 
 function discountedUnitPrice(basePrice: number, discountPercent: number | undefined): number {
   if (!discountPercent) return basePrice;
@@ -201,76 +198,6 @@ function CartFieldTile({
   );
 }
 
-function DiscountControl({
-  value,
-  onChange,
-  isAdminSession,
-}: {
-  value: number | undefined;
-  onChange: (percent: number | undefined) => void;
-  isAdminSession: boolean;
-}) {
-  const [blocked, setBlocked] = useState(false);
-
-  function apply(next: number) {
-    const clamped = Math.max(0, Math.min(100, Math.round(next)));
-    if (clamped > DISCOUNT_APPROVAL_THRESHOLD && !isAdminSession) {
-      onChange(DISCOUNT_APPROVAL_THRESHOLD);
-      setBlocked(true);
-      return;
-    }
-    setBlocked(false);
-    onChange(clamped === 0 ? undefined : clamped);
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-center gap-0.5">
-        <input
-          type="text"
-          inputMode="numeric"
-          value={value ?? ""}
-          placeholder="0"
-          onFocus={(e) => e.target.select()}
-          onChange={(e) => {
-            const raw = e.target.value.trim();
-            if (raw === "") {
-              onChange(undefined);
-              setBlocked(false);
-              return;
-            }
-            const val = parseNumeric(raw);
-            if (!Number.isNaN(val)) apply(val);
-          }}
-          className="w-full min-w-0 rounded border border-red-300 px-1 py-0 h-6 text-center text-xs font-bold text-red-700 focus:border-red-600 focus:outline-none focus:ring-1 focus:ring-red-600"
-        />
-        <span className="shrink-0 text-xs font-bold text-red-600">%</span>
-      </div>
-      <div className="mt-0.5 grid grid-cols-2 gap-0.5">
-        <button
-          type="button"
-          onClick={() => apply((value ?? 0) - 1)}
-          className="flex h-5 items-center justify-center rounded border border-red-300 text-xs font-bold leading-none text-red-700 hover:bg-red-50"
-        >
-          -
-        </button>
-        <button
-          type="button"
-          onClick={() => apply((value ?? 0) + 1)}
-          className="flex h-5 items-center justify-center rounded border border-red-300 text-xs font-bold leading-none text-red-700 hover:bg-red-50"
-        >
-          +
-        </button>
-      </div>
-      {blocked && (
-        <p className="mt-0.5 text-[9px] leading-tight text-red-500">
-          Over 25% needs an admin logged in on this terminal.
-        </p>
-      )}
-    </div>
-  );
-}
-
 export default function PosClient({
   branchId,
   pharmacyId,
@@ -346,6 +273,28 @@ export default function PosClient({
   // View-only: narrows the search results to one category. Remembered per device so a till on
   // the supermarket side keeps showing supermarket items.
   const [categoryFilter, setCategoryFilter] = useState<PosCategoryFilter>("all");
+  // Discount entry mode (₦ off each unit, or %), remembered per device. Default ₦.
+  const [discountMode, setDiscountMode] = useState<DiscountMode>("amount");
+  useEffect(() => {
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(DISCOUNT_MODE_KEY);
+    } catch {
+      // Blocked storage: stay on the ₦ default.
+    }
+    if (saved === "amount" || saved === "percent") {
+      const value: DiscountMode = saved;
+      queueMicrotask(() => setDiscountMode(value));
+    }
+  }, []);
+  function chooseDiscountMode(next: DiscountMode) {
+    setDiscountMode(next);
+    try {
+      localStorage.setItem(DISCOUNT_MODE_KEY, next);
+    } catch {
+      // Not remembering is fine.
+    }
+  }
   useEffect(() => {
     let saved: string | null = null;
     try {
@@ -2524,6 +2473,9 @@ export default function PosClient({
                     value={line.discountPercent}
                     onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
                     isAdminSession={isAdminSession}
+                    basePrice={line.unitPrice}
+                    mode={discountMode}
+                    onModeChange={chooseDiscountMode}
                   />
                </div>
             </div>
@@ -2672,6 +2624,9 @@ export default function PosClient({
                   value={line.discountPercent}
                   onChange={(percent) => updateLine(line.key, { discountPercent: percent })}
                   isAdminSession={isAdminSession}
+                  basePrice={priceForForm}
+                  mode={discountMode}
+                  onModeChange={chooseDiscountMode}
                 />
              </div>
           </div>
@@ -3070,7 +3025,7 @@ export default function PosClient({
                               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">Custom</span>
                               {!!line.discountPercent && (
                                 <span className="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
-                                  −{line.discountPercent}% OFF
+                                  −₦{formatAmount(amountOffFromPercent(line.unitPrice, line.discountPercent))} OFF
                                 </span>
                               )}
                             </div>
@@ -3104,7 +3059,7 @@ export default function PosClient({
                             {formatProductLabel(line.product)}
                             {!!line.discountPercent && (
                               <span className="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
-                                −{line.discountPercent}% OFF
+                                −₦{formatAmount(amountOffFromPercent(priceForForm, line.discountPercent))} OFF
                               </span>
                             )}
                           </div>

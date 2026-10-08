@@ -9,6 +9,7 @@ import {
   getReceiptLongMode,
   onReceiptLongModeChange,
 } from "@/lib/receiptPaper";
+import { describeDiscount } from "@/lib/discount";
 
 export interface ReceiptSale {
   _id: string;
@@ -226,7 +227,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
                       {itemName}
                       {!!item.discountPercent && (
                         <div style={{ fontSize: "9px", fontWeight: "bold" }}>
-                          ** DISCOUNT -{item.discountPercent}%
+                          ** DISCOUNT -{describeDiscount(item.originalUnitPrice, item.unitPrice, item.discountPercent, "N")}
                           {item.originalUnitPrice != null && ` (was N${item.originalUnitPrice.toLocaleString()})`} **
                         </div>
                       )}
@@ -274,7 +275,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
               </div>
               {!!item.discountPercent && (
                 <div style={{ fontSize: "11px", fontWeight: "bold", color: "#000" }}>
-                  ** DISCOUNT APPLIED: -{item.discountPercent}% **
+                  ** DISCOUNT APPLIED: -{describeDiscount(item.originalUnitPrice, item.unitPrice, item.discountPercent, "N")} **
                 </div>
               )}
             </div>
