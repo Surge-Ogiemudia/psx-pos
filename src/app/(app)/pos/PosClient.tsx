@@ -2094,13 +2094,17 @@ export default function PosClient({
           </div>
         </div>
         <div className="flex flex-col rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+          {/* The EMR patient search is for retail dispensing — a wholesale buyer is a business,
+              not a patient, so this is skipped in wholesale mode the same way the
+              Complaint/Ailment card below is. */}
+          {effectiveSaleMode !== "wholesale" && (
           <div className="mb-4 pb-4 shrink-0 border-b border-zinc-100">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-500">Customer (EMR Patient)</label>
-            <div 
-              className="overflow-hidden transition-all duration-200" 
+            <div
+              className="overflow-hidden transition-all duration-200"
               style={{ height: `${Math.max(42, iframeHeight)}px` }}
             >
-              <iframe 
+              <iframe
                 ref={iframeRef}
                 src={`https://emr.psx.ng/embed/dispensary?pharmacyId=${pharmacyId}`}
                 className="w-full h-full border-0"
@@ -2108,6 +2112,7 @@ export default function PosClient({
               />
             </div>
           </div>
+          )}
 
           {loadingPrescription ? (
             <div className="flex flex-col items-center justify-center p-6 border border-zinc-100 rounded-lg bg-zinc-50/50">
@@ -2466,12 +2471,16 @@ export default function PosClient({
                 </div>
               )}
 
-              {/* Optional EMR Clinical Condition/Complaint — not relevant for a wholesale
-                  buyer, so this whole card (and the customer-linking fields inside it)
-                  is skipped in wholesale mode rather than left showing an empty patient
-                  workflow for what's actually a business sale. */}
-              {effectiveSaleMode !== "wholesale" && (
+              {/* Complaint/Ailment is EMR-specific — skipped for a wholesale buyer, who's a
+                  business, not a patient. The customer name/phone fields just below, though,
+                  are relevant either way, so they stay outside this guard (this card used to
+                  wrap both together, which meant wholesale mode lost its customer fields too,
+                  while the retail-only EMR patient search above stayed showing — fixed both). */}
               <div className="mt-4 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
+                {effectiveSaleMode === "wholesale" ? (
+                  <span className="text-xs font-bold uppercase tracking-wider text-teal-900">Customer (optional)</span>
+                ) : (
+                <>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-xs font-bold uppercase tracking-wider text-teal-900 flex items-center gap-1.5">
                     <span>🩺</span> Complaint / Ailment
@@ -2503,6 +2512,8 @@ export default function PosClient({
                     </button>
                   ))}
                 </div>
+                </>
+                )}
                 {currentCustomer.name ? (
                   <div className="mt-2 pt-2 border-t border-teal-200/50 flex items-center justify-between text-xs">
                     <span className="text-teal-900 font-medium truncate">
@@ -2535,7 +2546,6 @@ export default function PosClient({
                   </div>
                 )}
               </div>
-              )}
 
               {cartProblems.length > 0 && (
                 <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
