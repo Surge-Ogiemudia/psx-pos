@@ -30,6 +30,15 @@ export interface ReceiptSale {
   timestamp: string;
 }
 
+// Sale lines store their name as "item · size · brand" (see formatProductLabel). The A4 table
+// prints the brand in its own narrow column so the item column stays short enough for one line.
+// Anything that doesn't follow that shape (e.g. a custom item) is printed whole.
+function splitProductName(productName: string): { item: string; brand: string } {
+  const parts = productName.split(" · ");
+  if (parts.length >= 3) return { item: parts.slice(0, -1).join(" · "), brand: parts[parts.length - 1] };
+  return { item: productName, brand: "" };
+}
+
 interface ReceiptTemplateProps {
   sale: ReceiptSale;
   pharmacyName: string;
@@ -49,6 +58,31 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
       setLongMode(getReceiptLongMode());
       return onReceiptLongModeChange(() => setLongMode(getReceiptLongMode()));
     }, []);
+
+    // The browser prints the page title ("PharmaStackX POS") in the top margin of A4 prints,
+    // where there is a real margin for it. Blank it just for the print, then put it back.
+    useEffect(() => {
+      if (paper !== "A4") return;
+      let original: string | null = null;
+      const restore = () => {
+        if (original !== null) {
+          document.title = original;
+          original = null;
+        }
+      };
+      const blank = () => {
+        // Guard: if the event ever fires twice before afterprint, don't overwrite the real title.
+        if (original === null) original = document.title;
+        document.title = "\u00A0";
+      };
+      window.addEventListener("beforeprint", blank);
+      window.addEventListener("afterprint", restore);
+      return () => {
+        window.removeEventListener("beforeprint", blank);
+        window.removeEventListener("afterprint", restore);
+        restore();
+      };
+    }, [paper]);
 
     // Long mode only applies to the thermal (58/80mm) printers it was built for — A4 is a
     // fixed-length sheet a long receipt can't be stretched to fit onto in one page anyway, so
@@ -118,7 +152,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         // force it onto one sheet: a long receipt runs to page 2/3, same as any other document.
         // Explicit mm dimensions, not the "A4" keyword — keyword page sizes are less reliably
         // supported than plain numbers, which is what every other working rule here uses.
-        <style>{`@media print { @page { size: 210mm 297mm !important; margin: 15mm !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } .print-receipt-root .print-receipt * { page-break-inside: auto !important; } .print-receipt-root .print-receipt .receipt-item-row { page-break-inside: avoid !important; } }`}</style>
+        <style>{`@media print { @page { size: 210mm 297mm !important; margin: 15mm !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } .print-receipt-root .print-receipt * { page-break-inside: auto !important; } .print-receipt-root .print-receipt .receipt-item-row { page-break-inside: avoid !important; } .print-receipt-root .print-receipt thead { page-break-inside: avoid !important; break-inside: avoid !important; } }`}</style>
       )}
       {dynamicPageCss && <style>{`@media print { ${dynamicPageCss} }`}</style>}
       <div
@@ -157,6 +191,72 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
 
         <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "8px 0" }} />
 
+        {paper === "A4" ? (
+          // A4: an invoice-style grid, one line per item where it fits. The column header
+          // repeats on every page of a long sale. Thermal layouts below are untouched.
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              tableLayout: "fixed",
+              fontSize: "11px",
+              lineHeight: "1.2",
+              color: "#000",
+              marginBottom: "8px",
+            }}
+          >
+            <colgroup>
+              <col style={{ width: "5%" }} />
+              <col style={{ width: "40%" }} />
+              <col style={{ width: "24%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "13%" }} />
+            </colgroup>
+            <thead style={{ display: "table-header-group" }}>
+              <tr>
+                {["S/N", "Item", "Brand", "Qty", "Rate (N)", "Amount (N)"].map((h, i) => (
+                  <th
+                    key={h}
+                    style={{
+                      border: "1px solid #000",
+                      padding: "2px 4px",
+                      textAlign: i >= 3 ? "right" : "left",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sale.items.map((item, idx) => {
+                const { item: itemName, brand } = splitProductName(item.productName);
+                const cell = { border: "1px solid #000", padding: "1px 4px", verticalAlign: "top" as const };
+                return (
+                  <tr key={idx} className="receipt-item-row">
+                    <td style={{ ...cell, textAlign: "left" }}>{idx + 1}</td>
+                    <td style={{ ...cell, fontWeight: "bold", wordBreak: "break-word" }}>
+                      {itemName}
+                      {!!item.discountPercent && (
+                        <div style={{ fontSize: "9px", fontWeight: "bold" }}>
+                          ** DISCOUNT -{item.discountPercent}%
+                          {item.originalUnitPrice != null && ` (was N${item.originalUnitPrice.toLocaleString()})`} **
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ ...cell, fontSize: "9px", wordBreak: "break-word" }}>{brand}</td>
+                    <td style={{ ...cell, textAlign: "right" }}>{item.quantity}</td>
+                    <td style={{ ...cell, textAlign: "right" }}>{item.unitPrice?.toLocaleString() || "0"}</td>
+                    <td style={{ ...cell, textAlign: "right", fontWeight: "bold" }}>{item.lineTotal?.toLocaleString() || "0"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <>
         {/* Items Header */}
         <div style={{ display: "flex", fontWeight: "bold", fontSize: "12px", color: "#000", marginBottom: "4px" }}>
           <div style={{ flex: 1, textAlign: "left" }}>Item</div>
@@ -195,6 +295,8 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
             </div>
           ))}
         </div>
+          </>
+        )}
 
         <hr style={{ borderTop: "2px dashed #000", borderBottom: "none", margin: "8px 0" }} />
 
