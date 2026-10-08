@@ -385,13 +385,13 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
         {paper === "A4" ? (
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <thead style={{ display: "table-header-group" }}>
-              <tr><td style={{ height: "3mm", padding: 0, border: 0 }} /></tr>
+              <tr><td style={{ height: "6mm", padding: 0, border: 0 }} /></tr>
             </thead>
             <tbody>
               <tr><td style={{ padding: "0 15mm", border: 0, verticalAlign: "top" }}>{receiptBody}</td></tr>
             </tbody>
             <tfoot style={{ display: "table-footer-group" }}>
-              <tr><td style={{ height: "4mm", padding: 0, border: 0 }} /></tr>
+              <tr><td style={{ height: "6mm", padding: 0, border: 0 }} /></tr>
             </tfoot>
           </table>
         ) : (
