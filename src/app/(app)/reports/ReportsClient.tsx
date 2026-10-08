@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState, useRef } from "react";
 import type { ActivityLogJSON, PaymentMethod, RefundJSON, SaleJSON } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
+import { describeDiscount } from "@/lib/discount";
 import ReceiptTemplate, { ReceiptSale } from "../pos/ReceiptTemplate";
 import ReceiptPrintOptions from "../pos/ReceiptPrintOptions";
 import { setPosResume } from "@/lib/posResume";
@@ -531,7 +532,7 @@ export default function ReportsClient({
                                     {i.productName}
                                     {!!i.discountPercent && (
                                       <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
-                                        −{i.discountPercent}% DISCOUNT
+                                        −{describeDiscount(i.originalUnitPrice, i.unitPrice, i.discountPercent, "₦")} DISCOUNT
                                       </span>
                                     )}
                                   </span>
