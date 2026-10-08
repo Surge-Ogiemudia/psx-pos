@@ -123,65 +123,14 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
     // body child with display:none. (Merely hiding the page with visibility left its full height
     // in the print job and produced many blank pages.)
     if (typeof document === "undefined") return null;
-    return createPortal(
-      <div
-        className="print-receipt-root"
-        // In long mode the receipt needs to be genuinely laid out (not display:none) so its
-        // real height can be measured above — kept off-screen here instead, only for devices
-        // that opted into long mode; every other device keeps the plain display:none default
-        // from globals.css untouched.
-        style={
-          isLongMode
-            ? // width is the fix that matters here: without it this fixed-position box
-              // shrinks-to-fit to something much wider than the real receipt, so text barely
-              // wraps during measurement — the real (narrow) print then wraps onto far more
-              // lines and comes out taller than what got measured, splitting again.
-              { position: "fixed", top: 0, left: "-100000px", display: "block", width: `${paper}mm` }
-            : undefined
-        }
-      >
-      {paper === "80" && (
-        // The width here is also set inline below (for on/off-screen measurement in long
-        // mode), but globals.css's print rule sets max-width:55mm with !important, which
-        // beats a plain inline style — this !important is what actually wins at print time.
-        <style>{`@media print { @page { size: 80mm auto; margin: 0 !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 2mm !important; } }`}</style>
-      )}
-      {paper === "A4" && (
-        // A fallback for a till whose thermal printer won't cooperate — same receipt, printed
-        // on a normal office printer instead. A real page with real margins, and no attempt to
-        // force it onto one sheet: a long receipt runs to page 2/3, same as any other document.
-        // Explicit mm dimensions, not the "A4" keyword — keyword page sizes are less reliably
-        // supported than plain numbers, which is what every other working rule here uses.
-        <style>{`@media print { @page { size: 210mm 297mm !important; margin: 15mm !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } .print-receipt-root .print-receipt * { page-break-inside: auto !important; } .print-receipt-root .print-receipt .receipt-item-row { page-break-inside: avoid !important; } .print-receipt-root .print-receipt thead { page-break-inside: avoid !important; break-inside: avoid !important; } }`}</style>
-      )}
-      {dynamicPageCss && <style>{`@media print { ${dynamicPageCss} }`}</style>}
-      <div
-        ref={(node) => {
-          innerRef.current = node;
-          if (typeof ref === "function") ref(node);
-          else if (ref) ref.current = node;
-        }}
-        className="print-receipt"
-        style={{
-          width: "100%",
-          maxWidth: paper === "A4" || paper === "80" ? "none" : "55mm", // thermal paper width, or fill whatever the page gives it (80mm/A4)
-          boxSizing: "border-box",
-          padding: paper === "80" ? "0 2mm" : "0",
-          margin: "0 auto",
-          marginTop: paper === "A4" ? "0" : "-5mm", // Slight negative margin to combat stubborn thermal printer drivers — not needed/wanted on A4
-          fontFamily: "Arial, Helvetica, sans-serif",
-          fontSize: "12px",
-          color: "#000",
-          backgroundColor: "#fff",
-          lineHeight: "1.3",
-        }}
-      >
+    const receiptBody = (
+      <>
         {/* Header */}
         {paper === "A4" ? (
           // A4: the pharmacy name stands alone on top; everything else sits in a small grid,
           // three to a row (two rows at most) instead of one line each.
           <div style={{ marginBottom: "6px" }}>
-            <h2 style={{ margin: "0 0 4px", fontSize: "16px", fontWeight: "bold", color: "#000", textAlign: "center" }}>{pharmacyName}</h2>
+            <h2 style={{ margin: "0 0 4px", fontSize: "18px", fontWeight: "bold", color: "#000", textAlign: "center", textTransform: "uppercase" }}>{pharmacyName.toUpperCase()}</h2>
             <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: "11px", lineHeight: "1.25", color: "#000" }}>
               <tbody>
                 {(() => {
@@ -373,6 +322,81 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
           <p style={{ margin: "0" }}>Thank you for your patronage!</p>
           <p style={{ margin: "3px 0 0" }}>Please call again.</p>
         </div>
+      </>
+    );
+
+    return createPortal(
+      <div
+        className="print-receipt-root"
+        // In long mode the receipt needs to be genuinely laid out (not display:none) so its
+        // real height can be measured above — kept off-screen here instead, only for devices
+        // that opted into long mode; every other device keeps the plain display:none default
+        // from globals.css untouched.
+        style={
+          isLongMode
+            ? // width is the fix that matters here: without it this fixed-position box
+              // shrinks-to-fit to something much wider than the real receipt, so text barely
+              // wraps during measurement — the real (narrow) print then wraps onto far more
+              // lines and comes out taller than what got measured, splitting again.
+              { position: "fixed", top: 0, left: "-100000px", display: "block", width: `${paper}mm` }
+            : undefined
+        }
+      >
+      {paper === "80" && (
+        // The width here is also set inline below (for on/off-screen measurement in long
+        // mode), but globals.css's print rule sets max-width:55mm with !important, which
+        // beats a plain inline style — this !important is what actually wins at print time.
+        <style>{`@media print { @page { size: 80mm auto; margin: 0 !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 2mm !important; } }`}</style>
+      )}
+      {paper === "A4" && (
+        // A fallback for a till whose thermal printer won't cooperate — same receipt, printed
+        // on a normal office printer instead, with no attempt to force it onto one sheet: a long
+        // receipt runs to page 2/3, same as any other document.
+        // The page margin is 0 on purpose: browsers print their own header/footer (date, page
+        // title, URL, page numbers) inside the page margin, and drop it when the margin is 0.
+        // The breathing room is supplied by the spacer rows of the frame table below instead,
+        // which repeat on every page.
+        // Explicit mm dimensions, not the "A4" keyword — keyword page sizes are less reliably
+        // supported than plain numbers, which is what every other working rule here uses.
+        <style>{`@media print { @page { size: 210mm 297mm !important; margin: 0 !important; } .print-receipt-root .print-receipt { width: 100% !important; max-width: none !important; box-sizing: border-box !important; padding: 0 !important; margin-top: 0 !important; } .print-receipt-root .print-receipt * { page-break-inside: auto !important; } .print-receipt-root .print-receipt .receipt-item-row { page-break-inside: avoid !important; } .print-receipt-root .print-receipt thead { page-break-inside: avoid !important; break-inside: avoid !important; } }`}</style>
+      )}
+      {dynamicPageCss && <style>{`@media print { ${dynamicPageCss} }`}</style>}
+      <div
+        ref={(node) => {
+          innerRef.current = node;
+          if (typeof ref === "function") ref(node);
+          else if (ref) ref.current = node;
+        }}
+        className="print-receipt"
+        style={{
+          width: "100%",
+          maxWidth: paper === "A4" || paper === "80" ? "none" : "55mm", // thermal paper width, or fill whatever the page gives it (80mm/A4)
+          boxSizing: "border-box",
+          padding: paper === "80" ? "0 2mm" : "0",
+          margin: "0 auto",
+          marginTop: paper === "A4" ? "0" : "-5mm", // Slight negative margin to combat stubborn thermal printer drivers — not needed/wanted on A4
+          fontFamily: "Arial, Helvetica, sans-serif",
+          fontSize: "12px",
+          color: "#000",
+          backgroundColor: "#fff",
+          lineHeight: "1.3",
+        }}
+      >
+        {paper === "A4" ? (
+          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+            <thead style={{ display: "table-header-group" }}>
+              <tr><td style={{ height: "7mm", padding: 0, border: 0 }} /></tr>
+            </thead>
+            <tbody>
+              <tr><td style={{ padding: "0 15mm", border: 0, verticalAlign: "top" }}>{receiptBody}</td></tr>
+            </tbody>
+            <tfoot style={{ display: "table-footer-group" }}>
+              <tr><td style={{ height: "7mm", padding: 0, border: 0 }} /></tr>
+            </tfoot>
+          </table>
+        ) : (
+          receiptBody
+        )}
       </div>
       </div>,
       document.body
