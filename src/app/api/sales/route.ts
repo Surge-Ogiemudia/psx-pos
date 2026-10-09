@@ -320,7 +320,10 @@ export async function POST(request: NextRequest) {
           );
 
           if (!product) {
-            throw new Error(`Insufficient stock or product not found for item ${item.productId}`);
+            throw new Error(
+              `Not enough stock for ${formatProductLabel(existingProduct)} — ${existingProduct.quantityInStock ?? 0} in stock, ` +
+                `${baseQuantity} requested. Lower the quantity or remove this item from the cart.`
+            );
           }
 
           // Draw down real batches FIFO (soonest expiry first) on a best-effort basis — the
