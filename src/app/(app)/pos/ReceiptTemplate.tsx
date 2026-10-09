@@ -10,6 +10,7 @@ import {
   onReceiptLongModeChange,
 } from "@/lib/receiptPaper";
 import { describeDiscount } from "@/lib/discount";
+import { sortItemsAlphabetically } from "@/lib/receiptItems";
 
 export interface ReceiptSale {
   _id: string;
@@ -124,6 +125,9 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
     // body child with display:none. (Merely hiding the page with visibility left its full height
     // in the print job and produced many blank pages.)
     if (typeof document === "undefined") return null;
+    // Items print A to Z (a sorted copy; the sale itself is untouched).
+    const items = sortItemsAlphabetically(sale.items);
+
     const receiptBody = (
       <>
         {/* Header */}
@@ -217,7 +221,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
               </tr>
             </thead>
             <tbody>
-              {sale.items.map((item, idx) => {
+              {items.map((item, idx) => {
                 const { item: itemName, brand } = splitProductName(item.productName);
                 const cell = { border: "1px solid #000", padding: "1px 4px", verticalAlign: "top" as const };
                 return (
@@ -254,7 +258,7 @@ const ReceiptTemplate = forwardRef<HTMLDivElement, ReceiptTemplateProps>(
 
         {/* Items List */}
         <div style={{ marginBottom: "8px" }}>
-          {sale.items.map((item, idx) => (
+          {items.map((item, idx) => (
             <div key={idx} className="receipt-item-row" style={{ marginBottom: "6px", display: "flex", flexDirection: "column" }}>
               <div style={{ display: "flex", width: "100%", color: "#000" }}>
                 <div style={{ flex: 1, textAlign: "left", fontWeight: "bold", paddingRight: "4px", wordBreak: "break-word" }}>
