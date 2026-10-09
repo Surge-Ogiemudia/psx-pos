@@ -1,6 +1,9 @@
 import { sortItemsAlphabetically } from "@/lib/receiptItems";
 
-const line = (productName: string, extra: Record<string, unknown> = {}) => ({ productName, ...extra });
+const line = (productName: string, extra: Record<string, unknown> = {}): { productName: string } & Record<string, unknown> => ({
+  productName,
+  ...extra,
+});
 
 describe("sortItemsAlphabetically (receipt item order)", () => {
   it("sorts A to Z, ignoring case", () => {
@@ -35,7 +38,7 @@ describe("sortItemsAlphabetically (receipt item order)", () => {
 
   it("leaves identical names in the order they were rung up", () => {
     const sorted = sortItemsAlphabetically([line("Same", { n: 1 }), line("Same", { n: 2 }), line("Same", { n: 3 })]);
-    expect(sorted.map((l) => (l as { n: number }).n)).toEqual([1, 2, 3]);
+    expect(sorted.map((l) => l.n)).toEqual([1, 2, 3]);
   });
 
   it("returns a sorted COPY: the original list is not reordered", () => {
