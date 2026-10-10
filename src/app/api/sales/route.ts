@@ -12,6 +12,7 @@ import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
 import { logActivity } from "@/lib/activityLog";
 import { computeBaseUnitsPerLevel, compareBatchesFifo, planBestEffortDraw } from "@/lib/unitHierarchy";
+import { inBranch } from "@/lib/buyerScope";
 import { formatProductLabel, type ProductCategory } from "@/lib/types";
 import { parseNumeric } from "@/lib/numberInput";
 import { syncProductsToPsx, getPharmacySlug } from "@/lib/psxSync";
@@ -204,7 +205,7 @@ export async function POST(request: NextRequest) {
     if (body.buyerId) {
       const known =
         mongoose.isValidObjectId(body.buyerId) &&
-        (await Buyer.exists({ _id: body.buyerId, pharmacyId: session.user.pharmacyId }));
+        (await Buyer.exists({ _id: body.buyerId, pharmacyId: session.user.pharmacyId, ...inBranch(scope.branchId) }));
       if (!known) return NextResponse.json({ error: "Unknown customer" }, { status: 400 });
       buyerId = String(body.buyerId);
     }
@@ -499,6 +500,12 @@ export async function POST(request: NextRequest) {
           refId: saleDoc!._id,
         });
       });
+
+      // A customer from before branches gets pinned to the branch that sold to them. Best effort:
+      // if that branch already has a customer by the same name this fails, and they just stay shared.
+      if (saleDoc && buyerId) {
+        await Buyer.updateOne({ _id: buyerId, branchId: null }, { $set: { branchId: scope.branchId } }).catch(() => {});
+      }
 
       // Fire-and-forget: sync updated quantities to PSX for medicine items
       if (saleDoc) {

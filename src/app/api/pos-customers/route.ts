@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { dbConnect } from "@/lib/mongodb";
 import Buyer from "@/models/Buyer";
-import { requireApiSession } from "@/lib/session";
+import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
+import { inBranch } from "@/lib/buyerScope";
 
 // Wholesale customers for the POS. Same Buyer records the store side uses, but open to any
 // signed-in POS user (/api/buyers is store-staff only). The search also looks in the EMR's
@@ -25,6 +26,7 @@ function normalizePhone(raw: string): string {
 function toJson(b: { _id: unknown; name: string; phoneNumber?: string | null; buyerType: string }) {
   return { _id: String(b._id), name: b.name, phoneNumber: b.phoneNumber || "", buyerType: b.buyerType, source: "buyer" as const };
 }
+
 
 type EmrPatient = { id: string; name: string; phone: string };
 
@@ -75,19 +77,22 @@ export async function GET(request: NextRequest) {
     const search = request.nextUrl.searchParams.get("search")?.trim() ?? "";
     if (search.length < 2) return NextResponse.json({ customers: [] });
 
-    const pharmacyId = session.user.pharmacyId;
+    const { pharmacyId, branchId } = getBranchScope(session, request.nextUrl.searchParams.get("branchId"));
     const phoneDigits = normalizePhone(search);
 
     const or: Record<string, unknown>[] = [{ nameKey: { $regex: escapeRegex(search.toLowerCase()) } }];
     if (phoneDigits.length >= 3) or.push({ phoneNumber: { $regex: escapeRegex(phoneDigits) } });
 
-    const buyers = await Buyer.find({ pharmacyId, $or: or }).sort({ name: 1 }).limit(8).lean();
+    const buyers = await Buyer.find({ pharmacyId, $and: [inBranch(branchId), { $or: or }] })
+      .sort({ name: 1 })
+      .limit(8)
+      .lean();
     const patients = await searchEmrPatients(pharmacyId, search, phoneDigits);
 
     // A patient who is already a saved customer (same phone) is shown once, as the customer.
     const patientPhones = patients.map((p) => p.phone).filter(Boolean);
     const savedByPhone = patientPhones.length
-      ? await Buyer.find({ pharmacyId, phoneNumber: { $in: patientPhones } }).lean()
+      ? await Buyer.find({ pharmacyId, ...inBranch(branchId), phoneNumber: { $in: patientPhones } }).lean()
       : [];
     const hiddenPhones = new Set([...buyers, ...savedByPhone].map((b) => b.phoneNumber).filter(Boolean));
     const buyerNames = new Set(buyers.map((b) => b.nameKey));
@@ -115,7 +120,7 @@ export async function POST(request: NextRequest) {
     await dbConnect();
 
     const body = await request.json();
-    const pharmacyId = session.user.pharmacyId;
+    const { pharmacyId, branchId } = getBranchScope(session, typeof body.branchId === "string" ? body.branchId : null);
 
     // Picking an EMR patient: save them as a customer (or reuse the one already saved).
     if (typeof body.emrPatientId === "string" && body.emrPatientId) {
@@ -123,16 +128,17 @@ export async function POST(request: NextRequest) {
       if (!patient) return NextResponse.json({ error: "That EMR record could not be found" }, { status: 404 });
 
       if (patient.phone) {
-        const byPhone = await Buyer.findOne({ pharmacyId, phoneNumber: patient.phone }).lean();
+        const byPhone = await Buyer.findOne({ pharmacyId, ...inBranch(branchId), phoneNumber: patient.phone }).lean();
         if (byPhone) return NextResponse.json({ customer: toJson(byPhone) });
       }
       const nameKey = patient.name.toLowerCase();
-      const byName = await Buyer.findOne({ pharmacyId, buyerType: "wholesaler", nameKey }).lean();
+      const byName = await Buyer.findOne({ pharmacyId, ...inBranch(branchId), buyerType: "wholesaler", nameKey }).lean();
       if (byName) return NextResponse.json({ customer: toJson(byName) });
 
       try {
         const created = await Buyer.create({
           pharmacyId,
+          branchId,
           name: patient.name,
           nameKey,
           buyerType: "wholesaler",
@@ -141,7 +147,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ customer: toJson(created) }, { status: 201 });
       } catch (err) {
         if ((err as { code?: number }).code === 11000) {
-          const existing = await Buyer.findOne({ pharmacyId, buyerType: "wholesaler", nameKey }).lean();
+          const existing = await Buyer.findOne({ pharmacyId, branchId, buyerType: "wholesaler", nameKey }).lean();
           if (existing) return NextResponse.json({ customer: toJson(existing) });
         }
         throw err;
@@ -158,7 +164,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Same phone already on file → that's the same person; hand them back instead of duplicating.
-    const samePhone = await Buyer.findOne({ pharmacyId, phoneNumber }).lean();
+    const samePhone = await Buyer.findOne({ pharmacyId, ...inBranch(branchId), phoneNumber }).lean();
     if (samePhone) {
       return NextResponse.json(
         { error: `This phone number already belongs to ${samePhone.name}`, existing: toJson(samePhone) },
@@ -167,7 +173,7 @@ export async function POST(request: NextRequest) {
     }
 
     const nameKey = name.toLowerCase();
-    const sameName = await Buyer.findOne({ pharmacyId, buyerType, nameKey }).lean();
+    const sameName = await Buyer.findOne({ pharmacyId, ...inBranch(branchId), buyerType, nameKey }).lean();
     if (sameName) {
       return NextResponse.json(
         {
@@ -179,12 +185,12 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const created = await Buyer.create({ pharmacyId, name, nameKey, buyerType, phoneNumber });
+      const created = await Buyer.create({ pharmacyId, branchId, name, nameKey, buyerType, phoneNumber });
       return NextResponse.json({ customer: toJson(created) }, { status: 201 });
     } catch (err) {
       // Lost a race with another till adding the same name — return theirs.
       if ((err as { code?: number }).code === 11000) {
-        const existing = await Buyer.findOne({ pharmacyId, buyerType, nameKey }).lean();
+        const existing = await Buyer.findOne({ pharmacyId, branchId, buyerType, nameKey }).lean();
         if (existing) {
           return NextResponse.json({ error: `${existing.name} already exists`, existing: toJson(existing) }, { status: 409 });
         }
