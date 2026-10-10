@@ -4,7 +4,7 @@ import { dbConnect } from "@/lib/mongodb";
 import Buyer from "@/models/Buyer";
 import { requireApiSession, getBranchScope } from "@/lib/session";
 import { handleApiError } from "@/lib/apiError";
-import { inBranch } from "@/lib/buyerScope";
+import { inBranch, createBuyer } from "@/lib/buyerScope";
 
 // Wholesale customers for the POS. Same Buyer records the store side uses, but open to any
 // signed-in POS user (/api/buyers is store-staff only). The search also looks in the EMR's
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
       if (byName) return NextResponse.json({ customer: toJson(byName) });
 
       try {
-        const created = await Buyer.create({
+        const created = await createBuyer({
           pharmacyId,
           branchId,
           name: patient.name,
@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const created = await Buyer.create({ pharmacyId, branchId, name, nameKey, buyerType, phoneNumber });
+      const created = await createBuyer({ pharmacyId, branchId, name, nameKey, buyerType, phoneNumber });
       return NextResponse.json({ customer: toJson(created) }, { status: 201 });
     } catch (err) {
       // Lost a race with another till adding the same name — return theirs.
