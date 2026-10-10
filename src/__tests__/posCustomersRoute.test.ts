@@ -15,12 +15,14 @@ jest.mock("@/lib/session", () => ({
 const buyerFind = jest.fn();
 const buyerFindOne = jest.fn();
 const buyerCreate = jest.fn();
+const dropIndex = jest.fn();
 jest.mock("@/models/Buyer", () => ({
   __esModule: true,
   default: {
     find: (...a: unknown[]) => buyerFind(...a),
     findOne: (...a: unknown[]) => buyerFindOne(...a),
     create: (...a: unknown[]) => buyerCreate(...a),
+    collection: { dropIndex: (...a: unknown[]) => dropIndex(...a) },
   },
 }));
 
@@ -194,6 +196,20 @@ describe("POST /api/pos-customers", () => {
       phoneNumber: "08031234567",
     });
     expect((await res.json()).customer._id).toBe("new1");
+  });
+
+  it("clears the old name-per-pharmacy index and retries when it blocks a name used in another branch", async () => {
+    buyerFindOne.mockReturnValue(leanOf(null));
+    buyerCreate
+      .mockRejectedValueOnce(
+        Object.assign(new Error("E11000 duplicate key error ... index: pharmacyId_1_buyerType_1_nameKey_1 dup key"), { code: 11000 })
+      )
+      .mockResolvedValueOnce({ _id: "new2", name: "Dorcas Minimart", phoneNumber: "08031234567", buyerType: "wholesaler" });
+    dropIndex.mockResolvedValue({});
+    const res = await post({ name: "Dorcas Minimart", phoneNumber: "08031234567" });
+    expect(res.status).toBe(201);
+    expect(dropIndex).toHaveBeenCalledWith("pharmacyId_1_buyerType_1_nameKey_1");
+    expect(buyerCreate).toHaveBeenCalledTimes(2);
   });
 
   it("returns the other till's customer when two tills add the same name at once (unique-index race)", async () => {
