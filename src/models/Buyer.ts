@@ -3,6 +3,10 @@ import { Schema, model, models, type InferSchemaType, type Model } from "mongoos
 const BuyerSchema = new Schema(
   {
     pharmacyId: { type: Schema.Types.ObjectId, ref: "Pharmacy", required: true, index: true },
+    // The branch this customer belongs to. null = a customer from before branches (or a bulk-store
+    // customer): visible from every branch, and pinned to a branch the first time someone there
+    // edits or sells to them.
+    branchId: { type: Schema.Types.ObjectId, ref: "Branch", default: null, index: true },
     name: { type: String, required: true, trim: true },
     nameKey: { type: String, required: true }, // lowercased name, for case-insensitive matching
     buyerType: { type: String, enum: ["distributor", "wholesaler", "retailer"], required: true },
@@ -13,7 +17,7 @@ const BuyerSchema = new Schema(
   { timestamps: true }
 );
 
-BuyerSchema.index({ pharmacyId: 1, buyerType: 1, nameKey: 1 }, { unique: true });
+BuyerSchema.index({ pharmacyId: 1, branchId: 1, buyerType: 1, nameKey: 1 }, { unique: true });
 
 export type BuyerDoc = InferSchemaType<typeof BuyerSchema>;
 

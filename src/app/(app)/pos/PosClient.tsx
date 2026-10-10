@@ -21,6 +21,7 @@ import {
   type PosCategoryFilter,
 } from "@/lib/posCategoryFilter";
 import ReceiptPrintOptions from "./ReceiptPrintOptions";
+import CustomerPanel from "./CustomerPanel";
 import { takePosResume, type ResumeItem } from "@/lib/posResume";
 
 type WholesaleCustomer = {
@@ -401,6 +402,7 @@ export default function PosClient({
   const [customerPhone, setCustomerPhone] = useState("");
   // Wholesale customer picker: type to search saved customers, or add a new one.
   const [buyerId, setBuyerId] = useState<string | null>(null);
+  const [managingCustomer, setManagingCustomer] = useState(false);
   const [custQuery, setCustQuery] = useState("");
   const [custResults, setCustResults] = useState<WholesaleCustomer[]>([]);
   const [custSearchedFor, setCustSearchedFor] = useState("");
@@ -504,7 +506,7 @@ export default function PosClient({
     const timer = setTimeout(async () => {
       setCustSearching(true);
       try {
-        const res = await fetch(`/api/pos-customers?search=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/pos-customers?search=${encodeURIComponent(q)}${branchId ? `&branchId=${encodeURIComponent(branchId)}` : ""}`);
         const data = res.ok ? await res.json() : { customers: [] };
         if (!cancelled) {
           setCustResults(data.customers || []);
@@ -523,9 +525,10 @@ export default function PosClient({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [custQuery, buyerId, isOnline]);
+  }, [custQuery, buyerId, isOnline, branchId]);
 
   function selectWholesaleCustomer(c: WholesaleCustomer) {
+    setManagingCustomer(false);
     setBuyerId(c._id);
     setCustomerName(c.name);
     setCustomerPhone(c.phoneNumber);
@@ -543,7 +546,7 @@ export default function PosClient({
       const res = await fetch("/api/pos-customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emrPatientId: c.emrPatientId }),
+        body: JSON.stringify({ emrPatientId: c.emrPatientId, branchId }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.customer) selectWholesaleCustomer(data.customer);
@@ -554,6 +557,7 @@ export default function PosClient({
   }
 
   function changeWholesaleCustomer() {
+    setManagingCustomer(false);
     setBuyerId(null);
     setCustomerName("");
     setCustomerPhone("");
@@ -576,7 +580,7 @@ export default function PosClient({
       const res = await fetch("/api/pos-customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newCust.name, phoneNumber: newCust.phone }),
+        body: JSON.stringify({ name: newCust.name, phoneNumber: newCust.phone, branchId }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.customer) {
@@ -2283,7 +2287,22 @@ export default function PosClient({
             )}
           </div>
         </div>
-        <div className="flex flex-col rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+        <div
+          className={`relative flex flex-col rounded-lg border border-zinc-200 bg-white p-4 shadow-sm ${
+            managingCustomer && buyerId ? "min-h-[560px]" : ""
+          }`}
+        >
+          {managingCustomer && buyerId && (
+            <CustomerPanel
+              customerId={buyerId}
+              branchId={branchId}
+              onClose={() => setManagingCustomer(false)}
+              onSaved={(c) => {
+                setCustomerName(c.name);
+                setCustomerPhone(c.phoneNumber);
+              }}
+            />
+          )}
           {effectiveSaleMode === "wholesale" ? (
             // Wholesale buyers aren't EMR patients, so no EMR picker here. Instead: type to search
             // our saved customers (name or phone), pick one, or add a new one. A customer is
@@ -2298,13 +2317,22 @@ export default function PosClient({
                     <div className="truncate text-sm font-bold text-amber-950">{customerName}</div>
                     {customerPhone && <div className="text-xs text-amber-800">{customerPhone}</div>}
                   </div>
-                  <button
-                    type="button"
-                    onClick={changeWholesaleCustomer}
-                    className="shrink-0 text-xs font-semibold text-red-600 hover:underline"
-                  >
-                    Change
-                  </button>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setManagingCustomer(true)}
+                      className="text-xs font-semibold text-teal-700 hover:underline"
+                    >
+                      Manage
+                    </button>
+                    <button
+                      type="button"
+                      onClick={changeWholesaleCustomer}
+                      className="text-xs font-semibold text-red-600 hover:underline"
+                    >
+                      Change
+                    </button>
+                  </div>
                 </div>
               ) : !isOnline ? (
                 <>

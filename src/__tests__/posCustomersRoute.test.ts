@@ -4,10 +4,12 @@ import { NextRequest } from "next/server";
 // without a database.
 
 const PHARMACY = "pharmacy-1";
+const IN_BRANCH = { $or: [{ branchId: "branch-1" }, { branchId: null }] };
 
 jest.mock("@/lib/mongodb", () => ({ dbConnect: jest.fn() }));
 jest.mock("@/lib/session", () => ({
-  requireApiSession: jest.fn(async () => ({ user: { pharmacyId: "pharmacy-1" } })),
+  requireApiSession: jest.fn(async () => ({ user: { pharmacyId: "pharmacy-1", branchId: "branch-1", role: "staff" } })),
+  getBranchScope: jest.fn(() => ({ pharmacyId: "pharmacy-1", branchId: "branch-1" })),
 }));
 
 const buyerFind = jest.fn();
@@ -98,13 +100,15 @@ describe("GET /api/pos-customers", () => {
     });
     const filter = buyerFind.mock.calls[0][0];
     expect(filter.pharmacyId).toBe(PHARMACY);
-    expect(filter.$or).toHaveLength(2); // name + phone
+    // this branch's customers + not-yet-pinned ones, matched by name or phone
+    expect(filter.$and[0]).toEqual({ $or: [{ branchId: "branch-1" }, { branchId: null }] });
+    expect(filter.$and[1].$or).toHaveLength(2);
   });
 
   it("escapes regex characters so a typed '(' or '.*' can't break or abuse the query", async () => {
     buyerFind.mockReturnValue(chain([]));
     await get("a.*(b");
-    const nameClause = buyerFind.mock.calls[0][0].$or[0];
+    const nameClause = buyerFind.mock.calls[0][0].$and[1].$or[0];
     expect(nameClause.nameKey.$regex).toBe("a\\.\\*\\(b");
   });
 
@@ -158,7 +162,11 @@ describe("POST /api/pos-customers", () => {
     const body = await res.json();
     expect(body.existing.name).toBe("Chidi Pharmacy");
     // spaces were stripped before comparing
-    expect(buyerFindOne.mock.calls[0][0]).toEqual({ pharmacyId: PHARMACY, phoneNumber: "08031234567" });
+    expect(buyerFindOne.mock.calls[0][0]).toEqual({
+      pharmacyId: PHARMACY,
+      ...IN_BRANCH,
+      phoneNumber: "08031234567",
+    });
     expect(buyerCreate).not.toHaveBeenCalled();
   });
 
@@ -179,6 +187,7 @@ describe("POST /api/pos-customers", () => {
     expect(res.status).toBe(201);
     expect(buyerCreate).toHaveBeenCalledWith({
       pharmacyId: PHARMACY,
+      branchId: "branch-1",
       name: "Mama Chidi",
       nameKey: "mama chidi",
       buyerType: "wholesaler",
@@ -207,6 +216,7 @@ describe("POST /api/pos-customers", () => {
       expect(res.status).toBe(201);
       expect(buyerCreate).toHaveBeenCalledWith({
         pharmacyId: PHARMACY,
+        branchId: "branch-1",
         name: "EL GLORY",
         nameKey: "el glory",
         buyerType: "wholesaler",
